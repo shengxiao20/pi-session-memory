@@ -1,0 +1,19 @@
+{
+  "name": "pi-session-memory",
+  "version": "0.1.0",
+  "description": "Persistent, local-first cross-session memory for Pi, with SQLite-backed recall across Pi, Claude Code, and Codex conversations",
+  "keywords": ["pi-package"],
+  "type": "module",
+  "scripts": {
+    "test": "tsx tests/core.test.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.13"
+  },
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}
