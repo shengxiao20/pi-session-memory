@@ -19,13 +19,13 @@ A local-first Pi extension that saves completed conversations to SQLite and give
 ## Installation
 
 ```bash
-pi install npm:pi-session-memory@0.1.0
+pi install npm:pi-session-memory@0.1.1
 ```
 
 To try the package without installing it permanently:
 
 ```bash
-pi -e npm:pi-session-memory@0.1.0
+pi -e npm:pi-session-memory@0.1.1
 ```
 
 ## Usage
