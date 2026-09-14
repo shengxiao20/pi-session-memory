@@ -5,8 +5,6 @@
 
 A local-first Pi extension that saves completed conversations to SQLite and gives the agent a `recall_memory` tool for retrieving relevant discussions from previous Pi, Claude Code, and Codex sessions.
 
-> **Paper:** An accompanying arXiv paper is planned. [arXiv:XXXX.XXXXX](https://arxiv.org/abs/XXXX.XXXXX) *(placeholder; not published yet)*
-
 ## Features
 
 - Persists completed Pi conversations in `~/.pi/agent/memory.db`.
@@ -19,13 +17,13 @@ A local-first Pi extension that saves completed conversations to SQLite and give
 ## Installation
 
 ```bash
-pi install npm:pi-session-memory@0.1.1
+pi install npm:pi-session-memory@0.1.3
 ```
 
 To try the package without installing it permanently:
 
 ```bash
-pi -e npm:pi-session-memory@0.1.1
+pi -e npm:pi-session-memory@0.1.3
 ```
 
 ## Usage
@@ -86,19 +84,3 @@ Conversation data is stored and queried locally. This package does not add a rem
 ```bash
 npm test
 ```
-
-## Paper placeholder
-
-```bibtex
-@article{pi-session-memory-2026,
-  title        = {Persistent Local-First Cross-Session Memory for Coding Agents},
-  author       = {Anonymous},
-  year         = {2026},
-  eprint       = {XXXX.XXXXX},
-  archivePrefix = {arXiv},
-  primaryClass = {cs.AI},
-  note         = {Placeholder; preprint forthcoming}
-}
-```
-
-Replace the title, authors, arXiv identifier, and citation metadata after the preprint is submitted.

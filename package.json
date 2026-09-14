@@ -1,6 +1,6 @@
 {
   "name": "pi-session-memory",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "Persistent, local-first cross-session memory for Pi, with SQLite-backed recall across Pi, Claude Code, and Codex conversations",
   "keywords": [
     "pi-package"
@@ -10,6 +10,7 @@
     "url": "git+https://github.com/shengxiao20/pi-session-memory.git"
   },
   "homepage": "https://github.com/shengxiao20/pi-session-memory#readme",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/shengxiao20/pi-session-memory/issues"
   },

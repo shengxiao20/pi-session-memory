@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const dbPath = join("/tmp", `pi-session-memory-${process.pid}.db`);
+const dbPath = join(tmpdir(), `pi-session-memory-${process.pid}.db`);
 process.env.MEMORY_DB_PATH = dbPath;
 
 const { getDb, insertTurn, upsertSession } = await import("../src/db.ts");

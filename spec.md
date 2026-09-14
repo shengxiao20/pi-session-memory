@@ -149,5 +149,6 @@ pi-session-memory/
 
 - Zero external dependencies (use `node:sqlite`, `node:fs`, `node:path`, `node:os`)
 - Idempotent writes (INSERT OR IGNORE on turn_id)
-- DB path: `~/.pi/agent/memory.db`
+- Cross-platform paths: storage is `join(homedir(), ".pi", "agent", "memory.db")`; source roots are derived with `join(homedir(), ...)`, never hard-coded POSIX paths.
+- Requires a Pi-supported Node.js runtime that exposes `node:sqlite` (`DatabaseSync`).
 - No fallback / silent failure — let errors surface
