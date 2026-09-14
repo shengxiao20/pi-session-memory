@@ -87,6 +87,16 @@ The database stays on the local machine at:
 
 Conversation data is stored and queried locally. This package does not add a remote storage service or transmit conversation history on its own. Review the source and your model provider's configuration before using it with sensitive conversations.
 
+## Release notes
+
+| Version | Highlights |
+| --- | --- |
+| `0.1.4` | Automatically syncs new or changed Pi, Claude Code, and Codex history when Pi starts; `/memory-backfill` forces a full rescan. |
+| `0.1.3` | Improved package documentation and installation guidance. |
+| `0.1.2` | Added the MIT license. |
+| `0.1.1` | Added repository and package metadata for public distribution. |
+| `0.1.0` | Initial release: local SQLite memory, Pi live persistence, historical import, and `recall_memory` retrieval. |
+
 ## Development
 
 ```bash
