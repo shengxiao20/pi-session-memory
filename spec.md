@@ -14,12 +14,14 @@ pi turn_end event ────────────────────�
                                  Writer (src/writer.ts)
                                  - writes current pi turns
                                              │
-/backfill command ────────┐                 │
-                           ▼                 ▼
-                    Source adapters → SQLite ~/.pi/agent/memory.db
-                    - Pi JSONL        sessions + turns
-                    - Claude JSONL
-                    - Codex JSONL
+session_start ───────────┐                 │
+                          ▼                 ▼
+                 Incremental source sync → SQLite ~/.pi/agent/memory.db
+                 - per-file size + mtime quick check
+                 - SHA-256 only for changed candidates
+                 - Pi / Claude / Codex JSONL adapters
+
+/memory-backfill forces a full rescan.
                                              │
                                              ▼
                                  recall_memory tool
@@ -72,6 +74,15 @@ Steps:
 
 ## Retrieval Path (recall_memory tool)
 
+### source_files
+| column | type | note |
+|---|---|---|
+| jsonl_path | TEXT PK | absolute source file path |
+| source | TEXT | `pi`, `claude`, or `codex` |
+| size | INTEGER | file size at last sync |
+| mtime_ms | REAL | modification time at last sync |
+| sha256 | TEXT | content hash for changed candidates |
+
 ### Tool Invocation Policy
 
 - **Direct recall:** Call `recall_memory` immediately when the user explicitly
@@ -101,8 +112,15 @@ escaping, so it does not lose substring matches through tokenization.
 
 ## Backfill
 
-`/memory-backfill` scans and imports all historical records. All writes use
-`INSERT OR IGNORE`, so it is safe and idempotent to run repeatedly.
+At `session_start`, `syncChangedHistory()` recursively enumerates the three
+source roots. It records one row per source JSONL file in `source_files`:
+`jsonl_path`, source, size, `mtime_ms`, and SHA-256. Unchanged size/mtime files
+are skipped without reading; changed candidates are SHA-256 checked, and only
+new content is parsed and imported.
+
+`/memory-backfill` forces a full reparse of all historical records. All writes
+use `INSERT OR IGNORE`, so both automatic sync and forced backfill are safe and
+idempotent to run repeatedly.
 
 | source | scan root | accepted user/assistant records | excluded records |
 |---|---|---|---|

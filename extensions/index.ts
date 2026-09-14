@@ -2,9 +2,19 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { writeTurn } from "../src/writer.ts";
 import { recallTurns, formatRecallResults } from "../src/retriever.ts";
-import { backfillAll } from "../src/backfill.ts";
+import { backfillAll, syncChangedHistory } from "../src/backfill.ts";
 
 export default function (pi: ExtensionAPI) {
+
+  pi.on("session_start", async (_event, ctx) => {
+    const stats = syncChangedHistory();
+    if (stats.scannedFiles > 0) {
+      ctx.ui.notify(
+        `[session-memory] synced ${stats.turns} turns from ${stats.scannedFiles} changed session files`,
+        "info",
+      );
+    }
+  });
 
   // ── Write: persist each completed agent run to SQLite ────────────────────
   pi.on("agent_settled", async (_event, ctx) => {
@@ -20,7 +30,7 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       const stats = backfillAll();
       ctx.ui.notify(
-        `[session-memory] imported ${stats.turns} turns from ${stats.pi} Pi, ${stats.claude} Claude, ${stats.codex} Codex sessions`,
+        `[session-memory] imported ${stats.turns} turns from ${stats.scannedFiles} files: ${stats.pi} Pi, ${stats.claude} Claude, ${stats.codex} Codex sessions`,
         "info",
       );
     },

@@ -1,7 +1,8 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { insertTurn, upsertSession } from "./db.ts";
+import { getSourceFile, insertTurn, upsertSession, upsertSourceFile } from "./db.ts";
 
 type Source = "pi" | "claude" | "codex";
 type Role = "user" | "assistant";
@@ -29,35 +30,52 @@ export interface BackfillStats {
   claude: number;
   codex: number;
   turns: number;
+  scannedFiles: number;
+  skippedFiles: number;
 }
 
+const SOURCES: Array<{ source: Source; root: string; parse: (path: string) => ImportedSession | undefined }> = [
+  { source: "pi", root: join(homedir(), ".pi", "agent", "sessions"), parse: _parsePi },
+  { source: "claude", root: join(homedir(), ".claude", "projects"), parse: _parseClaude },
+  { source: "codex", root: join(homedir(), ".codex", "sessions"), parse: _parseCodex },
+];
+
+/** Reparse every known source file. Intended for the explicit /memory-backfill command. */
 export function backfillAll(): BackfillStats {
-  const stats: BackfillStats = { pi: 0, claude: 0, codex: 0, turns: 0 };
+  return _syncHistory(true);
+}
 
-  for (const jsonlPath of _jsonlFiles(join(homedir(), ".pi", "agent", "sessions"))) {
-    const session = _parsePi(jsonlPath);
-    if (session) {
-      stats.pi++;
+/** Parse only source files that are new or whose metadata/content changed. */
+export function syncChangedHistory(): BackfillStats {
+  return _syncHistory(false);
+}
+
+function _syncHistory(force: boolean): BackfillStats {
+  const stats: BackfillStats = { pi: 0, claude: 0, codex: 0, turns: 0, scannedFiles: 0, skippedFiles: 0 };
+  for (const definition of SOURCES) {
+    for (const jsonlPath of _jsonlFiles(definition.root)) {
+      const metadata = statSync(jsonlPath);
+      const known = getSourceFile(jsonlPath);
+      if (!force && known?.size === metadata.size && known.mtime_ms === metadata.mtimeMs) {
+        stats.skippedFiles++;
+        continue;
+      }
+
+      const sha256 = _sha256(jsonlPath);
+      if (!force && known?.sha256 === sha256) {
+        upsertSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256 });
+        stats.skippedFiles++;
+        continue;
+      }
+
+      const session = definition.parse(jsonlPath);
+      upsertSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256 });
+      stats.scannedFiles++;
+      if (!session) continue;
+      stats[definition.source]++;
       stats.turns += _persist(session);
     }
   }
-
-  for (const jsonlPath of _jsonlFiles(join(homedir(), ".claude", "projects"))) {
-    const session = _parseClaude(jsonlPath);
-    if (session) {
-      stats.claude++;
-      stats.turns += _persist(session);
-    }
-  }
-
-  for (const jsonlPath of _jsonlFiles(join(homedir(), ".codex", "sessions"))) {
-    const session = _parseCodex(jsonlPath);
-    if (session) {
-      stats.codex++;
-      stats.turns += _persist(session);
-    }
-  }
-
   return stats;
 }
 
@@ -242,6 +260,10 @@ function _isCodexInjectedContext(text: string): boolean {
     || text.startsWith("<environment_context>")
     || text.startsWith("# Context from my IDE setup:")
     || text.startsWith("<image name=");
+}
+
+function _sha256(jsonlPath: string): string {
+  return createHash("sha256").update(readFileSync(jsonlPath)).digest("hex");
 }
 
 function _readJsonl(jsonlPath: string): any[] {

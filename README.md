@@ -8,7 +8,8 @@ A local-first Pi extension that saves completed conversations to SQLite and give
 ## Features
 
 - Persists completed Pi conversations in `~/.pi/agent/memory.db`.
-- Imports historical session records from Pi, Claude Code, and Codex with `/memory-backfill`.
+- Automatically imports only new or changed Pi, Claude Code, and Codex session files when Pi starts.
+- Supports a forced full rescan with `/memory-backfill`.
 - Exposes `recall_memory`, allowing Pi to retrieve relevant prior discussions when users explicitly refer to earlier work.
 - Uses stable native user-message IDs and `INSERT OR IGNORE`, making live persistence and backfill idempotent.
 - Searches literal substrings with escaped SQLite `LIKE` patterns, including technical terms containing `%`, `_`, or `\\`.
@@ -17,20 +18,25 @@ A local-first Pi extension that saves completed conversations to SQLite and give
 ## Installation
 
 ```bash
-pi install npm:pi-session-memory@0.1.3
+pi install npm:pi-session-memory@0.1.4
 ```
 
 To try the package without installing it permanently:
 
 ```bash
-pi -e npm:pi-session-memory@0.1.3
+pi -e npm:pi-session-memory@0.1.4
 ```
 
 ## Usage
 
 ### Import existing history
 
-Run this once after installation, and again whenever you want to scan newly available historical session files:
+At Pi startup, the extension automatically scans the three source roots. It compares
+per-file size and modification time to saved sync state; only new or changed JSONL
+files are read and hashed with SHA-256 before import. Unchanged files are skipped.
+
+Use this command when you intentionally want to force a full rescan of every
+historical JSONL file:
 
 ```text
 /memory-backfill
@@ -61,10 +67,12 @@ The tool searches prior user prompts and assistant responses, ranks matches by e
 ## How it works
 
 ```text
-completed Pi agent run ───► SQLite memory.db ◄─── /memory-backfill
-                                  ▲                     │
-                                  │                     ▼
-                           recall_memory         Pi / Claude / Codex
+Pi startup ──► incremental source sync ──► SQLite memory.db ◄── completed Pi agent run
+                                                  ▲
+                                                  │
+                                           recall_memory
+                                                  │
+                                      Pi / Claude / Codex
 ```
 
 After a Pi agent run settles, the extension captures the latest user message and the subsequent assistant replies/tool names from the active session branch. Historical imports normalize each supported source into the same session/turn schema.

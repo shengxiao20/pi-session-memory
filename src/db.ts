@@ -30,6 +30,14 @@ CREATE TABLE IF NOT EXISTS turns (
 
 CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id, turn_index);
 CREATE INDEX IF NOT EXISTS idx_turns_ts      ON turns(ts DESC);
+
+CREATE TABLE IF NOT EXISTS source_files (
+  jsonl_path TEXT PRIMARY KEY,
+  source     TEXT NOT NULL,
+  size       INTEGER NOT NULL,
+  mtime_ms   REAL NOT NULL,
+  sha256     TEXT NOT NULL
+);
 `;
 
 let _db: DatabaseSync | undefined;
@@ -77,6 +85,34 @@ export interface TurnRow {
   reply_text: string;
   tool_names: string | null;
   user_message_id: string;
+}
+
+export interface SourceFileRow {
+  jsonl_path: string;
+  source: "pi" | "claude" | "codex";
+  size: number;
+  mtime_ms: number;
+  sha256: string;
+}
+
+export function getSourceFile(jsonlPath: string): SourceFileRow | undefined {
+  return getDb().prepare(`
+    SELECT jsonl_path, source, size, mtime_ms, sha256
+    FROM source_files
+    WHERE jsonl_path = ?
+  `).get(jsonlPath) as SourceFileRow | undefined;
+}
+
+export function upsertSourceFile(row: SourceFileRow): void {
+  getDb().prepare(`
+    INSERT INTO source_files (jsonl_path, source, size, mtime_ms, sha256)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(jsonl_path) DO UPDATE SET
+      source = excluded.source,
+      size = excluded.size,
+      mtime_ms = excluded.mtime_ms,
+      sha256 = excluded.sha256
+  `).run(row.jsonl_path, row.source, row.size, row.mtime_ms, row.sha256);
 }
 
 export function upsertSession(row: SessionRow): void {
