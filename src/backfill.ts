@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +25,12 @@ interface ImportedSession {
   messages: ImportedMessage[];
 }
 
+export interface BackfillIssue {
+  source: Source;
+  jsonlPath: string | null;
+  error: string;
+}
+
 export interface BackfillStats {
   pi: number;
   claude: number;
@@ -32,7 +38,15 @@ export interface BackfillStats {
   turns: number;
   scannedFiles: number;
   skippedFiles: number;
+  issues: BackfillIssue[];
 }
+
+/** Versions whose Claude Code and Codex JSONL schemas this importer was verified against. */
+export const HISTORY_SCHEMA_REFERENCE_VERSIONS = {
+  pi: "0.85.1",
+  claude: "2.1.234",
+  codex: "0.154.0",
+} as const;
 
 const SOURCES: Array<{ source: Source; root: string; parse: (path: string) => ImportedSession | undefined }> = [
   { source: "pi", root: join(homedir(), ".pi", "agent", "sessions"), parse: _parsePi },
@@ -50,35 +64,61 @@ export function syncChangedHistory(): BackfillStats {
   return _syncHistory(false);
 }
 
+/** Synchronize all configured JSONL sources. */
 function _syncHistory(force: boolean): BackfillStats {
-  const stats: BackfillStats = { pi: 0, claude: 0, codex: 0, turns: 0, scannedFiles: 0, skippedFiles: 0 };
+  const stats: BackfillStats = { pi: 0, claude: 0, codex: 0, turns: 0, scannedFiles: 0, skippedFiles: 0, issues: [] };
   for (const definition of SOURCES) {
-    for (const jsonlPath of _jsonlFiles(definition.root)) {
-      const metadata = statSync(jsonlPath);
-      const known = getSourceFile(jsonlPath);
-      if (!force && known?.size === metadata.size && known.mtime_ms === metadata.mtimeMs) {
-        stats.skippedFiles++;
-        continue;
-      }
-
-      const sha256 = _sha256(jsonlPath);
-      if (!force && known?.sha256 === sha256) {
-        upsertSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256 });
-        stats.skippedFiles++;
-        continue;
-      }
-
-      const session = definition.parse(jsonlPath);
-      upsertSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256 });
-      stats.scannedFiles++;
-      if (!session) continue;
-      stats[definition.source]++;
-      stats.turns += _persist(session);
+    if (!existsSync(definition.root)) continue;
+    try {
+      for (const jsonlPath of _jsonlFiles(definition.root)) _syncSourceFile(definition, jsonlPath, force, stats);
+    } catch (error) {
+      stats.issues.push(_backfillIssue(definition.source, null, error));
     }
   }
   return stats;
 }
 
+/** Synchronize one source file without allowing its failure to block other files or sources. */
+function _syncSourceFile(definition: typeof SOURCES[number], jsonlPath: string, force: boolean, stats: BackfillStats): void {
+  try {
+    const metadata = statSync(jsonlPath);
+    const known = getSourceFile(jsonlPath);
+    if (!force && known?.size === metadata.size && known.mtime_ms === metadata.mtimeMs) {
+      stats.skippedFiles++;
+      return;
+    }
+
+    const sha256 = _sha256(jsonlPath);
+    if (!force && known?.sha256 === sha256) {
+      upsertSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256 });
+      stats.skippedFiles++;
+      return;
+    }
+
+    const session = definition.parse(jsonlPath);
+    if (session) {
+      stats[definition.source]++;
+      stats.turns += _persist(session);
+      upsertSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256 });
+    }
+    stats.scannedFiles++;
+  } catch (error) {
+    stats.issues.push(_backfillIssue(definition.source, jsonlPath, error));
+  }
+}
+
+/** Format an isolated source failure with the reference version for schema comparison. */
+function _backfillIssue(source: Source, jsonlPath: string | null, error: unknown): BackfillIssue {
+  const location = jsonlPath ? ` (${jsonlPath})` : "";
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    source,
+    jsonlPath,
+    error: `${source} history import failed${location}: ${message}. Compare the local ${source} version with the supported reference ${HISTORY_SCHEMA_REFERENCE_VERSIONS[source]}; this may be a JSONL schema compatibility issue.`,
+  };
+}
+
+/** Convert one normalized source session into paired, idempotently stored memory turns. */
 function _persist(session: ImportedSession): number {
   const sessionId = `${session.source}:${session.nativeSessionId}`;
   upsertSession({
@@ -96,6 +136,7 @@ function _persist(session: ImportedSession): number {
   const toolNames: string[] = [];
   let persisted = 0;
 
+  /** Persist the current user-plus-assistant accumulation when a turn boundary is reached. */
   const flush = () => {
     if (!user || !replyText.trim()) return;
     const inserted = insertTurn({
@@ -127,6 +168,7 @@ function _persist(session: ImportedSession): number {
   return persisted;
 }
 
+/** Parse a Pi JSONL session into the source-neutral import representation. */
 function _parsePi(jsonlPath: string): ImportedSession | undefined {
   const entries = _readJsonl(jsonlPath);
   const header = entries.find((entry) => entry.type === "session");
@@ -143,7 +185,13 @@ function _parsePi(jsonlPath: string): ImportedSession | undefined {
     const toolNames = message.role === "assistant"
       ? message.content.filter((block: any) => block.type === "toolCall").map((block: any) => block.name)
       : [];
-    messages.push({ id: entry.id, role: message.role, text, ts: message.timestamp, toolNames });
+    messages.push({
+      id: _messageId("Pi entry.id", entry.id),
+      role: message.role,
+      text,
+      ts: message.timestamp,
+      toolNames,
+    });
   }
 
   return {
@@ -157,6 +205,7 @@ function _parsePi(jsonlPath: string): ImportedSession | undefined {
   };
 }
 
+/** Parse non-meta Claude Code conversation records into normalized messages. */
 function _parseClaude(jsonlPath: string): ImportedSession | undefined {
   const entries = _readJsonl(jsonlPath);
   const firstConversation = entries.find((entry) =>
@@ -174,7 +223,14 @@ function _parseClaude(jsonlPath: string): ImportedSession | undefined {
     const toolNames = role === "assistant"
       ? entry.message.content.filter((block: any) => block.type === "tool_use").map((block: any) => block.name)
       : [];
-    messages.push({ id: entry.uuid, role, text, ts: Date.parse(entry.timestamp), toolNames });
+    // Workaround: Claude Code JSONL schema differs by version; message IDs may be in uuid or id.
+    messages.push({
+      id: _messageId("Claude entry.uuid or entry.id", entry.uuid, entry.id),
+      role,
+      text,
+      ts: Date.parse(entry.timestamp),
+      toolNames,
+    });
   }
 
   return {
@@ -188,6 +244,7 @@ function _parseClaude(jsonlPath: string): ImportedSession | undefined {
   };
 }
 
+/** Parse Codex session metadata and response-message envelopes into normalized messages. */
 function _parseCodex(jsonlPath: string): ImportedSession | undefined {
   const entries = _readJsonl(jsonlPath);
   const meta = entries.find((entry) => entry.type === "session_meta")?.payload;
@@ -200,8 +257,14 @@ function _parseCodex(jsonlPath: string): ImportedSession | undefined {
     if (payload?.type !== "message" || (payload.role !== "user" && payload.role !== "assistant")) continue;
     const text = _codexText(payload);
     if (!text || (payload.role === "user" && _isCodexInjectedContext(text))) continue;
+    // Workaround: Codex JSONL schema differs by version; legacy sessions store the ID as metadata.turn_id.
     messages.push({
-      id: payload.id,
+      id: _messageId(
+        "Codex payload.id, entry.id, or metadata.turn_id",
+        payload.id,
+        entry.id,
+        payload.internal_chat_message_metadata_passthrough?.turn_id,
+      ),
       role: payload.role,
       text,
       ts: Date.parse(entry.timestamp),
@@ -220,6 +283,14 @@ function _parseCodex(jsonlPath: string): ImportedSession | undefined {
   };
 }
 
+/** Read a source message ID from a known schema field without inventing one for malformed records. */
+function _messageId(field: string, ...values: unknown[]): string {
+  const id = values.find((value): value is string => typeof value === "string" && value.length > 0);
+  if (!id) throw new Error(`Invalid ${field}: expected a non-empty string`);
+  return id;
+}
+
+/** Extract Pi text content while excluding thinking and non-text blocks. */
 function _piText(message: any): string {
   if (typeof message.content === "string") return message.content.trim();
   return message.content
@@ -229,6 +300,7 @@ function _piText(message: any): string {
     .trim();
 }
 
+/** Extract Claude Code text content from either legacy strings or content blocks. */
 function _claudeText(message: any): string {
   if (typeof message.content === "string") return message.content.trim();
   if (!Array.isArray(message.content)) return "";
@@ -239,6 +311,7 @@ function _claudeText(message: any): string {
     .trim();
 }
 
+/** Extract user input and assistant output text from a Codex message payload. */
 function _codexText(message: any): string {
   return message.content
     .filter((block: any) => block.type === "input_text" || block.type === "output_text")
@@ -247,6 +320,7 @@ function _codexText(message: any): string {
     .trim();
 }
 
+/** Identify Claude Code client-injected text that must not become user memory. */
 function _isClaudeInjectedContext(text: string): boolean {
   return text.startsWith("<command-name>")
     || text.startsWith("<command-message>")
@@ -255,6 +329,7 @@ function _isClaudeInjectedContext(text: string): boolean {
     || text.startsWith("This session is being continued from a previous conversation");
 }
 
+/** Identify Codex environment or IDE context that must not become user memory. */
 function _isCodexInjectedContext(text: string): boolean {
   return text.startsWith("# AGENTS.md instructions")
     || text.startsWith("<environment_context>")
@@ -262,10 +337,12 @@ function _isCodexInjectedContext(text: string): boolean {
     || text.startsWith("<image name=");
 }
 
+/** Hash a source JSONL file so unchanged content can skip reparsing. */
 function _sha256(jsonlPath: string): string {
   return createHash("sha256").update(readFileSync(jsonlPath)).digest("hex");
 }
 
+/** Read every non-empty JSONL line into its ordered JSON record. */
 function _readJsonl(jsonlPath: string): any[] {
   return readFileSync(jsonlPath, "utf8")
     .split("\n")
@@ -273,6 +350,7 @@ function _readJsonl(jsonlPath: string): any[] {
     .map((line) => JSON.parse(line));
 }
 
+/** Recursively discover JSONL session files under a source root. */
 function _jsonlFiles(root: string): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {

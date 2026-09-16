@@ -2,6 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { upsertSession, insertTurn } from "./db.ts";
 
+/** Persist the latest Pi user request and all following assistant output as one turn. */
 export function writeTurn(ctx: ExtensionContext): void {
   const sessionManager = ctx.sessionManager;
   const sessionId = `pi:${sessionManager.getSessionId()}`;
@@ -50,6 +51,7 @@ export function writeTurn(ctx: ExtensionContext): void {
   });
 }
 
+/** Join text blocks from a Pi message while ignoring non-text content. */
 function _extractText(message: { content: string | Array<{ type: string; text?: string }> }): string {
   if (typeof message.content === "string") return message.content.trim();
   return message.content
@@ -59,6 +61,7 @@ function _extractText(message: { content: string | Array<{ type: string; text?: 
     .trim();
 }
 
+/** Calculate the zero-based user-turn position within the current session branch. */
 function _userTurnIndex(branch: ReturnType<ExtensionContext["sessionManager"]["getBranch"]>, userIndex: number): number {
   return branch.slice(0, userIndex + 1)
     .filter((entry) => entry.type === "message" && entry.message.role === "user")

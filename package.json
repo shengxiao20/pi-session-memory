@@ -1,6 +1,6 @@
 {
   "name": "pi-session-memory",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Persistent, local-first cross-session memory for Pi, with SQLite-backed recall across Pi, Claude Code, and Codex conversations",
   "keywords": [
     "pi-package"
