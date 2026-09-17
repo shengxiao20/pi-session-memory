@@ -4,8 +4,8 @@ import { getDb, type MemoryKind } from "./db.ts";
 export type MemorySource = "pi" | "claude" | "codex";
 
 export interface RecallOptions {
-  query: string;
-  entities?: string[];
+  /** High-signal literal alternatives; a result may match any entity. */
+  entities: string[];
   sources?: MemorySource[];
   cwd?: string;
   after?: number;
@@ -72,7 +72,7 @@ const RECENCY_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
 /** Retained for compatibility with the v0.1 public retrieval helper. */
 export function recallTurns(entities: string[]): RecallTurnResult[] {
-  return _recallTurns({ query: entities.join(" "), entities });
+  return _recallTurns({ entities });
 }
 
 /** Retrieve active durable memories, then raw turns not already represented by unchanged source evidence. */
@@ -105,8 +105,8 @@ export function paginateRecallResults(results: RecallResult[], offset = 0): Reca
   return { results: pageResults, offset, totalResults: results.length, nextOffset };
 }
 
-/** Render the exact query inputs and recall results as concise Markdown for a command notification or tool response. */
-export function formatRecallResults(results: RecallResult[], options?: Pick<RecallOptions, "query" | "entities" | "sources" | "cwd" | "after" | "before">, page?: Omit<RecallPage, "results">): string {
+/** Render the exact entity inputs and recall results as concise Markdown for a command notification or tool response. */
+export function formatRecallResults(results: RecallResult[], options?: Pick<RecallOptions, "entities" | "sources" | "cwd" | "after" | "before">, page?: Omit<RecallPage, "results">): string {
   const lines = options ? [_formatRecallQuery(options), ""] : [];
   if (results.length === 0) return [...lines, page && page.totalResults > 0 ? `No results at offset ${page.offset}; the matching result set contains ${page.totalResults} result(s).` : "No relevant past conversations found."].join("\n");
 
@@ -142,16 +142,15 @@ export function formatRecallResults(results: RecallResult[], options?: Pick<Reca
   return lines.join("\n");
 }
 
-/** Make each tool invocation auditable by showing its exact literal terms and scopes. */
-function _formatRecallQuery(options: Pick<RecallOptions, "query" | "entities" | "sources" | "cwd" | "after" | "before">): string {
-  const filters = [
-    options.entities?.length ? `entities: ${options.entities.map((entity) => `\`${entity}\``).join(", ")}` : null,
+/** Make each tool invocation auditable by showing its literal entities separately from its scope. */
+function _formatRecallQuery(options: Pick<RecallOptions, "entities" | "sources" | "cwd" | "after" | "before">): string {
+  const scope = [
     options.sources?.length ? `sources: ${options.sources.join(", ")}` : null,
     options.cwd ? `cwd: \`${options.cwd}\`` : null,
     options.after !== undefined ? `after: ${new Date(options.after).toISOString()}` : null,
     options.before !== undefined ? `before: ${new Date(options.before).toISOString()}` : null,
   ].filter(Boolean);
-  return `**Search query:** \`${options.query}\`${filters.length ? `  \\n**Filters:** ${filters.join(" · ")}` : ""}`;
+  return `**Search entities:** ${options.entities.map((entity) => `\`${entity}\``).join(", ")}${scope.length ? `  \\n**Scope:** ${scope.join(" · ")}` : ""}`;
 }
 
 /** Keep discovery results small; full persisted turn text belongs to fetch_session. */
@@ -166,7 +165,7 @@ function _recallDurableMemories(options: RecallOptions): RecallDurableMemoryResu
   if (terms.length === 0) return [];
   const scoreExpression = terms.map(() => "CASE WHEN LOWER(content) LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END").join(" + ");
   const parameters = terms.map(_likePattern);
-  const filters = terms.map(() => "LOWER(content) LIKE ? ESCAPE '\\'");
+  const filters = [`(${terms.map(() => "LOWER(content) LIKE ? ESCAPE '\\'").join(" OR ")})`];
   const filterParameters: Array<string | number> = terms.map(_likePattern);
   filters.push("superseded_by IS NULL");
   if (options.cwd) {
@@ -237,7 +236,7 @@ function _recallTurns(options: RecallOptions): RecallTurnResult[] {
   const scoreParameters = terms.flatMap((term) => _likeParameters(term));
   const whereExpressions = terms.map(() => "(LOWER(turns.user_text) LIKE ? ESCAPE '\\' OR LOWER(turns.reply_text) LIKE ? ESCAPE '\\')");
   const whereParameters = terms.flatMap((term) => _likeParameters(term));
-  const filters = [...whereExpressions];
+  const filters = [`(${whereExpressions.join(" OR ")})`];
   const filterParameters: Array<string | number> = [...whereParameters];
   if (options.sources?.length) {
     filters.push(`sessions.source IN (${options.sources.map(() => "?").join(", ")})`);
@@ -272,9 +271,9 @@ function _turnContentHash(turn: RecallTurnResult): string {
   return createHash("sha256").update(JSON.stringify([turn.user_text, turn.reply_text])).digest("hex");
 }
 
-/** Build a de-duplicated set of non-empty literal search terms from the request. */
+/** Build a de-duplicated set of non-empty literal search entities from the request. */
 function _terms(options: RecallOptions): string[] {
-  return [...new Set([options.query, ...(options.entities ?? [])].map((term) => term.trim()).filter(Boolean))];
+  return [...new Set(options.entities.map((entity) => entity.trim()).filter(Boolean))];
 }
 
 /** Produce matching user and assistant SQL LIKE parameters for one term. */

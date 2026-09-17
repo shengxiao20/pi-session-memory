@@ -17,7 +17,7 @@ A local-first Pi extension that saves completed conversations to SQLite and give
 - Ranks results by literal relevance and recency, boosts an explicitly scoped project, and limits results to two turns per session for diversity.
 - Supports explicit durable memories, which remain after their source transcript turns are deleted.
 - Suppresses a raw turn from recall when an active durable memory contains the same unchanged pinned source evidence; other turns in that session remain eligible.
-- Associates recalled durable memories with later source-session activity and newer query-relevant evidence from the same or another session, so users can explicitly compare, confirm, or supersede them without silent updates.
+- Associates recalled durable memories with later source-session activity and newer entity-relevant evidence from the same or another session, so users can explicitly compare, confirm, or supersede them without silent updates.
 - Includes status, direct search, and permanent deletion commands so users can inspect and control local memory.
 - Uses only Node.js built-ins and SQLite (`node:sqlite`); no external runtime dependencies.
 
@@ -46,7 +46,7 @@ pi -e npm:pi-session-memory
 To intentionally pin a known version (which `pi update --extensions` skips), add its version explicitly:
 
 ```bash
-pi install npm:pi-session-memory@0.3.0
+pi install npm:pi-session-memory@0.3.1
 ```
 
 ## Usage
@@ -106,9 +106,9 @@ The extension instructs Pi to call `recall_memory` when a user explicitly asks a
 What did we decide about LangGraph last time?
 ```
 
-`recall_memory` is the discovery step: it searches and ranks the complete active durable-memory and raw-turn match set using the original request plus important entities. It supports optional exact project-directory, source, and time-window filters. Each tool response deliberately renders five results and reports `totalResults` and `nextOffset`; when more candidates are needed, Pi repeats the exact same query and filters with that explicit offset. This pages model context without silently limiting the local search. Raw transcript candidates contain a short excerpt plus a session ID and turn index, rather than the entire turn context. When surrounding conversation is needed to answer accurately, Pi calls `fetch_session` with that session ID and the smallest useful turn-index range. When an initial literal search is empty, Pi may make up to two additional local searches using reasoned alternatives—such as abbreviations, expansions, aliases, translations, or likely task wording—while retaining the original filters.
+`recall_memory` is the discovery step: it searches and ranks the complete active durable-memory and raw-turn match set using 2–8 high-signal literal entities. Entities are OR alternatives, so a result may match any entity; matching more entities ranks higher. Pi must not send the complete user request or generic conversational terms such as "问题", "开发", "有哪些", or "help". Where useful, it includes Chinese/English equivalents, aliases, or abbreviations—for example `["bug", "缺陷", "错误", "fix", "修复"]`. Exact project-directory, source, and time-window filters remain strict scope constraints. Each tool response deliberately renders five results and reports `totalResults` and `nextOffset`; when more candidates are needed, Pi repeats the exact same entities and scope filters with that explicit offset. This pages model context without silently limiting the local search. Raw transcript candidates contain a short excerpt plus a session ID and turn index, rather than the entire turn context. When surrounding conversation is needed to answer accurately, Pi calls `fetch_session` with that session ID and the smallest useful turn-index range. When an initial literal search is empty, Pi may make up to two additional local searches using distinct entities selected from reasoned alternatives—such as abbreviations, expansions, aliases, translations, or likely task wording—while retaining the original scope filters.
 
-When recall returns a durable memory, Pi is instructed to naturally communicate a relevant remembered conclusion and provenance when useful. It reports later activity in the memory's source session separately from newer query-relevant evidence to compare; that evidence can come from the original session or another newer session. Pi compares the old memory with the evidence as a possible confirmation, supplement, conflict, or replacement, then asks whether you want to keep, confirm, or replace it. It never claims a memory was updated or superseded without your explicit choice.
+When recall returns a durable memory, Pi is instructed to naturally communicate a relevant remembered conclusion and provenance when useful. It reports later activity in the memory's source session separately from newer entity-relevant evidence to compare; that evidence can come from the original session or another newer session. Pi compares the old memory with the evidence as a possible confirmation, supplement, conflict, or replacement, then asks whether you want to keep, confirm, or replace it. It never claims a memory was updated or superseded without your explicit choice.
 
 ### Inspect and control memory
 
@@ -132,7 +132,7 @@ Recall and freshness explanations are automatic model behavior. The commands bel
 - `/remember <text>` saves an explicit durable `fact` scoped to the current project.
 - `/memory-pin <turn-id>` promotes a historical turn to a durable fact and records its source session, source turn ID, and a hash of the pinned evidence.
 - `/memory-list [kind]` displays durable memories, optionally limited to `preference`, `decision`, `fact`, `project_state`, `task`, or `lesson`.
-- Recall distinguishes later activity in a memory's source session from newer query-relevant evidence to compare. That evidence may come from the original session or another newer session; it is a review signal, not an automatic update.
+- Recall distinguishes later activity in a memory's source session from newer entity-relevant evidence to compare. That evidence may come from the original session or another newer session; it is a review signal, not an automatic update.
 - `/memory-confirm <memory-id>` records that an active memory remains current by updating `last_confirmed_at`.
 - `/memory-supersede <old-memory-id> <new-memory-id>` explicitly replaces an active memory while retaining the old record for history; superseded memories are excluded from normal recall.
 - `/memory-history <memory-id>` displays the complete oldest-to-newest supersession chain.
@@ -168,7 +168,8 @@ Conversation data is stored and queried locally. This package does not add a rem
 
 | Version | Highlights |
 | --- | --- |
-| `0.3.0` | Replaces source-session-only freshness hints with provenance-linked evidence comparison across newer same-session and cross-session turns. This changes recall output and `freshness_candidate` semantics, but keeps tool inputs, slash commands, SQLite data, and explicit user-controlled memory mutation compatible; no migration is required. |
+| `0.3.1` | Makes `recall_memory` entity-only: 2–8 high-signal literal entities are OR alternatives, results matching more entities rank higher, and output distinguishes search entities from strict scope filters. Existing SQLite data and schema remain compatible; no migration is required. |
+| `0.3.0` | Replaces source-session-only freshness hints with provenance-linked evidence comparison across newer same-session and cross-session turns. This changes recall output and `freshness_candidate` semantics, but keeps SQLite data and explicit user-controlled memory mutation compatible; no migration is required. |
 | `0.2.1` | Pages `recall_memory` results in explicit five-result `offset` windows while still evaluating the complete local match set; npm publishing now uses a runtime-file allowlist. |
 | `0.2.0` | Added cross-client SQLite recall and durable-memory controls, plus native current-project Codex-to-Pi session migration for `/resume`. |
 | `0.1.4` | Automatically syncs new or changed Pi, Claude Code, and Codex history when Pi starts; `/memory-backfill` forces a full rescan. |
@@ -179,18 +180,21 @@ Conversation data is stored and queried locally. This package does not add a rem
 
 ## Release compatibility review
 
-Before every significant release, review these compatibility surfaces and record any migration or versioning decision:
+Before every significant release, review these compatibility surfaces and record any migration or versioning decision. In this project, a breaking change means an updated extension conflicts with a user's existing SQLite table structure and errors after upgrade; changes to agent tool inputs or external direct callers are not breaking changes under this definition:
 
 1. **Install/package:** package name, Pi manifest, runtime dependencies, and published file allowlist.
 2. **Persistent data:** SQLite schema/migrations, JSONL-import compatibility, and any data rewrite.
 3. **Agent tools and commands:** tool names, input schemas, result/details contracts, and slash commands.
 4. **Retrieval and agent behavior:** ranking, pagination, freshness/evidence semantics, prompt policy, and automatic side effects.
 5. **Public TypeScript/module API:** exported types/functions and required result fields.
+6. **Extension loadability:** run `npm test`, which imports `extensions/index.ts`; Markdown inline-code backticks inside a template-literal description must be escaped as `\`` so Pi can parse and start the extension.
 
-The `0.3.0` review found no installation, SQLite, command, or tool-input breaking change. It intentionally changes recall result semantics and adds evidence fields, so it is released as a minor `0.x` version rather than a patch.
+The `0.3.1` review found no SQLite breaking change: it does not alter tables, migrations, or stored data, so users can upgrade without a database error or migration. It is therefore released as a patch despite changing `recall_memory` search inputs and behavior.
 
 ## Development
 
 ```bash
 npm test
 ```
+
+The test suite imports `extensions/index.ts` in addition to exercising core behavior. This catches extension-load syntax errors, including unescaped Markdown backticks inside template-literal tool descriptions.

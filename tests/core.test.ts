@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,6 +24,12 @@ function cleanup(): void {
 }
 
 cleanup();
+
+assert.match(
+  readFileSync(join(process.cwd(), "extensions", "index.ts"), "utf8"),
+  /report \\`source_session_changed\\` when its original session has later activity/,
+);
+await import(`../extensions/index.ts?extension-load-regression=${Date.now()}`);
 
 upsertSession({
   session_id: "pi:test",
@@ -141,12 +147,36 @@ assert.equal(recallTurns(["schema legacy Codex"]).some((result) => result.turn_i
 
 assert.deepEqual(recallTurns(["100%"]).map((result) => result.turn_id), ["pi:test:user-1"]);
 assert.deepEqual(recallTurns(["a_b"]).map((result) => result.turn_id), ["pi:test:user-1"]);
-const thinRecall = formatRecallResults(recallMemories({ query: "literal" }));
+assert.equal(insertTurn({
+  turn_id: "pi:test:user-3",
+  session_id: "pi:test",
+  turn_index: 2,
+  ts: 3,
+  user_text: "发现 bug，已经 fix",
+  reply_text: "英文问题已处理",
+  tool_names: null,
+  user_message_id: "user-3",
+}), true);
+assert.equal(insertTurn({
+  turn_id: "pi:test:user-4",
+  session_id: "pi:test",
+  turn_index: 3,
+  ts: 4,
+  user_text: "发现缺陷，已经修复",
+  reply_text: "中文问题已处理",
+  tool_names: null,
+  user_message_id: "user-4",
+}), true);
+assert.deepEqual(recallTurns(["bug"]).map((result) => result.turn_id), ["pi:test:user-3"]);
+assert.deepEqual(recallTurns(["缺陷"]).map((result) => result.turn_id), ["pi:test:user-4"]);
+assert.deepEqual(recallTurns(["fix"]).map((result) => result.turn_id), ["pi:test:user-3"]);
+assert.deepEqual(recallTurns(["修复"]).map((result) => result.turn_id), ["pi:test:user-4"]);
+const thinRecall = formatRecallResults(recallMemories({ entities: ["literal"] }));
 assert.match(thinRecall, /\*\*Session:\*\* pi:test · \*\*Turn:\*\* 0[\s\S]*\*\*Excerpt:\*\* literal 100% and a_b[\s\S]*Use `fetch_session`/);
 assert.doesNotMatch(thinRecall, /\*\*Assistant:\*\* first reply/);
 assert.match(
-  formatRecallResults([], { query: "SAP BTP", entities: ["BTP", "Business Technology Platform"], sources: ["pi"], cwd: "/tmp" }),
-  /\*\*Search query:\*\* `SAP BTP`[\s\S]*\*\*Filters:\*\* entities: `BTP`, `Business Technology Platform` · sources: pi · cwd: `\/tmp`[\s\S]*No relevant past conversations found\./,
+  formatRecallResults([], { entities: ["BTP", "Business Technology Platform"], sources: ["pi"], cwd: "/tmp" }),
+  /\*\*Search entities:\*\* `BTP`, `Business Technology Platform`[\s\S]*\*\*Scope:\*\* sources: pi · cwd: `\/tmp`[\s\S]*No relevant past conversations found\./,
 );
 upsertSession({
   session_id: "claude:project-a",
@@ -183,14 +213,19 @@ for (const [turnId, sessionId, index, ts, text] of [
 }
 
 assert.deepEqual(
-  recallMemories({ query: "deploy memory", cwd: "/workspace/project-a" }).map((result) => result.turn_id),
+  recallMemories({ entities: ["deploy", "memory"], cwd: "/workspace/project-a" }).map((result) => result.turn_id),
   ["claude:project-a:user-3", "claude:project-a:user-2", "claude:project-a:user-1"],
 );
 assert.deepEqual(
-  recallMemories({ query: "deploy memory", sources: ["codex"], after: 4_000 }).map((result) => result.turn_id),
+  recallMemories({ entities: ["deploy", "memory"], sources: ["codex"], after: 4_000 }).map((result) => result.turn_id),
   ["codex:project-b:user-1"],
 );
-const allDeployResults = recallMemories({ query: "deploy memory" });
+const allDeployResults = recallMemories({ entities: ["deploy", "memory"] });
+assert.deepEqual(
+  recallMemories({ entities: ["deploy", "ranking"] }).map((result) => result.type === "turn" ? result.turn_id : result.memory_id),
+  ["codex:project-b:user-1", "claude:project-a:user-1", "claude:project-a:user-3", "claude:project-a:user-2"],
+  "entities must be OR alternatives, with results matching more entities ranked first",
+);
 assert.deepEqual(
   allDeployResults.map((result) => result.type === "turn" ? result.turn_id : result.memory_id),
   ["codex:project-b:user-1", "claude:project-a:user-3", "claude:project-a:user-2", "claude:project-a:user-1"],
@@ -215,7 +250,7 @@ assert.equal(pinnedMemory.source_turn_id, "claude:project-a:user-1");
 assert.equal(pinnedMemory.source_session_id, "claude:project-a");
 assert.ok(pinnedMemory.source_content_hash);
 assert.deepEqual(listMemories("decision").map((memory) => memory.memory_id), [explicitMemory.memory_id]);
-const deployRecall = recallMemories({ query: "deploy", cwd: "/workspace/project-a" });
+const deployRecall = recallMemories({ entities: ["deploy"], cwd: "/workspace/project-a" });
 assert.deepEqual(
   deployRecall.map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
   [explicitMemory.memory_id, pinnedMemory.memory_id, "claude:project-a:user-3", "claude:project-a:user-2"],
@@ -227,7 +262,7 @@ assert.deepEqual(pinnedDeployMemory.freshness_evidence.map((evidence) => [eviden
   ["claude:project-a:user-3", "same_source_session_later"],
   ["claude:project-a:user-2", "same_source_session_later"],
 ]);
-const crossSessionDeployMemory = recallMemories({ query: "deploy" }).find((result) => result.type === "memory" && result.memory_id === pinnedMemory.memory_id)!;
+const crossSessionDeployMemory = recallMemories({ entities: ["deploy"] }).find((result) => result.type === "memory" && result.memory_id === pinnedMemory.memory_id)!;
 assert.deepEqual(crossSessionDeployMemory.freshness_evidence.map((evidence) => [evidence.turn_id, evidence.relation]), [
   ["codex:project-b:user-1", "newer_cross_session"],
   ["claude:project-a:user-3", "same_source_session_later"],
@@ -243,7 +278,7 @@ assert.equal(deployPage.results.length, 5);
 assert.equal(deployPage.totalResults, 8);
 assert.equal(deployPage.nextOffset, 5);
 assert.match(
-  formatRecallResults(deployPage.results, { query: "deploy" }, deployPage),
+  formatRecallResults(deployPage.results, { entities: ["deploy"] }, deployPage),
   /\*\*Results:\*\* 1–5 of 8 \(five results per page\)[\s\S]*More matching results exist\. To retrieve the next five, call `recall_memory` again with every same search\/filter parameter and `offset: 5`\./,
 );
 const finalDeployPage = paginateRecallResults(pagedDeployResults, 5);
@@ -279,7 +314,7 @@ assert.equal(insertTurn({
   tool_names: null,
   user_message_id: "user-2",
 }), true);
-const sourceActivityRecall = recallMemories({ query: "source activity baseline", cwd: "/workspace/source-activity" });
+const sourceActivityRecall = recallMemories({ entities: ["source activity baseline"], cwd: "/workspace/source-activity" });
 const sourceActivityResult = sourceActivityRecall.find((result) => result.type === "memory" && result.memory_id === sourceActivityMemory.memory_id)!;
 assert.equal(sourceActivityResult.source_session_changed, true);
 assert.deepEqual(sourceActivityResult.freshness_evidence, []);
@@ -297,7 +332,7 @@ const replacementMemory = createMemory({
 supersedeMemory(explicitMemory.memory_id, replacementMemory.memory_id);
 assert.deepEqual(getMemoryHistory(replacementMemory.memory_id).map((memory) => memory.memory_id), [explicitMemory.memory_id, replacementMemory.memory_id]);
 assert.deepEqual(
-  recallMemories({ query: "SQLite durable memory", cwd: "/workspace/project-a" }).filter((result) => result.type === "memory").map((result) => result.memory_id),
+  recallMemories({ entities: ["SQLite durable memory"], cwd: "/workspace/project-a" }).filter((result) => result.type === "memory").map((result) => result.memory_id),
   [replacementMemory.memory_id],
 );
 assert.throws(() => supersedeMemory(explicitMemory.memory_id, replacementMemory.memory_id), /already superseded/);
@@ -321,12 +356,12 @@ assert.equal(insertTurn({
 }), true);
 const provenanceMemory = pinTurnAsMemory("pi:provenance:user-1");
 assert.deepEqual(
-  recallMemories({ query: "provenance deduplication", cwd: "/workspace/provenance" }).map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
+  recallMemories({ entities: ["provenance deduplication"], cwd: "/workspace/provenance" }).map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
   [provenanceMemory.memory_id],
 );
 getDb().prepare("UPDATE turns SET reply_text = ? WHERE turn_id = ?").run("changed source evidence", "pi:provenance:user-1");
 assert.deepEqual(
-  recallMemories({ query: "provenance deduplication", cwd: "/workspace/provenance" }).map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
+  recallMemories({ entities: ["provenance deduplication"], cwd: "/workspace/provenance" }).map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
   [provenanceMemory.memory_id, "pi:provenance:user-1"],
 );
 assert.deepEqual(
@@ -341,16 +376,16 @@ assert.equal(deleteMemory(pinnedMemory.memory_id), false);
 
 const stats = getMemoryStats();
 assert.equal(stats.sessions, 12);
-assert.equal(stats.turns, 15);
+assert.equal(stats.turns, 17);
 assert.deepEqual([...stats.sources].map(({ source, sessions, turns }) => ({ source, sessions, turns })), [
   { source: "claude", sessions: 2, turns: 3 },
   { source: "codex", sessions: 4, turns: 4 },
-  { source: "pi", sessions: 6, turns: 8 },
+  { source: "pi", sessions: 6, turns: 10 },
 ]);
 assert.equal(deleteTurn("codex:project-b:user-1"), true);
 assert.equal(deleteTurn("codex:project-b:user-1"), false);
 assert.equal(getDb().prepare("SELECT count(*) AS count FROM sessions WHERE session_id = 'codex:project-b'").get().count, 0);
-assert.equal(getDb().prepare("SELECT count(*) AS count FROM turns").get().count, 14);
+assert.equal(getDb().prepare("SELECT count(*) AS count FROM turns").get().count, 16);
 
 cleanup();
 console.log("core.test.ts: passed");

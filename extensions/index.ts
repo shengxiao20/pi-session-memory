@@ -62,8 +62,9 @@ export default function (pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const query = args.trim();
       if (!query) throw new Error("Usage: /memory-search <query>");
-      const page = paginateRecallResults(recallMemories({ query }));
-      ctx.ui.notify(formatRecallResults(page.results, { query }, page), "info");
+      const entities = [query];
+      const page = paginateRecallResults(recallMemories({ entities }));
+      ctx.ui.notify(formatRecallResults(page.results, { entities }, page), "info");
     },
   });
 
@@ -196,7 +197,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "recall_memory",
     label: "Recall Memory",
-    description: `Search this user's past conversation history across Pi, Claude Code, and Codex. Use query for the user's full request and entities for its important identifiers. Filters only narrow the local search.
+    description: `Search this user's past conversation history across Pi, Claude Code, and Codex using high-signal literal entities. Entities are OR alternatives: any entity may recall a result, and results matching more entities rank higher. Scope filters only narrow the local search.
 
 Invocation policy:
 1. Call this tool immediately when the user explicitly asks to review, remember, summarize, continue, or compare a previous discussion about a topic. Examples:
@@ -206,12 +207,13 @@ Invocation policy:
    - "之前那个方案怎么说的" / "what was that plan we had?"
 2. When you cannot confidently answer from the current conversation and your general knowledge, but the user may have discussed the topic in prior sessions, first ask whether they want you to search their conversation history. Call this tool only after they agree.
 3. Do not search history merely because a question is difficult when the user's prior discussions are not relevant.
-4. If a recall returns no results, use your judgment to make up to two additional recall calls before concluding the history has no answer. Each retry must use a distinct, concise literal query and/or entities chosen from semantic alternatives: abbreviations or expansions, aliases, translations, product or project names, and likely wording of the underlying task or decision. For example, after no result for "SAP BTP", try alternatives such as "BTP", "Business Technology Platform", and the specific platform/topic implied by the user's question.
-5. Preserve every source, project, and time filter from the original request on retries. Do not repeat an equivalent query, search indefinitely, claim a result that was not returned, or say history was searched exhaustively after fewer than three total attempts.
+4. Use 2–8 specific, high-signal literal entities, not the user's entire request or generic conversational words such as "问题", "开发", "有哪些", or "help". Include useful aliases, abbreviations, or Chinese/English equivalents where relevant, for example ["bug", "缺陷", "错误", "fix", "修复"].
+5. If a recall returns no results, use your judgment to make up to two additional recall calls before concluding the history has no answer. Each retry must use distinct entities chosen from semantic alternatives: abbreviations or expansions, aliases, translations, product or project names, and likely wording of the underlying task or decision. For example, after no result for "SAP BTP", try alternatives such as "BTP", "Business Technology Platform", and the specific platform/topic implied by the user's question.
+6. Preserve every source, project, and time filter from the original request on retries. Do not repeat equivalent entities, search indefinitely, claim a result that was not returned, or say history was searched exhaustively after fewer than three total attempts.
 
 Memory-aware response policy:
 1. Treat returned durable memories as reusable evidence, not as invisible context. In your natural-language answer, briefly state the relevant remembered conclusion and identify its source turn/session when that provenance matters to the answer.
-2. A durable memory can report `source_session_changed` when its original session has later activity; this alone does not mean the memory is stale. When it includes **Newer evidence to compare**, compare that evidence with the memory: it may confirm, supplement, conflict with, or replace the old conclusion. Evidence can come from another newer session as well as the original session. Do not claim that the memory was updated, confirmed, or superseded unless the user explicitly chose that action.
+2. A durable memory can report \`source_session_changed\` when its original session has later activity; this alone does not mean the memory is stale. When it includes **Newer evidence to compare**, compare that evidence with the memory: it may confirm, supplement, conflict with, or replace the old conclusion. Evidence can come from another newer session as well as the original session. Do not claim that the memory was updated, confirmed, or superseded unless the user explicitly chose that action.
 3. After explaining a meaningful comparison, offer clear control: keep the current memory, confirm that it remains current, or create/pin a replacement and supersede the old memory. Ask which outcome they want before any persistent memory-management action.
 4. When an existing durable memory resolves the question and has no comparison evidence, use it directly and avoid repeating its identical source turn. Do not mention memory mechanics unless provenance or evidence comparison is useful to the user.
 5. Slash commands are user-controlled management actions. Do not instruct the user to execute a command merely to answer their question; mention the relevant command only when they want to inspect, confirm, replace, or delete a memory.
@@ -223,21 +225,20 @@ Session-expansion policy:
 
 Pagination policy:
 1. Each invocation returns five results. Local retrieval still evaluates every match before selecting that page.
-2. When the result reports a \`nextOffset\`, call \`recall_memory\` again with the exact same query and filters plus that offset only when more candidates are needed. Do not request pages merely to exhaust the result set.
+2. When the result reports a \`nextOffset\`, call \`recall_memory\` again with the exact same entities and scope filters plus that offset only when more candidates are needed. Do not request pages merely to exhaust the result set.
 
-Extract 2–5 specific entities from the user's topic: project names, tool names, technologies, domain terms, or identifiers.`,
+Extract 2–8 specific, high-signal entities from the user's topic: project names, tool names, technologies, domain terms, identifiers, and useful Chinese/English equivalents, aliases, or abbreviations.`,
     promptSnippet: "Search cross-client Pi, Claude Code, and Codex history when the user asks about prior discussions or work.",
 
     parameters: Type.Object({
-      query: Type.String({ minLength: 1, description: "The user's full memory request or its most specific literal phrase." }),
-      entities: Type.Optional(Type.Array(
+      entities: Type.Array(
         Type.String({ minLength: 1 }),
         {
-          description: 'Important identifiers from the request. E.g. ["payroll", "LangGraph", "A2A"]',
-          minItems: 1,
+          description: 'Two to eight high-signal literal search alternatives. Results may match any entity; include useful Chinese/English equivalents, aliases, or abbreviations. E.g. ["pi-session-memory", "bug", "缺陷", "错误", "fix", "修复"].',
+          minItems: 2,
           maxItems: 8,
         },
-      )),
+      ),
       sources: Type.Optional(Type.Array(Type.Union([
         Type.Literal("pi"), Type.Literal("claude"), Type.Literal("codex"),
       ]))),
@@ -248,13 +249,13 @@ Extract 2–5 specific entities from the user's topic: project names, tool names
     }),
 
     /** Resolve an agent memory request into one explicit page of a fully evaluated local result set. */
-    async execute(_toolCallId, { query, entities, sources, cwd, after, before, offset }) {
-      const results = recallMemories({ query, entities, sources, cwd, after, before });
+    async execute(_toolCallId, { entities, sources, cwd, after, before, offset }) {
+      const results = recallMemories({ entities, sources, cwd, after, before });
       const page = paginateRecallResults(results, offset);
-      const text = formatRecallResults(page.results, { query, entities, sources, cwd, after, before }, page);
+      const text = formatRecallResults(page.results, { entities, sources, cwd, after, before }, page);
       return {
         content: [{ type: "text" as const, text }],
-        details: { query, entities, sources, cwd, after, before, offset: page.offset, pageSize: page.results.length, totalResults: page.totalResults, nextOffset: page.nextOffset },
+        details: { entities, sources, cwd, after, before, offset: page.offset, pageSize: page.results.length, totalResults: page.totalResults, nextOffset: page.nextOffset },
       };
     },
   });
