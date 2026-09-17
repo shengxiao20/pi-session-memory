@@ -6,12 +6,10 @@ export type MemorySource = "pi" | "claude" | "codex";
 export interface RecallOptions {
   query: string;
   entities?: string[];
-  topK?: number;
   sources?: MemorySource[];
   cwd?: string;
   after?: number;
   before?: number;
-  diversify?: boolean;
 }
 
 export interface RecallTurnResult {
@@ -48,14 +46,21 @@ export interface RecallDurableMemoryResult {
 
 export type RecallResult = RecallDurableMemoryResult | RecallTurnResult;
 
-// Avoid allowing one long conversation to fill every raw-transcript recall slot.
-const MAX_TURNS_PER_SESSION = 2;
+export const RECALL_PAGE_SIZE = 5;
+
+export interface RecallPage {
+  results: RecallResult[];
+  offset: number;
+  totalResults: number;
+  nextOffset: number | null;
+}
+
 // Recency is a bounded tie-breaker, not a replacement for literal relevance.
 const RECENCY_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
 /** Retained for compatibility with the v0.1 public retrieval helper. */
-export function recallTurns(entities: string[], topK = 5): RecallTurnResult[] {
-  return _recallTurns({ query: entities.join(" "), entities, topK, diversify: false });
+export function recallTurns(entities: string[]): RecallTurnResult[] {
+  return _recallTurns({ query: entities.join(" "), entities });
 }
 
 /** Retrieve active durable memories, then raw turns not already represented by unchanged source evidence. */
@@ -75,14 +80,23 @@ export function recallMemories(options: RecallOptions): RecallResult[] {
       .map((memory) => [memory.source_turn_id!, memory.source_content_hash!]),
   );
   const rawTurns = recalledTurns.filter((turn) => coveredSourceHashes.get(turn.turn_id) !== _turnContentHash(turn));
-  return [...memories, ...rawTurns].slice(0, options.topK ?? 5);
+  return [...memories, ...rawTurns];
+}
+
+/** Select one fixed-size recall page without limiting the complete local retrieval result. */
+export function paginateRecallResults(results: RecallResult[], offset = 0): RecallPage {
+  if (!Number.isInteger(offset) || offset < 0) throw new Error("Recall offset must be a non-negative integer");
+  const pageResults = results.slice(offset, offset + RECALL_PAGE_SIZE);
+  const nextOffset = offset + pageResults.length < results.length ? offset + pageResults.length : null;
+  return { results: pageResults, offset, totalResults: results.length, nextOffset };
 }
 
 /** Render the exact query inputs and recall results as concise Markdown for a command notification or tool response. */
-export function formatRecallResults(results: RecallResult[], options?: Pick<RecallOptions, "query" | "entities" | "sources" | "cwd" | "after" | "before">): string {
+export function formatRecallResults(results: RecallResult[], options?: Pick<RecallOptions, "query" | "entities" | "sources" | "cwd" | "after" | "before">, page?: Omit<RecallPage, "results">): string {
   const lines = options ? [_formatRecallQuery(options), ""] : [];
-  if (results.length === 0) return [...lines, "No relevant past conversations found."].join("\n");
+  if (results.length === 0) return [...lines, page && page.totalResults > 0 ? `No results at offset ${page.offset}; the matching result set contains ${page.totalResults} result(s).` : "No relevant past conversations found."].join("\n");
 
+  if (page) lines.push(`**Results:** ${page.offset + 1}–${page.offset + results.length} of ${page.totalResults} (five results per page)\n`);
   lines.push("## Relevant past memories\n");
   for (const result of results) {
     if (result.type === "memory") {
@@ -100,6 +114,9 @@ export function formatRecallResults(results: RecallResult[], options?: Pick<Reca
       lines.push("Use `fetch_session` with this session ID when the surrounding conversation is needed.");
     }
     lines.push("");
+  }
+  if (page?.nextOffset !== null && page?.nextOffset !== undefined) {
+    lines.push(`More matching results exist. To retrieve the next five, call \`recall_memory\` again with every same search/filter parameter and \`offset: ${page.nextOffset}\`.`);
   }
   return lines.join("\n");
 }
@@ -149,8 +166,7 @@ function _recallDurableMemories(options: RecallOptions): RecallDurableMemoryResu
     FROM memories
     WHERE ${filters.join(" AND ")}
     ORDER BY hits DESC, importance DESC, last_confirmed_at DESC
-    LIMIT ?
-  `).all(...parameters, ...filterParameters, Math.max(options.topK ?? 5, 1))
+  `).all(...parameters, ...filterParameters)
     .map((memory) => ({ ...memory, type: "memory" as const, freshness_candidate: false, score: memory.hits + memory.importance })) as RecallDurableMemoryResult[];
 }
 
@@ -185,11 +201,11 @@ function _recallTurns(options: RecallOptions): RecallTurnResult[] {
       (${scoreExpression}) AS hits
     FROM turns JOIN sessions ON sessions.session_id = turns.session_id
     WHERE ${filters.join(" AND ")}
-    ORDER BY hits DESC, turns.ts DESC LIMIT ?
-  `).all(...scoreParameters, ...filterParameters, Math.max(options.topK ?? 5, 1) * 10) as Array<Omit<RecallTurnResult, "type" | "score">>;
+    ORDER BY hits DESC, turns.ts DESC
+  `).all(...scoreParameters, ...filterParameters) as Array<Omit<RecallTurnResult, "type" | "score">>;
   const newestTs = candidates.reduce((newest, result) => Math.max(newest, result.ts), 0);
   const results = candidates.map((result) => ({ ...result, type: "turn" as const, score: result.hits + _recencyScore(result.ts, newestTs) + (options.cwd === result.cwd ? 0.8 : 0) })).sort((left, right) => right.score - left.score || right.ts - left.ts);
-  return options.diversify === false ? results.slice(0, options.topK ?? 5) : _diversify(results, options.topK ?? 5);
+  return results;
 }
 
 /** Hash the current raw turn evidence using the same representation captured during pinning. */
@@ -216,15 +232,4 @@ function _likePattern(term: string): string {
 /** Return a bounded recency bonus relative to the newest candidate timestamp. */
 function _recencyScore(ts: number, newestTs: number): number {
   return Math.max(0, 0.5 * (1 - (newestTs - ts) / RECENCY_WINDOW_MS));
-}
-
-/** Limit ranked output to prevent any one session from dominating the recall window. */
-function _diversify(results: RecallTurnResult[], topK: number): RecallTurnResult[] {
-  const counts = new Map<string, number>();
-  return results.filter((result) => {
-    const count = counts.get(result.session_id) ?? 0;
-    if (count >= MAX_TURNS_PER_SESSION) return false;
-    counts.set(result.session_id, count + 1);
-    return true;
-  }).slice(0, topK);
 }

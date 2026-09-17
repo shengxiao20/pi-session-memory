@@ -24,13 +24,29 @@ A local-first Pi extension that saves completed conversations to SQLite and give
 ## Installation
 
 ```bash
-pi install npm:pi-session-memory@0.2.0
+pi install npm:pi-session-memory
 ```
 
-To try the package without installing it permanently:
+This unpinned source can receive package-update checks at Pi startup. After a new release, update it explicitly with:
 
 ```bash
-pi -e npm:pi-session-memory@0.2.0
+pi update npm:pi-session-memory
+# or update every unpinned Pi extension
+pi update --extensions
+```
+
+Restart Pi after the update to load the new extension code.
+
+To try the latest package without installing it permanently:
+
+```bash
+pi -e npm:pi-session-memory
+```
+
+To intentionally pin a known version (which `pi update --extensions` skips), add its version explicitly:
+
+```bash
+pi install npm:pi-session-memory@0.2.0
 ```
 
 ## Usage
@@ -90,7 +106,7 @@ The extension instructs Pi to call `recall_memory` when a user explicitly asks a
 What did we decide about LangGraph last time?
 ```
 
-`recall_memory` is the discovery step: it searches active durable memories first, then ranks prior user prompts and assistant responses using the original request plus important entities. It supports optional exact project-directory, source, and time-window filters. Raw transcript candidates contain a short excerpt plus a session ID and turn index, rather than the entire turn context. When surrounding conversation is needed to answer accurately, Pi calls `fetch_session` with that session ID and the smallest useful turn-index range. When an initial literal search is empty, Pi may make up to two additional local searches using reasoned alternatives—such as abbreviations, expansions, aliases, translations, or likely task wording—while retaining the original filters.
+`recall_memory` is the discovery step: it searches and ranks the complete active durable-memory and raw-turn match set using the original request plus important entities. It supports optional exact project-directory, source, and time-window filters. Each tool response deliberately renders five results and reports `totalResults` and `nextOffset`; when more candidates are needed, Pi repeats the exact same query and filters with that explicit offset. This pages model context without silently limiting the local search. Raw transcript candidates contain a short excerpt plus a session ID and turn index, rather than the entire turn context. When surrounding conversation is needed to answer accurately, Pi calls `fetch_session` with that session ID and the smallest useful turn-index range. When an initial literal search is empty, Pi may make up to two additional local searches using reasoned alternatives—such as abbreviations, expansions, aliases, translations, or likely task wording—while retaining the original filters.
 
 When recall returns a durable memory, Pi is instructed to naturally communicate a relevant remembered conclusion and provenance when useful. If newer matching evidence makes that memory a freshness candidate, Pi explains the discrepancy and asks whether you want to keep, confirm, or replace it. It never claims a memory was updated or superseded without your explicit choice.
 

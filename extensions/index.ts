@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { writeTurn } from "../src/writer.ts";
 import { confirmMemory, createMemory, deleteMemory, deleteTurn, getMemoryHistory, getMemoryStats, getSession, listMemories, pinTurnAsMemory, supersedeMemory, type MemoryKind } from "../src/db.ts";
-import { recallMemories, formatRecallResults } from "../src/retriever.ts";
+import { recallMemories, formatRecallResults, paginateRecallResults } from "../src/retriever.ts";
 import { backfillAll, syncChangedHistory, type BackfillStats } from "../src/backfill.ts";
 import { migrateCodexProjectSessions, type ProjectSessionMigrationStats } from "../src/session-migration.ts";
 import { SESSION_MEMORY_HELP } from "../src/helper.ts";
@@ -57,13 +57,13 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("memory-search", {
-    description: "Search local memory with a literal query",
-    /** Search stored memory from a literal command query. */
+    description: "Search local memory with a literal query and show its first five results",
+    /** Search stored memory from a literal command query without rendering the entire match set. */
     handler: async (args, ctx) => {
       const query = args.trim();
       if (!query) throw new Error("Usage: /memory-search <query>");
-      const results = recallMemories({ query, topK: 5 });
-      ctx.ui.notify(formatRecallResults(results), "info");
+      const page = paginateRecallResults(recallMemories({ query }));
+      ctx.ui.notify(formatRecallResults(page.results, { query }, page), "info");
     },
   });
 
@@ -221,6 +221,10 @@ Session-expansion policy:
 2. Call \`fetch_session\` only when a candidate's surrounding conversation is necessary to answer accurately, verify a conclusion, resolve a conflict, or inspect context around a matched turn. Use its turn bounds to request the smallest useful range.
 3. Do not fetch a session when a durable memory or returned excerpt already answers the question. Do not fetch unrelated sessions merely because they were listed.
 
+Pagination policy:
+1. Each invocation returns five results. Local retrieval still evaluates every match before selecting that page.
+2. When the result reports a \`nextOffset\`, call \`recall_memory\` again with the exact same query and filters plus that offset only when more candidates are needed. Do not request pages merely to exhaust the result set.
+
 Extract 2–5 specific entities from the user's topic: project names, tool names, technologies, domain terms, or identifiers.`,
     promptSnippet: "Search cross-client Pi, Claude Code, and Codex history when the user asks about prior discussions or work.",
 
@@ -240,15 +244,17 @@ Extract 2–5 specific entities from the user's topic: project names, tool names
       cwd: Type.Optional(Type.String({ minLength: 1, description: "Exact project working directory to restrict results." })),
       after: Type.Optional(Type.Number({ description: "Inclusive Unix timestamp in milliseconds." })),
       before: Type.Optional(Type.Number({ description: "Inclusive Unix timestamp in milliseconds." })),
+      offset: Type.Optional(Type.Integer({ minimum: 0, description: "Zero-based result offset. Each call returns five results; use the returned nextOffset with identical search and filter inputs only when more candidates are needed." })),
     }),
 
-    /** Resolve an agent memory request into a scoped set of locally ranked conversations. */
-    async execute(_toolCallId, { query, entities, sources, cwd, after, before }) {
-      const results = recallMemories({ query, entities, sources, cwd, after, before, topK: 5 });
-      const text = formatRecallResults(results, { query, entities, sources, cwd, after, before });
+    /** Resolve an agent memory request into one explicit page of a fully evaluated local result set. */
+    async execute(_toolCallId, { query, entities, sources, cwd, after, before, offset }) {
+      const results = recallMemories({ query, entities, sources, cwd, after, before });
+      const page = paginateRecallResults(results, offset);
+      const text = formatRecallResults(page.results, { query, entities, sources, cwd, after, before }, page);
       return {
         content: [{ type: "text" as const, text }],
-        details: { query, entities, sources, cwd, after, before, resultCount: results.length },
+        details: { query, entities, sources, cwd, after, before, offset: page.offset, pageSize: page.results.length, totalResults: page.totalResults, nextOffset: page.nextOffset },
       };
     },
   });

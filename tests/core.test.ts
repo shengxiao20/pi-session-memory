@@ -9,7 +9,7 @@ process.env.MEMORY_DB_PATH = dbPath;
 process.env.HOME = historyHome;
 
 const { confirmMemory, createMemory, deleteMemory, deleteTurn, getDb, getMemoryHistory, getMemoryStats, getSession, insertTurn, listMemories, pinTurnAsMemory, supersedeMemory, upsertSession } = await import("../src/db.ts");
-const { formatRecallResults, recallMemories, recallTurns } = await import("../src/retriever.ts");
+const { formatRecallResults, paginateRecallResults, recallMemories, recallTurns, RECALL_PAGE_SIZE } = await import("../src/retriever.ts");
 const { HISTORY_SCHEMA_REFERENCE_VERSIONS, backfillAll } = await import("../src/backfill.ts");
 const { migrateCodexProjectSessions } = await import("../src/session-migration.ts");
 const { SessionManager } = await import("@earendil-works/pi-coding-agent");
@@ -132,16 +132,16 @@ for (const issue of backfillStats.issues) {
   assert.match(issue.error, new RegExp(`${issue.source} history import failed[\\s\\S]*supported reference ${HISTORY_SCHEMA_REFERENCE_VERSIONS[issue.source]}`));
 }
 assert.deepEqual(HISTORY_SCHEMA_REFERENCE_VERSIONS, { pi: "0.85.1", claude: "2.1.234", codex: "0.154.0" });
-assert.deepEqual(recallTurns(["schema normal"], 10).map((result) => result.turn_id).filter((turnId) => !turnId.startsWith("pi:") || turnId === "pi:pi-compatible:pi-user"), [
+assert.deepEqual(recallTurns(["schema normal"]).map((result) => result.turn_id).filter((turnId) => !turnId.startsWith("pi:") || turnId === "pi:pi-compatible:pi-user"), [
   "claude:claude-compatible:claude-user",
   "codex:codex-compatible:codex-user",
   "pi:pi-compatible:pi-user",
 ]);
-assert.equal(recallTurns(["schema legacy Codex"], 10).some((result) => result.turn_id === "codex:codex-legacy:legacy-codex-turn"), true);
+assert.equal(recallTurns(["schema legacy Codex"]).some((result) => result.turn_id === "codex:codex-legacy:legacy-codex-turn"), true);
 
-assert.deepEqual(recallTurns(["100%"], 10).map((result) => result.turn_id), ["pi:test:user-1"]);
-assert.deepEqual(recallTurns(["a_b"], 10).map((result) => result.turn_id), ["pi:test:user-1"]);
-const thinRecall = formatRecallResults(recallMemories({ query: "literal", topK: 1 }));
+assert.deepEqual(recallTurns(["100%"]).map((result) => result.turn_id), ["pi:test:user-1"]);
+assert.deepEqual(recallTurns(["a_b"]).map((result) => result.turn_id), ["pi:test:user-1"]);
+const thinRecall = formatRecallResults(recallMemories({ query: "literal" }));
 assert.match(thinRecall, /\*\*Session:\*\* pi:test · \*\*Turn:\*\* 0[\s\S]*\*\*Excerpt:\*\* literal 100% and a_b[\s\S]*Use `fetch_session`/);
 assert.doesNotMatch(thinRecall, /\*\*Assistant:\*\* first reply/);
 assert.match(
@@ -183,17 +183,23 @@ for (const [turnId, sessionId, index, ts, text] of [
 }
 
 assert.deepEqual(
-  recallMemories({ query: "deploy memory", cwd: "/workspace/project-a", topK: 10 }).map((result) => result.turn_id),
-  ["claude:project-a:user-3", "claude:project-a:user-2"],
+  recallMemories({ query: "deploy memory", cwd: "/workspace/project-a" }).map((result) => result.turn_id),
+  ["claude:project-a:user-3", "claude:project-a:user-2", "claude:project-a:user-1"],
 );
 assert.deepEqual(
-  recallMemories({ query: "deploy memory", sources: ["codex"], after: 4_000, topK: 10 }).map((result) => result.turn_id),
+  recallMemories({ query: "deploy memory", sources: ["codex"], after: 4_000 }).map((result) => result.turn_id),
   ["codex:project-b:user-1"],
 );
+const allDeployResults = recallMemories({ query: "deploy memory" });
 assert.deepEqual(
-  recallMemories({ query: "deploy memory", topK: 10 }).map((result) => result.type === "turn" ? result.turn_id : result.memory_id),
-  ["codex:project-b:user-1", "claude:project-a:user-3", "claude:project-a:user-2"],
+  allDeployResults.map((result) => result.type === "turn" ? result.turn_id : result.memory_id),
+  ["codex:project-b:user-1", "claude:project-a:user-3", "claude:project-a:user-2", "claude:project-a:user-1"],
 );
+const firstDeployPage = paginateRecallResults(allDeployResults);
+assert.equal(RECALL_PAGE_SIZE, 5);
+assert.deepEqual(firstDeployPage.results, allDeployResults);
+assert.deepEqual({ offset: firstDeployPage.offset, totalResults: firstDeployPage.totalResults, nextOffset: firstDeployPage.nextOffset }, { offset: 0, totalResults: 4, nextOffset: null });
+assert.throws(() => paginateRecallResults(allDeployResults, -1), /non-negative integer/);
 
 const explicitMemory = createMemory({
   memory_id: "memory:explicit",
@@ -209,12 +215,25 @@ assert.equal(pinnedMemory.source_turn_id, "claude:project-a:user-1");
 assert.equal(pinnedMemory.source_session_id, "claude:project-a");
 assert.ok(pinnedMemory.source_content_hash);
 assert.deepEqual(listMemories("decision").map((memory) => memory.memory_id), [explicitMemory.memory_id]);
-const deployRecall = recallMemories({ query: "deploy", cwd: "/workspace/project-a", topK: 10 });
+const deployRecall = recallMemories({ query: "deploy", cwd: "/workspace/project-a" });
 assert.deepEqual(
   deployRecall.map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
   [explicitMemory.memory_id, pinnedMemory.memory_id, "claude:project-a:user-3", "claude:project-a:user-2"],
 );
 assert.equal(deployRecall.find((result) => result.type === "memory" && result.memory_id === pinnedMemory.memory_id)?.freshness_candidate, true);
+const pagedDeployResults = [...deployRecall, ...deployRecall];
+const deployPage = paginateRecallResults(pagedDeployResults);
+assert.equal(deployPage.results.length, 5);
+assert.equal(deployPage.totalResults, 8);
+assert.equal(deployPage.nextOffset, 5);
+assert.match(
+  formatRecallResults(deployPage.results, { query: "deploy" }, deployPage),
+  /\*\*Results:\*\* 1–5 of 8 \(five results per page\)[\s\S]*More matching results exist\. To retrieve the next five, call `recall_memory` again with every same search\/filter parameter and `offset: 5`\./,
+);
+const finalDeployPage = paginateRecallResults(pagedDeployResults, 5);
+assert.equal(finalDeployPage.results.length, 3);
+assert.equal(finalDeployPage.nextOffset, null);
+
 const confirmedMemory = confirmMemory(pinnedMemory.memory_id);
 assert.ok(confirmedMemory.last_confirmed_at >= pinnedMemory.last_confirmed_at);
 const replacementMemory = createMemory({
@@ -228,7 +247,7 @@ const replacementMemory = createMemory({
 supersedeMemory(explicitMemory.memory_id, replacementMemory.memory_id);
 assert.deepEqual(getMemoryHistory(replacementMemory.memory_id).map((memory) => memory.memory_id), [explicitMemory.memory_id, replacementMemory.memory_id]);
 assert.deepEqual(
-  recallMemories({ query: "SQLite durable memory", cwd: "/workspace/project-a", topK: 10 }).filter((result) => result.type === "memory").map((result) => result.memory_id),
+  recallMemories({ query: "SQLite durable memory", cwd: "/workspace/project-a" }).filter((result) => result.type === "memory").map((result) => result.memory_id),
   [replacementMemory.memory_id],
 );
 assert.throws(() => supersedeMemory(explicitMemory.memory_id, replacementMemory.memory_id), /already superseded/);
@@ -252,12 +271,12 @@ assert.equal(insertTurn({
 }), true);
 const provenanceMemory = pinTurnAsMemory("pi:provenance:user-1");
 assert.deepEqual(
-  recallMemories({ query: "provenance deduplication", cwd: "/workspace/provenance", topK: 10 }).map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
+  recallMemories({ query: "provenance deduplication", cwd: "/workspace/provenance" }).map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
   [provenanceMemory.memory_id],
 );
 getDb().prepare("UPDATE turns SET reply_text = ? WHERE turn_id = ?").run("changed source evidence", "pi:provenance:user-1");
 assert.deepEqual(
-  recallMemories({ query: "provenance deduplication", cwd: "/workspace/provenance", topK: 10 }).map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
+  recallMemories({ query: "provenance deduplication", cwd: "/workspace/provenance" }).map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
   [provenanceMemory.memory_id, "pi:provenance:user-1"],
 );
 assert.deepEqual(
