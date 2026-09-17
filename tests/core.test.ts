@@ -220,7 +220,23 @@ assert.deepEqual(
   deployRecall.map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
   [explicitMemory.memory_id, pinnedMemory.memory_id, "claude:project-a:user-3", "claude:project-a:user-2"],
 );
-assert.equal(deployRecall.find((result) => result.type === "memory" && result.memory_id === pinnedMemory.memory_id)?.freshness_candidate, true);
+const pinnedDeployMemory = deployRecall.find((result) => result.type === "memory" && result.memory_id === pinnedMemory.memory_id)!;
+assert.equal(pinnedDeployMemory.source_session_changed, true);
+assert.equal(pinnedDeployMemory.freshness_candidate, true);
+assert.deepEqual(pinnedDeployMemory.freshness_evidence.map((evidence) => [evidence.turn_id, evidence.relation]), [
+  ["claude:project-a:user-3", "same_source_session_later"],
+  ["claude:project-a:user-2", "same_source_session_later"],
+]);
+const crossSessionDeployMemory = recallMemories({ query: "deploy" }).find((result) => result.type === "memory" && result.memory_id === pinnedMemory.memory_id)!;
+assert.deepEqual(crossSessionDeployMemory.freshness_evidence.map((evidence) => [evidence.turn_id, evidence.relation]), [
+  ["codex:project-b:user-1", "newer_cross_session"],
+  ["claude:project-a:user-3", "same_source_session_later"],
+  ["claude:project-a:user-2", "same_source_session_later"],
+]);
+assert.match(
+  formatRecallResults([crossSessionDeployMemory]),
+  /\*\*Source session changed:\*\* later turns exist; this alone does not mean the memory is stale\.[\s\S]*\*\*Newer evidence to compare:\*\*[\s\S]*newer cross session[\s\S]*Compare this evidence with the durable memory[\s\S]*Do not change the memory without the user's explicit choice\./,
+);
 const pagedDeployResults = [...deployRecall, ...deployRecall];
 const deployPage = paginateRecallResults(pagedDeployResults);
 assert.equal(deployPage.results.length, 5);
@@ -233,6 +249,40 @@ assert.match(
 const finalDeployPage = paginateRecallResults(pagedDeployResults, 5);
 assert.equal(finalDeployPage.results.length, 3);
 assert.equal(finalDeployPage.nextOffset, null);
+
+upsertSession({
+  session_id: "pi:source-activity",
+  source: "pi",
+  cwd: "/workspace/source-activity",
+  started_at: 7_000,
+  model_id: null,
+  jsonl_path: "/tmp/source-activity.jsonl",
+});
+assert.equal(insertTurn({
+  turn_id: "pi:source-activity:user-1",
+  session_id: "pi:source-activity",
+  turn_index: 0,
+  ts: 7_000,
+  user_text: "source activity baseline",
+  reply_text: "recorded decision",
+  tool_names: null,
+  user_message_id: "user-1",
+}), true);
+const sourceActivityMemory = pinTurnAsMemory("pi:source-activity:user-1");
+assert.equal(insertTurn({
+  turn_id: "pi:source-activity:user-2",
+  session_id: "pi:source-activity",
+  turn_index: 1,
+  ts: 8_000,
+  user_text: "unrelated later activity",
+  reply_text: "no matching evidence",
+  tool_names: null,
+  user_message_id: "user-2",
+}), true);
+const sourceActivityRecall = recallMemories({ query: "source activity baseline", cwd: "/workspace/source-activity" });
+const sourceActivityResult = sourceActivityRecall.find((result) => result.type === "memory" && result.memory_id === sourceActivityMemory.memory_id)!;
+assert.equal(sourceActivityResult.source_session_changed, true);
+assert.deepEqual(sourceActivityResult.freshness_evidence, []);
 
 const confirmedMemory = confirmMemory(pinnedMemory.memory_id);
 assert.ok(confirmedMemory.last_confirmed_at >= pinnedMemory.last_confirmed_at);
@@ -290,17 +340,17 @@ assert.equal(deleteMemory(pinnedMemory.memory_id), true);
 assert.equal(deleteMemory(pinnedMemory.memory_id), false);
 
 const stats = getMemoryStats();
-assert.equal(stats.sessions, 11);
-assert.equal(stats.turns, 13);
+assert.equal(stats.sessions, 12);
+assert.equal(stats.turns, 15);
 assert.deepEqual([...stats.sources].map(({ source, sessions, turns }) => ({ source, sessions, turns })), [
   { source: "claude", sessions: 2, turns: 3 },
   { source: "codex", sessions: 4, turns: 4 },
-  { source: "pi", sessions: 5, turns: 6 },
+  { source: "pi", sessions: 6, turns: 8 },
 ]);
 assert.equal(deleteTurn("codex:project-b:user-1"), true);
 assert.equal(deleteTurn("codex:project-b:user-1"), false);
 assert.equal(getDb().prepare("SELECT count(*) AS count FROM sessions WHERE session_id = 'codex:project-b'").get().count, 0);
-assert.equal(getDb().prepare("SELECT count(*) AS count FROM turns").get().count, 12);
+assert.equal(getDb().prepare("SELECT count(*) AS count FROM turns").get().count, 14);
 
 cleanup();
 console.log("core.test.ts: passed");

@@ -1,7 +1,7 @@
 {
   "name": "pi-session-memory",
-  "version": "0.2.0",
-  "description": "Persistent, local-first cross-session memory for Pi, with SQLite-backed recall across Pi, Claude Code, and Codex conversations",
+  "version": "0.3.0",
+  "description": "Persistent, local-first cross-session memory for Pi, with SQLite-backed paginated recall and freshness-evidence comparison across Pi, Claude Code, and Codex conversations",
   "keywords": [
     "pi-package"
   ],
@@ -15,6 +15,10 @@
     "url": "https://github.com/shengxiao20/pi-session-memory/issues"
   },
   "type": "module",
+  "files": [
+    "extensions/",
+    "src/"
+  ],
   "scripts": {
     "test": "tsx tests/core.test.ts"
   },

@@ -26,6 +26,16 @@ export interface RecallTurnResult {
   score: number;
 }
 
+export interface FreshnessEvidence {
+  turn_id: string;
+  session_id: string;
+  turn_index: number;
+  source: MemorySource;
+  ts: number;
+  relation: "same_source_session_later" | "newer_cross_session";
+  excerpt: string;
+}
+
 export interface RecallDurableMemoryResult {
   type: "memory";
   memory_id: string;
@@ -36,7 +46,9 @@ export interface RecallDurableMemoryResult {
   source_session_id: string | null;
   source_content_hash: string | null;
   source_turn_index: number | null;
+  source_session_changed: boolean;
   freshness_candidate: boolean;
+  freshness_evidence: FreshnessEvidence[];
   created_at: number;
   last_confirmed_at: number;
   importance: number;
@@ -67,13 +79,15 @@ export function recallTurns(entities: string[]): RecallTurnResult[] {
 export function recallMemories(options: RecallOptions): RecallResult[] {
   const durableMemories = _recallDurableMemories(options);
   const recalledTurns = _recallTurns(options);
-  const freshnessCandidates = new Set(
-    durableMemories
-      .filter((memory) => memory.source_session_id && memory.source_turn_index !== null)
-      .filter((memory) => recalledTurns.some((turn) => turn.session_id === memory.source_session_id && turn.turn_index > memory.source_turn_index!))
-      .map((memory) => memory.memory_id),
-  );
-  const memories = durableMemories.map((memory) => ({ ...memory, freshness_candidate: freshnessCandidates.has(memory.memory_id) }));
+  const memories = durableMemories.map((memory) => {
+    const freshness_evidence = _freshnessEvidence(memory, recalledTurns);
+    return {
+      ...memory,
+      source_session_changed: _sourceSessionChanged(memory),
+      freshness_candidate: freshness_evidence.length > 0,
+      freshness_evidence,
+    };
+  });
   const coveredSourceHashes = new Map(
     memories
       .filter((memory) => memory.source_turn_id && memory.source_content_hash)
@@ -105,7 +119,14 @@ export function formatRecallResults(results: RecallResult[], options?: Pick<Reca
       lines.push(`**Memory ID:** ${result.memory_id}`);
       if (result.source_turn_id) lines.push(`**Source turn:** ${result.source_turn_id}`);
       if (result.source_session_id) lines.push(`**Source session:** ${result.source_session_id}`);
-      if (result.freshness_candidate) lines.push("**Freshness:** newer matching turn exists in the source session; confirm or supersede this memory.");
+      if (result.source_session_changed) lines.push("**Source session changed:** later turns exist; this alone does not mean the memory is stale.");
+      if (result.freshness_candidate) {
+        lines.push("**Newer evidence to compare:**");
+        for (const evidence of result.freshness_evidence) {
+          lines.push(`- [${evidence.relation.replaceAll("_", " ")} · ${evidence.source} · ${new Date(evidence.ts).toLocaleString()} · ${evidence.session_id} · turn ${evidence.turn_index}] ${evidence.excerpt}`);
+        }
+        lines.push("Compare this evidence with the durable memory; it may confirm, supplement, conflict with, or replace it. Do not change the memory without the user's explicit choice.");
+      }
     } else {
       const date = new Date(result.ts).toLocaleString();
       lines.push(`### [${result.source} · ${date}]`);
@@ -167,7 +188,45 @@ function _recallDurableMemories(options: RecallOptions): RecallDurableMemoryResu
     WHERE ${filters.join(" AND ")}
     ORDER BY hits DESC, importance DESC, last_confirmed_at DESC
   `).all(...parameters, ...filterParameters)
-    .map((memory) => ({ ...memory, type: "memory" as const, freshness_candidate: false, score: memory.hits + memory.importance })) as RecallDurableMemoryResult[];
+    .map((memory) => ({ ...memory, type: "memory" as const, source_session_changed: false, freshness_candidate: false, freshness_evidence: [], score: memory.hits + memory.importance })) as RecallDurableMemoryResult[];
+}
+
+/** Detect later activity in the original session independently of this recall query and ranking. */
+function _sourceSessionChanged(memory: RecallDurableMemoryResult): boolean {
+  if (!memory.source_session_id || memory.source_turn_index === null) return false;
+  return getDb().prepare(`
+    SELECT 1 FROM turns
+    WHERE session_id = ? AND turn_index > ?
+    LIMIT 1
+  `).get(memory.source_session_id, memory.source_turn_index) !== undefined;
+}
+
+/** Associate each memory with all newer query-relevant turns without deciding their semantic relationship. */
+function _freshnessEvidence(memory: RecallDurableMemoryResult, recalledTurns: RecallTurnResult[]): FreshnessEvidence[] {
+  const baselineTs = _memoryEvidenceTimestamp(memory);
+  return recalledTurns
+    .filter((turn) => {
+      if (memory.source_session_id === turn.session_id && memory.source_turn_index !== null) {
+        return turn.turn_index > memory.source_turn_index;
+      }
+      return turn.ts > baselineTs;
+    })
+    .map((turn) => ({
+      turn_id: turn.turn_id,
+      session_id: turn.session_id,
+      turn_index: turn.turn_index,
+      source: turn.source,
+      ts: turn.ts,
+      relation: memory.source_session_id === turn.session_id ? "same_source_session_later" as const : "newer_cross_session" as const,
+      excerpt: _excerpt(turn.user_text || turn.reply_text),
+    }));
+}
+
+/** Use source-turn time when available; explicit memories become comparable from their creation time. */
+function _memoryEvidenceTimestamp(memory: RecallDurableMemoryResult): number {
+  if (!memory.source_turn_id) return memory.created_at;
+  const source = getDb().prepare("SELECT ts FROM turns WHERE turn_id = ?").get(memory.source_turn_id) as { ts: number } | undefined;
+  return source?.ts ?? memory.created_at;
 }
 
 /** Retrieve and rank locally stored turns using literal query terms and optional scopes. */

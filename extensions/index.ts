@@ -211,9 +211,9 @@ Invocation policy:
 
 Memory-aware response policy:
 1. Treat returned durable memories as reusable evidence, not as invisible context. In your natural-language answer, briefly state the relevant remembered conclusion and identify its source turn/session when that provenance matters to the answer.
-2. If a durable memory is marked **Freshness**, explain that newer matching evidence exists. Compare the old memory and the newer raw evidence; do not claim that the memory was updated, confirmed, or superseded unless the user explicitly chose that action.
-3. After explaining a meaningful freshness conflict or decision change, offer the user clear control: keep the current memory, confirm that it remains current, or create/pin a replacement and supersede the old memory. Ask which outcome they want before any persistent memory-management action.
-4. When an existing durable memory resolves the question and has no freshness signal, use it directly and avoid repeating its identical source turn. Do not mention memory mechanics unless provenance or freshness is useful to the user.
+2. A durable memory can report `source_session_changed` when its original session has later activity; this alone does not mean the memory is stale. When it includes **Newer evidence to compare**, compare that evidence with the memory: it may confirm, supplement, conflict with, or replace the old conclusion. Evidence can come from another newer session as well as the original session. Do not claim that the memory was updated, confirmed, or superseded unless the user explicitly chose that action.
+3. After explaining a meaningful comparison, offer clear control: keep the current memory, confirm that it remains current, or create/pin a replacement and supersede the old memory. Ask which outcome they want before any persistent memory-management action.
+4. When an existing durable memory resolves the question and has no comparison evidence, use it directly and avoid repeating its identical source turn. Do not mention memory mechanics unless provenance or evidence comparison is useful to the user.
 5. Slash commands are user-controlled management actions. Do not instruct the user to execute a command merely to answer their question; mention the relevant command only when they want to inspect, confirm, replace, or delete a memory.
 
 Session-expansion policy:

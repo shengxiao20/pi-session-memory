@@ -17,7 +17,7 @@ A local-first Pi extension that saves completed conversations to SQLite and give
 - Ranks results by literal relevance and recency, boosts an explicitly scoped project, and limits results to two turns per session for diversity.
 - Supports explicit durable memories, which remain after their source transcript turns are deleted.
 - Suppresses a raw turn from recall when an active durable memory contains the same unchanged pinned source evidence; other turns in that session remain eligible.
-- Flags a recalled durable memory when a newer matching turn exists in its source session, so users can explicitly confirm or supersede it without silent updates.
+- Associates recalled durable memories with later source-session activity and newer query-relevant evidence from the same or another session, so users can explicitly compare, confirm, or supersede them without silent updates.
 - Includes status, direct search, and permanent deletion commands so users can inspect and control local memory.
 - Uses only Node.js built-ins and SQLite (`node:sqlite`); no external runtime dependencies.
 
@@ -46,7 +46,7 @@ pi -e npm:pi-session-memory
 To intentionally pin a known version (which `pi update --extensions` skips), add its version explicitly:
 
 ```bash
-pi install npm:pi-session-memory@0.2.0
+pi install npm:pi-session-memory@0.3.0
 ```
 
 ## Usage
@@ -108,7 +108,7 @@ What did we decide about LangGraph last time?
 
 `recall_memory` is the discovery step: it searches and ranks the complete active durable-memory and raw-turn match set using the original request plus important entities. It supports optional exact project-directory, source, and time-window filters. Each tool response deliberately renders five results and reports `totalResults` and `nextOffset`; when more candidates are needed, Pi repeats the exact same query and filters with that explicit offset. This pages model context without silently limiting the local search. Raw transcript candidates contain a short excerpt plus a session ID and turn index, rather than the entire turn context. When surrounding conversation is needed to answer accurately, Pi calls `fetch_session` with that session ID and the smallest useful turn-index range. When an initial literal search is empty, Pi may make up to two additional local searches using reasoned alternatives—such as abbreviations, expansions, aliases, translations, or likely task wording—while retaining the original filters.
 
-When recall returns a durable memory, Pi is instructed to naturally communicate a relevant remembered conclusion and provenance when useful. If newer matching evidence makes that memory a freshness candidate, Pi explains the discrepancy and asks whether you want to keep, confirm, or replace it. It never claims a memory was updated or superseded without your explicit choice.
+When recall returns a durable memory, Pi is instructed to naturally communicate a relevant remembered conclusion and provenance when useful. It reports later activity in the memory's source session separately from newer query-relevant evidence to compare; that evidence can come from the original session or another newer session. Pi compares the old memory with the evidence as a possible confirmation, supplement, conflict, or replacement, then asks whether you want to keep, confirm, or replace it. It never claims a memory was updated or superseded without your explicit choice.
 
 ### Inspect and control memory
 
@@ -132,7 +132,7 @@ Recall and freshness explanations are automatic model behavior. The commands bel
 - `/remember <text>` saves an explicit durable `fact` scoped to the current project.
 - `/memory-pin <turn-id>` promotes a historical turn to a durable fact and records its source session, source turn ID, and a hash of the pinned evidence.
 - `/memory-list [kind]` displays durable memories, optionally limited to `preference`, `decision`, `fact`, `project_state`, `task`, or `lesson`.
-- Recall marks a durable memory as a freshness candidate when a newer query-matching turn appears in its source session; this is a review signal, not an automatic update.
+- Recall distinguishes later activity in a memory's source session from newer query-relevant evidence to compare. That evidence may come from the original session or another newer session; it is a review signal, not an automatic update.
 - `/memory-confirm <memory-id>` records that an active memory remains current by updating `last_confirmed_at`.
 - `/memory-supersede <old-memory-id> <new-memory-id>` explicitly replaces an active memory while retaining the old record for history; superseded memories are excluded from normal recall.
 - `/memory-history <memory-id>` displays the complete oldest-to-newest supersession chain.
@@ -168,12 +168,26 @@ Conversation data is stored and queried locally. This package does not add a rem
 
 | Version | Highlights |
 | --- | --- |
+| `0.3.0` | Replaces source-session-only freshness hints with provenance-linked evidence comparison across newer same-session and cross-session turns. This changes recall output and `freshness_candidate` semantics, but keeps tool inputs, slash commands, SQLite data, and explicit user-controlled memory mutation compatible; no migration is required. |
+| `0.2.1` | Pages `recall_memory` results in explicit five-result `offset` windows while still evaluating the complete local match set; npm publishing now uses a runtime-file allowlist. |
 | `0.2.0` | Added cross-client SQLite recall and durable-memory controls, plus native current-project Codex-to-Pi session migration for `/resume`. |
 | `0.1.4` | Automatically syncs new or changed Pi, Claude Code, and Codex history when Pi starts; `/memory-backfill` forces a full rescan. |
 | `0.1.3` | Improved package documentation and installation guidance. |
 | `0.1.2` | Added the MIT license. |
 | `0.1.1` | Added repository and package metadata for public distribution. |
 | `0.1.0` | Initial release: local SQLite memory, Pi live persistence, historical import, and `recall_memory` retrieval. |
+
+## Release compatibility review
+
+Before every significant release, review these compatibility surfaces and record any migration or versioning decision:
+
+1. **Install/package:** package name, Pi manifest, runtime dependencies, and published file allowlist.
+2. **Persistent data:** SQLite schema/migrations, JSONL-import compatibility, and any data rewrite.
+3. **Agent tools and commands:** tool names, input schemas, result/details contracts, and slash commands.
+4. **Retrieval and agent behavior:** ranking, pagination, freshness/evidence semantics, prompt policy, and automatic side effects.
+5. **Public TypeScript/module API:** exported types/functions and required result fields.
+
+The `0.3.0` review found no installation, SQLite, command, or tool-input breaking change. It intentionally changes recall result semantics and adds evidence fields, so it is released as a minor `0.x` version rather than a patch.
 
 ## Development
 
