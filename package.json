@@ -1,7 +1,7 @@
 {
   "name": "pi-session-memory",
-  "version": "0.4.0",
-  "description": "Persistent, local-first cross-session memory for Pi, with SQLite-backed paginated recall and freshness-evidence comparison across Pi, Claude Code, and Codex conversations",
+  "version": "0.6.0",
+  "description": "Local-first cross-session transcript search and native Pi session migration for Pi, Claude Code, and Codex",
   "keywords": [
     "pi-package"
   ],
@@ -20,7 +20,9 @@
     "src/"
   ],
   "scripts": {
-    "test": "tsx tests/core.test.ts"
+    "test": "tsx tests/core.test.ts",
+    "test:e2e": "tsx tests/e2e.test.ts",
+    "test:all": "npm test && npm run test:e2e"
   },
   "devDependencies": {
     "tsx": "^4.23.13"

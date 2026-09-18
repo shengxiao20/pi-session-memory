@@ -342,12 +342,24 @@ function _sha256(jsonlPath: string): string {
   return createHash("sha256").update(readFileSync(jsonlPath)).digest("hex");
 }
 
-/** Read every non-empty JSONL line into its ordered JSON record. */
-function _readJsonl(jsonlPath: string): any[] {
+/** Read every non-empty JSONL line into its ordered object record. */
+function _readJsonl(jsonlPath: string): Record<string, unknown>[] {
   return readFileSync(jsonlPath, "utf8")
     .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
+    .map((line, index) => ({ line: line.trim(), lineNumber: index + 1 }))
+    .filter(({ line }) => line.length > 0)
+    .map(({ line, lineNumber }) => {
+      let entry: unknown;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        throw new Error(`Invalid JSONL at line ${lineNumber}`);
+      }
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new Error(`Invalid JSONL record at line ${lineNumber}: expected an object`);
+      }
+      return entry as Record<string, unknown>;
+    });
 }
 
 /** Recursively discover JSONL session files under a source root. */

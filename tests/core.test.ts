@@ -3,428 +3,63 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const dbPath = join(tmpdir(), `pi-session-memory-${process.pid}.db`);
-const historyHome = join(tmpdir(), `pi-session-memory-home-${process.pid}`);
+const dbPath = join(tmpdir(), `pi-session-history-${process.pid}.db`);
+const historyHome = join(tmpdir(), `pi-session-history-home-${process.pid}`);
 process.env.MEMORY_DB_PATH = dbPath;
 process.env.HOME = historyHome;
 
-const { confirmMemory, createMemory, deleteMemory, deleteTurn, getDb, getMemoryHistory, getMemoryStats, getSession, insertTurn, listMemories, pinTurnAsMemory, supersedeMemory, upsertSession } = await import("../src/db.ts");
-const { formatRecallResults, paginateRecallResults, recallMemories, recallTurns, RECALL_PAGE_SIZE } = await import("../src/retriever.ts");
-const { HISTORY_SCHEMA_REFERENCE_VERSIONS, backfillAll } = await import("../src/backfill.ts");
+const { getDb, getHistoryStats, getSession, insertTurn, upsertSession } = await import("../src/db.ts");
+const { fetchSession } = await import("../src/fetch-session.ts");
+const { formatRecallResults, recallTurns } = await import("../src/retriever.ts");
+const { backfillAll, syncChangedHistory } = await import("../src/backfill.ts");
 const { migrateClaudeProjectSessions, migrateCodexProjectSessions } = await import("../src/session-migration.ts");
-const { SessionManager } = await import("@earendil-works/pi-coding-agent");
 
-/** Remove the temporary SQLite database and its WAL sidecar files after this test. */
-function cleanup(): void {
-  for (const suffix of ["", "-wal", "-shm"]) {
-    const path = `${dbPath}${suffix}`;
-    if (existsSync(path)) rmSync(path);
-  }
-  if (existsSync(historyHome)) rmSync(historyHome, { recursive: true });
-}
-
+function cleanup(): void { for (const suffix of ["", "-wal", "-shm"]) rmSync(`${dbPath}${suffix}`, { force: true }); rmSync(historyHome, { recursive: true, force: true }); }
 cleanup();
 
-assert.match(
-  readFileSync(join(process.cwd(), "extensions", "index.ts"), "utf8"),
-  /report \\`source_session_changed\\` when its original session has later activity/,
-);
-await import(`../extensions/index.ts?extension-load-regression=${Date.now()}`);
+const extensionSource = readFileSync(join(process.cwd(), "extensions", "index.ts"), "utf8");
+for (const toolName of ["recall_memory", "fetch_session", "get_memory_stats", "backfill_memory", "migrate_codex_project_sessions", "migrate_claude_project_sessions"]) assert.match(extensionSource, new RegExp(`name: "${toolName}"`));
+assert.match(extensionSource, /This is read-only and never creates a memory/);
 
-const featureMap = readFileSync(join(process.cwd(), "docs", "feature-map.md"), "utf8");
-assert.equal((featureMap.match(/```mermaid/g) ?? []).length, 6);
-assert.equal((featureMap.match(/^flowchart LR$/gm) ?? []).length, 6);
-for (const diagram of [
-  "## 1. Architecture overview",
-  "## 2. Ingestion and storage details",
-  "## 3. Recall and session expansion details",
-  "## 4. Durable memory lifecycle details",
-  "## 5. Native Claude Code/Codex-to-Pi migration details",
-  "## 6. Data boundaries and deletion semantics",
-]) {
-  assert.match(featureMap, new RegExp(diagram));
+upsertSession({ session_id: "claude:project-a", source: "claude", cwd: "/workspace/project-a", started_at: 1, model_id: null, jsonl_path: "/tmp/project-a.jsonl" });
+for (const [index, text] of ["deploy memory testing", "deploy memory release", "literal %_\\ marker"] .entries()) {
+  assert.equal(insertTurn({ turn_id: `claude:project-a:user-${index + 1}`, session_id: "claude:project-a", turn_index: index, ts: index + 1, user_text: text, reply_text: "confirmed", tool_names: null, user_message_id: `user-${index + 1}` }), true);
 }
-for (const feature of [
-  "Incremental history sync",
-  "Live Pi turn persistence",
-  "Durable memories",
-  "Cross-client recall",
-  "Session expansion",
-  "Native Claude Code/Codex-to-Pi migration",
-  "User commands",
-]) {
-  assert.match(featureMap, new RegExp(feature));
+assert.deepEqual(recallTurns({ entities: ["deploy"] }).map((turn) => turn.turn_id), ["claude:project-a:user-2", "claude:project-a:user-1"]);
+assert.deepEqual(recallTurns({ entities: ["%_\\"] }).map((turn) => turn.turn_id), ["claude:project-a:user-3"]);
+assert.deepEqual(recallTurns({ entities: ["deploy"], cwd: "/wrong" }), []);
+const deployResults = recallTurns({ entities: ["deploy"] });
+assert.equal(deployResults.length, 2);
+assert.match(formatRecallResults(deployResults, { entities: ["deploy"] }), /\*\*Results:\*\* 2[\s\S]*Matching raw conversation history[\s\S]*Source turn ID/);
+for (let index = 0; index < 6; index++) {
+  assert.equal(insertTurn({ turn_id: `claude:project-a:extra-${index}`, session_id: "claude:project-a", turn_index: index + 3, ts: index + 4, user_text: "complete result set", reply_text: "", tool_names: null, user_message_id: `extra-${index}` }), true);
 }
-
-upsertSession({
-  session_id: "pi:test",
-  source: "pi",
-  cwd: "/tmp",
-  started_at: 1,
-  model_id: null,
-  jsonl_path: "/tmp/test.jsonl",
-});
-
-assert.equal(insertTurn({
-  turn_id: "pi:test:user-1",
-  session_id: "pi:test",
-  turn_index: 0,
-  ts: 1,
-  user_text: "literal 100% and a_b",
-  reply_text: "first reply",
-  tool_names: null,
-  user_message_id: "user-1",
-}), true);
-
-assert.equal(insertTurn({
-  turn_id: "pi:test:user-2",
-  session_id: "pi:test",
-  turn_index: 1,
-  ts: 2,
-  user_text: "wildcard 100x and acb",
-  reply_text: "second reply",
-  tool_names: null,
-  user_message_id: "user-2",
-}), true);
-
-assert.equal(insertTurn({
-  turn_id: "pi:test:user-1",
-  session_id: "pi:test",
-  turn_index: 0,
-  ts: 1,
-  user_text: "duplicate",
-  reply_text: "duplicate",
-  tool_names: null,
-  user_message_id: "user-1",
-}), false);
-
-assert.throws(() => insertTurn({
-  turn_id: "pi:test:invalid-message-id",
-  session_id: "pi:test",
-  turn_index: 2,
-  ts: 3,
-  user_text: "invalid SQLite parameter",
-  reply_text: "",
-  tool_names: null,
-  user_message_id: undefined as unknown as string,
-}), /SQLite parameter 8 must be string, number, bigint, Uint8Array, or null; received undefined/);
+assert.equal(recallTurns({ entities: ["complete"] }).length, 6, "recall must return every match without a page cap");
+const fetched = fetchSession("claude:project-a", 1, 1);
+assert.deepEqual(fetched.stored.turns.map((turn) => turn.turn_id), ["claude:project-a:user-2"]);
+const initialStats = getHistoryStats();
+assert.equal(initialStats.sessions, 1);
+assert.equal(initialStats.turns, 9);
+assert.equal(initialStats.oldestTs, 1);
+assert.equal(initialStats.newestTs, 9);
+assert.deepEqual(initialStats.sources.map((source) => ({ ...source })), [{ source: "claude", sessions: 1, turns: 9 }]);
 
 mkdirSync(join(historyHome, ".pi", "agent", "sessions"), { recursive: true });
-mkdirSync(join(historyHome, ".claude", "projects"), { recursive: true });
-mkdirSync(join(historyHome, ".codex", "sessions"), { recursive: true });
-writeFileSync(join(historyHome, ".pi", "agent", "sessions", "invalid.jsonl"), [
-  JSON.stringify({ type: "session", id: "pi-invalid", timestamp: "2026-01-01T00:00:00.000Z", cwd: "/tmp" }),
-  JSON.stringify({ type: "message", message: { role: "user", timestamp: 1, content: [{ type: "text", text: "invalid Pi id" }] } }),
+const fixture = join(historyHome, ".pi", "agent", "sessions", "fixture.jsonl");
+writeFileSync(fixture, [
+  JSON.stringify({ type: "session", version: 3, id: "imported", timestamp: "2026-01-01T00:00:00.000Z", cwd: "/imported" }),
+  JSON.stringify({ type: "message", id: "u", parentId: null, timestamp: "2026-01-01T00:00:01.000Z", message: { role: "user", timestamp: 1, content: [{ type: "text", text: "import me" }] } }),
+  JSON.stringify({ type: "message", id: "a", parentId: "u", timestamp: "2026-01-01T00:00:02.000Z", message: { role: "assistant", timestamp: 2, content: [{ type: "text", text: "imported reply" }] } }),
 ].join("\n"));
-writeFileSync(join(historyHome, ".pi", "agent", "sessions", "valid.jsonl"), [
-  JSON.stringify({ type: "session", id: "pi-compatible", timestamp: "2026-01-01T00:00:00.000Z", cwd: "/tmp" }),
-  JSON.stringify({ type: "message", id: "pi-user", message: { role: "user", timestamp: 1, content: [{ type: "text", text: "schema normal Pi request" }] } }),
-  JSON.stringify({ type: "message", id: "pi-assistant", message: { role: "assistant", timestamp: 2, content: [{ type: "text", text: "schema normal Pi reply" }] } }),
-].join("\n"));
-writeFileSync(join(historyHome, ".claude", "projects", "invalid.jsonl"), [
-  JSON.stringify({ type: "user", sessionId: "claude-invalid", cwd: "/tmp", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: "invalid Claude id" } }),
-].join("\n"));
-writeFileSync(join(historyHome, ".claude", "projects", "valid-old-schema.jsonl"), [
-  JSON.stringify({ type: "user", id: "claude-user", sessionId: "claude-compatible", cwd: "/tmp", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: "schema normal Claude request" } }),
-  JSON.stringify({ type: "assistant", id: "claude-assistant", sessionId: "claude-compatible", cwd: "/tmp", timestamp: "2026-01-01T00:00:01.000Z", message: { role: "assistant", content: [{ type: "text", text: "schema normal Claude reply" }] } }),
-].join("\n"));
-writeFileSync(join(historyHome, ".claude", "projects", "other-project.jsonl"), [
-  JSON.stringify({ type: "user", id: "claude-other-user", sessionId: "claude-other-project", cwd: "/other-project", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: "other Claude project request" } }),
-  JSON.stringify({ type: "assistant", id: "claude-other-assistant", sessionId: "claude-other-project", cwd: "/other-project", timestamp: "2026-01-01T00:00:01.000Z", message: { role: "assistant", content: [{ type: "text", text: "other Claude project reply" }] } }),
-].join("\n"));
-writeFileSync(join(historyHome, ".codex", "sessions", "invalid.jsonl"), [
-  JSON.stringify({ type: "session_meta", payload: { session_id: "codex-invalid", cwd: "/tmp", timestamp: "2026-01-01T00:00:00.000Z" } }),
-  JSON.stringify({ type: "response_item", timestamp: "2026-01-01T00:00:00.000Z", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "invalid Codex id" }] } }),
-].join("\n"));
-writeFileSync(join(historyHome, ".codex", "sessions", "valid.jsonl"), [
-  JSON.stringify({ type: "session_meta", payload: { session_id: "codex-compatible", cwd: "/tmp", timestamp: "2026-01-01T00:00:00.000Z" } }),
-  JSON.stringify({ type: "response_item", timestamp: "2026-01-01T00:00:00.000Z", payload: { type: "message", id: "codex-user", role: "user", content: [{ type: "input_text", text: "schema normal Codex request" }] } }),
-  JSON.stringify({ type: "response_item", timestamp: "2026-01-01T00:00:01.000Z", payload: { type: "message", id: "codex-assistant", role: "assistant", content: [{ type: "output_text", text: "schema normal Codex reply" }] } }),
-].join("\n"));
-writeFileSync(join(historyHome, ".codex", "sessions", "valid-legacy.jsonl"), [
-  JSON.stringify({ type: "session_meta", payload: { session_id: "codex-legacy", cwd: "/tmp", timestamp: "2026-07-17T03:03:23.000Z" } }),
-  JSON.stringify({ type: "response_item", timestamp: "2026-07-17T03:03:24.000Z", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "schema legacy Codex request" }], internal_chat_message_metadata_passthrough: { turn_id: "legacy-codex-turn" } } }),
-  JSON.stringify({ type: "response_item", timestamp: "2026-07-17T03:03:25.000Z", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "schema legacy Codex reply" }], internal_chat_message_metadata_passthrough: { turn_id: "legacy-codex-turn" } } }),
-].join("\n"));
-writeFileSync(join(historyHome, ".codex", "sessions", "other-project.jsonl"), [
-  JSON.stringify({ type: "session_meta", payload: { session_id: "codex-other-project", cwd: "/other-project", timestamp: "2026-01-01T00:00:00.000Z" } }),
-  JSON.stringify({ type: "response_item", timestamp: "2026-01-01T00:00:00.000Z", payload: { type: "message", id: "codex-other-user", role: "user", content: [{ type: "input_text", text: "other project request" }] } }),
-  JSON.stringify({ type: "response_item", timestamp: "2026-01-01T00:00:01.000Z", payload: { type: "message", id: "codex-other-assistant", role: "assistant", content: [{ type: "output_text", text: "other project reply" }] } }),
-].join("\n"));
-const claudeMigrationStats = migrateClaudeProjectSessions("/tmp");
-assert.deepEqual({ scannedFiles: claudeMigrationStats.scannedFiles, migratedSessions: claudeMigrationStats.migratedSessions, skippedSessions: claudeMigrationStats.skippedSessions, migratedMessages: claudeMigrationStats.migratedMessages, issues: claudeMigrationStats.issues.length }, { scannedFiles: 3, migratedSessions: 1, skippedSessions: 0, migratedMessages: 2, issues: 1 });
-assert.match(claudeMigrationStats.issues[0].error, /no stable native ID/);
-const migratedClaudeSessionFiles = [...(await SessionManager.list("/tmp"))].filter((session) => session.name?.startsWith("Migrated from Claude Code:"));
-assert.deepEqual(migratedClaudeSessionFiles.map((session) => session.name), ["Migrated from Claude Code: claude-compatible"]);
-const migratedClaude = SessionManager.open(migratedClaudeSessionFiles[0].path);
-assert.deepEqual(migratedClaude.getBranch().filter((entry) => entry.type === "message").map((entry) => entry.message.role), ["user", "assistant"]);
-assert.equal(migrateClaudeProjectSessions("/tmp").skippedSessions, 1);
-assert.equal((await SessionManager.list("/other-project")).some((session) => session.name === "Migrated from Claude Code: claude-other-project"), false);
+assert.equal(syncChangedHistory().turns, 1);
+assert.equal(syncChangedHistory().skippedFiles, 1);
+assert.equal(backfillAll().scannedFiles, 1);
+assert.ok(getSession("pi:imported").turns.length === 1);
 
-const migrationStats = migrateCodexProjectSessions("/tmp");
-assert.deepEqual({ scannedFiles: migrationStats.scannedFiles, migratedSessions: migrationStats.migratedSessions, skippedSessions: migrationStats.skippedSessions, migratedMessages: migrationStats.migratedMessages, issues: migrationStats.issues.length }, { scannedFiles: 4, migratedSessions: 2, skippedSessions: 0, migratedMessages: 4, issues: 1 });
-assert.match(migrationStats.issues[0].error, /no stable native ID/);
-const migratedSessionFiles = [...(await SessionManager.list("/tmp"))].filter((session) => session.name?.startsWith("Migrated from Codex:"));
-assert.deepEqual(migratedSessionFiles.map((session) => session.name).sort(), ["Migrated from Codex: codex-compatible", "Migrated from Codex: codex-legacy"]);
-const migrated = SessionManager.open(migratedSessionFiles.find((session) => session.name === "Migrated from Codex: codex-compatible")!.path);
-assert.deepEqual(migrated.getBranch().filter((entry) => entry.type === "message").map((entry) => entry.message.role), ["user", "assistant"]);
-assert.equal(migrateCodexProjectSessions("/tmp").skippedSessions, 2);
-assert.equal((await SessionManager.list("/other-project")).some((session) => session.name === "Migrated from Codex: codex-other-project"), false);
-const backfillStats = backfillAll();
-assert.deepEqual({ pi: backfillStats.pi, claude: backfillStats.claude, codex: backfillStats.codex, turns: backfillStats.turns }, { pi: 4, claude: 2, codex: 3, turns: 9 });
-assert.deepEqual(backfillStats.issues.map((issue) => issue.source), ["pi", "claude", "codex"]);
-for (const issue of backfillStats.issues) {
-  assert.match(issue.error, new RegExp(`${issue.source} history import failed[\\s\\S]*supported reference ${HISTORY_SCHEMA_REFERENCE_VERSIONS[issue.source]}`));
-}
-assert.deepEqual(HISTORY_SCHEMA_REFERENCE_VERSIONS, { pi: "0.85.1", claude: "2.1.234", codex: "0.154.0" });
-assert.deepEqual(recallTurns(["schema normal"]).map((result) => result.turn_id).filter((turnId) => !turnId.startsWith("pi:") || turnId === "pi:pi-compatible:pi-user"), [
-  "claude:claude-compatible:claude-user",
-  "codex:codex-compatible:codex-user",
-  "pi:pi-compatible:pi-user",
-]);
-assert.equal(recallTurns(["schema legacy Codex"]).some((result) => result.turn_id === "codex:codex-legacy:legacy-codex-turn"), true);
-
-assert.deepEqual(recallTurns(["100%"]).map((result) => result.turn_id), ["pi:test:user-1"]);
-assert.deepEqual(recallTurns(["a_b"]).map((result) => result.turn_id), ["pi:test:user-1"]);
-assert.equal(insertTurn({
-  turn_id: "pi:test:user-3",
-  session_id: "pi:test",
-  turn_index: 2,
-  ts: 3,
-  user_text: "发现 bug，已经 fix",
-  reply_text: "英文问题已处理",
-  tool_names: null,
-  user_message_id: "user-3",
-}), true);
-assert.equal(insertTurn({
-  turn_id: "pi:test:user-4",
-  session_id: "pi:test",
-  turn_index: 3,
-  ts: 4,
-  user_text: "发现缺陷，已经修复",
-  reply_text: "中文问题已处理",
-  tool_names: null,
-  user_message_id: "user-4",
-}), true);
-assert.deepEqual(recallTurns(["bug"]).map((result) => result.turn_id), ["pi:test:user-3"]);
-assert.deepEqual(recallTurns(["缺陷"]).map((result) => result.turn_id), ["pi:test:user-4"]);
-assert.deepEqual(recallTurns(["fix"]).map((result) => result.turn_id), ["pi:test:user-3"]);
-assert.deepEqual(recallTurns(["修复"]).map((result) => result.turn_id), ["pi:test:user-4"]);
-const thinRecall = formatRecallResults(recallMemories({ entities: ["literal"] }));
-assert.match(thinRecall, /\*\*Session:\*\* pi:test · \*\*Turn:\*\* 0[\s\S]*\*\*Excerpt:\*\* literal 100% and a_b[\s\S]*Use `fetch_session`/);
-assert.doesNotMatch(thinRecall, /\*\*Assistant:\*\* first reply/);
-assert.match(
-  formatRecallResults([], { entities: ["BTP", "Business Technology Platform"], sources: ["pi"], cwd: "/tmp" }),
-  /\*\*Search entities:\*\* `BTP`, `Business Technology Platform`[\s\S]*\*\*Scope:\*\* sources: pi · cwd: `\/tmp`[\s\S]*No relevant past conversations found\./,
-);
-upsertSession({
-  session_id: "claude:project-a",
-  source: "claude",
-  cwd: "/workspace/project-a",
-  started_at: 10,
-  model_id: null,
-  jsonl_path: "/tmp/project-a.jsonl",
-});
-upsertSession({
-  session_id: "codex:project-b",
-  source: "codex",
-  cwd: "/workspace/project-b",
-  started_at: 20,
-  model_id: null,
-  jsonl_path: "/tmp/project-b.jsonl",
-});
-for (const [turnId, sessionId, index, ts, text] of [
-  ["claude:project-a:user-1", "claude:project-a", 0, 1_000, "deploy memory ranking"],
-  ["claude:project-a:user-2", "claude:project-a", 1, 2_000, "deploy memory testing"],
-  ["claude:project-a:user-3", "claude:project-a", 2, 3_000, "deploy memory release"],
-  ["codex:project-b:user-1", "codex:project-b", 0, 4_000, "deploy memory ranking"],
-] as Array<[string, string, number, number, string]>) {
-  assert.equal(insertTurn({
-    turn_id: turnId,
-    session_id: sessionId,
-    turn_index: index,
-    ts,
-    user_text: text,
-    reply_text: "confirmed",
-    tool_names: null,
-    user_message_id: turnId.split(":").at(-1)!,
-  }), true);
-}
-
-assert.deepEqual(
-  recallMemories({ entities: ["deploy", "memory"], cwd: "/workspace/project-a" }).map((result) => result.turn_id),
-  ["claude:project-a:user-3", "claude:project-a:user-2", "claude:project-a:user-1"],
-);
-assert.deepEqual(
-  recallMemories({ entities: ["deploy", "memory"], sources: ["codex"], after: 4_000 }).map((result) => result.turn_id),
-  ["codex:project-b:user-1"],
-);
-const allDeployResults = recallMemories({ entities: ["deploy", "memory"] });
-assert.deepEqual(
-  recallMemories({ entities: ["deploy", "ranking"] }).map((result) => result.type === "turn" ? result.turn_id : result.memory_id),
-  ["codex:project-b:user-1", "claude:project-a:user-1", "claude:project-a:user-3", "claude:project-a:user-2"],
-  "entities must be OR alternatives, with results matching more entities ranked first",
-);
-assert.deepEqual(
-  allDeployResults.map((result) => result.type === "turn" ? result.turn_id : result.memory_id),
-  ["codex:project-b:user-1", "claude:project-a:user-3", "claude:project-a:user-2", "claude:project-a:user-1"],
-);
-const firstDeployPage = paginateRecallResults(allDeployResults);
-assert.equal(RECALL_PAGE_SIZE, 5);
-assert.deepEqual(firstDeployPage.results, allDeployResults);
-assert.deepEqual({ offset: firstDeployPage.offset, totalResults: firstDeployPage.totalResults, nextOffset: firstDeployPage.nextOffset }, { offset: 0, totalResults: 4, nextOffset: null });
-assert.throws(() => paginateRecallResults(allDeployResults, -1), /non-negative integer/);
-
-const explicitMemory = createMemory({
-  memory_id: "memory:explicit",
-  kind: "decision",
-  content: "Use SQLite durable memory for deploy decisions.",
-  project_key: "/workspace/project-a",
-  source_turn_id: null,
-  importance: 2,
-  created_at: 5_000,
-});
-const pinnedMemory = pinTurnAsMemory("claude:project-a:user-1");
-assert.equal(pinnedMemory.source_turn_id, "claude:project-a:user-1");
-assert.equal(pinnedMemory.source_session_id, "claude:project-a");
-assert.ok(pinnedMemory.source_content_hash);
-assert.deepEqual(listMemories("decision").map((memory) => memory.memory_id), [explicitMemory.memory_id]);
-const deployRecall = recallMemories({ entities: ["deploy"], cwd: "/workspace/project-a" });
-assert.deepEqual(
-  deployRecall.map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
-  [explicitMemory.memory_id, pinnedMemory.memory_id, "claude:project-a:user-3", "claude:project-a:user-2"],
-);
-const pinnedDeployMemory = deployRecall.find((result) => result.type === "memory" && result.memory_id === pinnedMemory.memory_id)!;
-assert.equal(pinnedDeployMemory.source_session_changed, true);
-assert.equal(pinnedDeployMemory.freshness_candidate, true);
-assert.deepEqual(pinnedDeployMemory.freshness_evidence.map((evidence) => [evidence.turn_id, evidence.relation]), [
-  ["claude:project-a:user-3", "same_source_session_later"],
-  ["claude:project-a:user-2", "same_source_session_later"],
-]);
-const crossSessionDeployMemory = recallMemories({ entities: ["deploy"] }).find((result) => result.type === "memory" && result.memory_id === pinnedMemory.memory_id)!;
-assert.deepEqual(crossSessionDeployMemory.freshness_evidence.map((evidence) => [evidence.turn_id, evidence.relation]), [
-  ["codex:project-b:user-1", "newer_cross_session"],
-  ["claude:project-a:user-3", "same_source_session_later"],
-  ["claude:project-a:user-2", "same_source_session_later"],
-]);
-assert.match(
-  formatRecallResults([crossSessionDeployMemory]),
-  /\*\*Source session changed:\*\* later turns exist; this alone does not mean the memory is stale\.[\s\S]*\*\*Newer evidence to compare:\*\*[\s\S]*newer cross session[\s\S]*Compare this evidence with the durable memory[\s\S]*Do not change the memory without the user's explicit choice\./,
-);
-const pagedDeployResults = [...deployRecall, ...deployRecall];
-const deployPage = paginateRecallResults(pagedDeployResults);
-assert.equal(deployPage.results.length, 5);
-assert.equal(deployPage.totalResults, 8);
-assert.equal(deployPage.nextOffset, 5);
-assert.match(
-  formatRecallResults(deployPage.results, { entities: ["deploy"] }, deployPage),
-  /\*\*Results:\*\* 1–5 of 8 \(five results per page\)[\s\S]*More matching results exist\. To retrieve the next five, call `recall_memory` again with every same search\/filter parameter and `offset: 5`\./,
-);
-const finalDeployPage = paginateRecallResults(pagedDeployResults, 5);
-assert.equal(finalDeployPage.results.length, 3);
-assert.equal(finalDeployPage.nextOffset, null);
-
-upsertSession({
-  session_id: "pi:source-activity",
-  source: "pi",
-  cwd: "/workspace/source-activity",
-  started_at: 7_000,
-  model_id: null,
-  jsonl_path: "/tmp/source-activity.jsonl",
-});
-assert.equal(insertTurn({
-  turn_id: "pi:source-activity:user-1",
-  session_id: "pi:source-activity",
-  turn_index: 0,
-  ts: 7_000,
-  user_text: "source activity baseline",
-  reply_text: "recorded decision",
-  tool_names: null,
-  user_message_id: "user-1",
-}), true);
-const sourceActivityMemory = pinTurnAsMemory("pi:source-activity:user-1");
-assert.equal(insertTurn({
-  turn_id: "pi:source-activity:user-2",
-  session_id: "pi:source-activity",
-  turn_index: 1,
-  ts: 8_000,
-  user_text: "unrelated later activity",
-  reply_text: "no matching evidence",
-  tool_names: null,
-  user_message_id: "user-2",
-}), true);
-const sourceActivityRecall = recallMemories({ entities: ["source activity baseline"], cwd: "/workspace/source-activity" });
-const sourceActivityResult = sourceActivityRecall.find((result) => result.type === "memory" && result.memory_id === sourceActivityMemory.memory_id)!;
-assert.equal(sourceActivityResult.source_session_changed, true);
-assert.deepEqual(sourceActivityResult.freshness_evidence, []);
-
-const confirmedMemory = confirmMemory(pinnedMemory.memory_id);
-assert.ok(confirmedMemory.last_confirmed_at >= pinnedMemory.last_confirmed_at);
-const replacementMemory = createMemory({
-  memory_id: "memory:replacement",
-  kind: "decision",
-  content: "Use reviewed SQLite durable memory for deploy decisions.",
-  project_key: "/workspace/project-a",
-  source_turn_id: null,
-  importance: 2,
-});
-supersedeMemory(explicitMemory.memory_id, replacementMemory.memory_id);
-assert.deepEqual(getMemoryHistory(replacementMemory.memory_id).map((memory) => memory.memory_id), [explicitMemory.memory_id, replacementMemory.memory_id]);
-assert.deepEqual(
-  recallMemories({ entities: ["SQLite durable memory"], cwd: "/workspace/project-a" }).filter((result) => result.type === "memory").map((result) => result.memory_id),
-  [replacementMemory.memory_id],
-);
-assert.throws(() => supersedeMemory(explicitMemory.memory_id, replacementMemory.memory_id), /already superseded/);
-upsertSession({
-  session_id: "pi:provenance",
-  source: "pi",
-  cwd: "/workspace/provenance",
-  started_at: 6_000,
-  model_id: null,
-  jsonl_path: "/tmp/provenance.jsonl",
-});
-assert.equal(insertTurn({
-  turn_id: "pi:provenance:user-1",
-  session_id: "pi:provenance",
-  turn_index: 0,
-  ts: 6_000,
-  user_text: "provenance deduplication",
-  reply_text: "original source evidence",
-  tool_names: null,
-  user_message_id: "user-1",
-}), true);
-const provenanceMemory = pinTurnAsMemory("pi:provenance:user-1");
-assert.deepEqual(
-  recallMemories({ entities: ["provenance deduplication"], cwd: "/workspace/provenance" }).map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
-  [provenanceMemory.memory_id],
-);
-getDb().prepare("UPDATE turns SET reply_text = ? WHERE turn_id = ?").run("changed source evidence", "pi:provenance:user-1");
-assert.deepEqual(
-  recallMemories({ entities: ["provenance deduplication"], cwd: "/workspace/provenance" }).map((result) => result.type === "memory" ? result.memory_id : result.turn_id),
-  [provenanceMemory.memory_id, "pi:provenance:user-1"],
-);
-assert.deepEqual(
-  getSession("claude:project-a", 1, 2).turns.map((turn) => [turn.turn_index, turn.turn_id]),
-  [[1, "claude:project-a:user-2"], [2, "claude:project-a:user-3"]],
-);
-assert.throws(() => getSession("missing:session"), /Memory session not found/);
-assert.equal(deleteTurn("claude:project-a:user-1"), true);
-assert.equal(listMemories().some((memory) => memory.memory_id === pinnedMemory.memory_id), true);
-assert.equal(deleteMemory(pinnedMemory.memory_id), true);
-assert.equal(deleteMemory(pinnedMemory.memory_id), false);
-
-const stats = getMemoryStats();
-assert.equal(stats.sessions, 14);
-assert.equal(stats.turns, 19);
-assert.deepEqual([...stats.sources].map(({ source, sessions, turns }) => ({ source, sessions, turns })), [
-  { source: "claude", sessions: 3, turns: 4 },
-  { source: "codex", sessions: 4, turns: 4 },
-  { source: "pi", sessions: 7, turns: 11 },
-]);
-assert.equal(deleteTurn("codex:project-b:user-1"), true);
-assert.equal(deleteTurn("codex:project-b:user-1"), false);
-assert.equal(getDb().prepare("SELECT count(*) AS count FROM sessions WHERE session_id = 'codex:project-b'").get().count, 0);
-assert.equal(getDb().prepare("SELECT count(*) AS count FROM turns").get().count, 18);
+const projectCwd = join(historyHome, "project");
+mkdirSync(projectCwd, { recursive: true });
+assert.equal(migrateClaudeProjectSessions(projectCwd).migratedSessions, 0);
+assert.equal(migrateCodexProjectSessions(projectCwd).migratedSessions, 0);
 
 cleanup();
 console.log("core.test.ts: passed");

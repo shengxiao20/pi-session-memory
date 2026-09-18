@@ -2,7 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { upsertSession, insertTurn } from "./db.ts";
 
-/** Persist the latest Pi user request and all following assistant output as one turn. */
+/** Persist the latest Pi user request and assistant output until the next user message as one turn. */
 export function writeTurn(ctx: ExtensionContext): void {
   const sessionManager = ctx.sessionManager;
   const sessionId = `pi:${sessionManager.getSessionId()}`;
@@ -19,7 +19,10 @@ export function writeTurn(ctx: ExtensionContext): void {
   const toolNames: string[] = [];
   const userIndex = branch.indexOf(userEntry);
   for (const entry of branch.slice(userIndex + 1)) {
-    if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+    if (entry.type !== "message") continue;
+    // A later user message begins a different turn and must never be aggregated.
+    if (entry.message.role === "user") break;
+    if (entry.message.role !== "assistant") continue;
     const message = entry.message as AssistantMessage;
     for (const block of message.content) {
       if (block.type === "text" && block.text.trim()) {
