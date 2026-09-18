@@ -11,7 +11,7 @@ process.env.HOME = historyHome;
 const { confirmMemory, createMemory, deleteMemory, deleteTurn, getDb, getMemoryHistory, getMemoryStats, getSession, insertTurn, listMemories, pinTurnAsMemory, supersedeMemory, upsertSession } = await import("../src/db.ts");
 const { formatRecallResults, paginateRecallResults, recallMemories, recallTurns, RECALL_PAGE_SIZE } = await import("../src/retriever.ts");
 const { HISTORY_SCHEMA_REFERENCE_VERSIONS, backfillAll } = await import("../src/backfill.ts");
-const { migrateCodexProjectSessions } = await import("../src/session-migration.ts");
+const { migrateClaudeProjectSessions, migrateCodexProjectSessions } = await import("../src/session-migration.ts");
 const { SessionManager } = await import("@earendil-works/pi-coding-agent");
 
 /** Remove the temporary SQLite database and its WAL sidecar files after this test. */
@@ -30,6 +30,31 @@ assert.match(
   /report \\`source_session_changed\\` when its original session has later activity/,
 );
 await import(`../extensions/index.ts?extension-load-regression=${Date.now()}`);
+
+const featureMap = readFileSync(join(process.cwd(), "docs", "feature-map.md"), "utf8");
+assert.equal((featureMap.match(/```mermaid/g) ?? []).length, 6);
+assert.equal((featureMap.match(/^flowchart LR$/gm) ?? []).length, 6);
+for (const diagram of [
+  "## 1. Architecture overview",
+  "## 2. Ingestion and storage details",
+  "## 3. Recall and session expansion details",
+  "## 4. Durable memory lifecycle details",
+  "## 5. Native Claude Code/Codex-to-Pi migration details",
+  "## 6. Data boundaries and deletion semantics",
+]) {
+  assert.match(featureMap, new RegExp(diagram));
+}
+for (const feature of [
+  "Incremental history sync",
+  "Live Pi turn persistence",
+  "Durable memories",
+  "Cross-client recall",
+  "Session expansion",
+  "Native Claude Code/Codex-to-Pi migration",
+  "User commands",
+]) {
+  assert.match(featureMap, new RegExp(feature));
+}
 
 upsertSession({
   session_id: "pi:test",
@@ -103,6 +128,10 @@ writeFileSync(join(historyHome, ".claude", "projects", "valid-old-schema.jsonl")
   JSON.stringify({ type: "user", id: "claude-user", sessionId: "claude-compatible", cwd: "/tmp", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: "schema normal Claude request" } }),
   JSON.stringify({ type: "assistant", id: "claude-assistant", sessionId: "claude-compatible", cwd: "/tmp", timestamp: "2026-01-01T00:00:01.000Z", message: { role: "assistant", content: [{ type: "text", text: "schema normal Claude reply" }] } }),
 ].join("\n"));
+writeFileSync(join(historyHome, ".claude", "projects", "other-project.jsonl"), [
+  JSON.stringify({ type: "user", id: "claude-other-user", sessionId: "claude-other-project", cwd: "/other-project", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: "other Claude project request" } }),
+  JSON.stringify({ type: "assistant", id: "claude-other-assistant", sessionId: "claude-other-project", cwd: "/other-project", timestamp: "2026-01-01T00:00:01.000Z", message: { role: "assistant", content: [{ type: "text", text: "other Claude project reply" }] } }),
+].join("\n"));
 writeFileSync(join(historyHome, ".codex", "sessions", "invalid.jsonl"), [
   JSON.stringify({ type: "session_meta", payload: { session_id: "codex-invalid", cwd: "/tmp", timestamp: "2026-01-01T00:00:00.000Z" } }),
   JSON.stringify({ type: "response_item", timestamp: "2026-01-01T00:00:00.000Z", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "invalid Codex id" }] } }),
@@ -122,6 +151,16 @@ writeFileSync(join(historyHome, ".codex", "sessions", "other-project.jsonl"), [
   JSON.stringify({ type: "response_item", timestamp: "2026-01-01T00:00:00.000Z", payload: { type: "message", id: "codex-other-user", role: "user", content: [{ type: "input_text", text: "other project request" }] } }),
   JSON.stringify({ type: "response_item", timestamp: "2026-01-01T00:00:01.000Z", payload: { type: "message", id: "codex-other-assistant", role: "assistant", content: [{ type: "output_text", text: "other project reply" }] } }),
 ].join("\n"));
+const claudeMigrationStats = migrateClaudeProjectSessions("/tmp");
+assert.deepEqual({ scannedFiles: claudeMigrationStats.scannedFiles, migratedSessions: claudeMigrationStats.migratedSessions, skippedSessions: claudeMigrationStats.skippedSessions, migratedMessages: claudeMigrationStats.migratedMessages, issues: claudeMigrationStats.issues.length }, { scannedFiles: 3, migratedSessions: 1, skippedSessions: 0, migratedMessages: 2, issues: 1 });
+assert.match(claudeMigrationStats.issues[0].error, /no stable native ID/);
+const migratedClaudeSessionFiles = [...(await SessionManager.list("/tmp"))].filter((session) => session.name?.startsWith("Migrated from Claude Code:"));
+assert.deepEqual(migratedClaudeSessionFiles.map((session) => session.name), ["Migrated from Claude Code: claude-compatible"]);
+const migratedClaude = SessionManager.open(migratedClaudeSessionFiles[0].path);
+assert.deepEqual(migratedClaude.getBranch().filter((entry) => entry.type === "message").map((entry) => entry.message.role), ["user", "assistant"]);
+assert.equal(migrateClaudeProjectSessions("/tmp").skippedSessions, 1);
+assert.equal((await SessionManager.list("/other-project")).some((session) => session.name === "Migrated from Claude Code: claude-other-project"), false);
+
 const migrationStats = migrateCodexProjectSessions("/tmp");
 assert.deepEqual({ scannedFiles: migrationStats.scannedFiles, migratedSessions: migrationStats.migratedSessions, skippedSessions: migrationStats.skippedSessions, migratedMessages: migrationStats.migratedMessages, issues: migrationStats.issues.length }, { scannedFiles: 4, migratedSessions: 2, skippedSessions: 0, migratedMessages: 4, issues: 1 });
 assert.match(migrationStats.issues[0].error, /no stable native ID/);
@@ -132,7 +171,7 @@ assert.deepEqual(migrated.getBranch().filter((entry) => entry.type === "message"
 assert.equal(migrateCodexProjectSessions("/tmp").skippedSessions, 2);
 assert.equal((await SessionManager.list("/other-project")).some((session) => session.name === "Migrated from Codex: codex-other-project"), false);
 const backfillStats = backfillAll();
-assert.deepEqual({ pi: backfillStats.pi, claude: backfillStats.claude, codex: backfillStats.codex, turns: backfillStats.turns }, { pi: 3, claude: 1, codex: 3, turns: 7 });
+assert.deepEqual({ pi: backfillStats.pi, claude: backfillStats.claude, codex: backfillStats.codex, turns: backfillStats.turns }, { pi: 4, claude: 2, codex: 3, turns: 9 });
 assert.deepEqual(backfillStats.issues.map((issue) => issue.source), ["pi", "claude", "codex"]);
 for (const issue of backfillStats.issues) {
   assert.match(issue.error, new RegExp(`${issue.source} history import failed[\\s\\S]*supported reference ${HISTORY_SCHEMA_REFERENCE_VERSIONS[issue.source]}`));
@@ -375,17 +414,17 @@ assert.equal(deleteMemory(pinnedMemory.memory_id), true);
 assert.equal(deleteMemory(pinnedMemory.memory_id), false);
 
 const stats = getMemoryStats();
-assert.equal(stats.sessions, 12);
-assert.equal(stats.turns, 17);
+assert.equal(stats.sessions, 14);
+assert.equal(stats.turns, 19);
 assert.deepEqual([...stats.sources].map(({ source, sessions, turns }) => ({ source, sessions, turns })), [
-  { source: "claude", sessions: 2, turns: 3 },
+  { source: "claude", sessions: 3, turns: 4 },
   { source: "codex", sessions: 4, turns: 4 },
-  { source: "pi", sessions: 6, turns: 10 },
+  { source: "pi", sessions: 7, turns: 11 },
 ]);
 assert.equal(deleteTurn("codex:project-b:user-1"), true);
 assert.equal(deleteTurn("codex:project-b:user-1"), false);
 assert.equal(getDb().prepare("SELECT count(*) AS count FROM sessions WHERE session_id = 'codex:project-b'").get().count, 0);
-assert.equal(getDb().prepare("SELECT count(*) AS count FROM turns").get().count, 16);
+assert.equal(getDb().prepare("SELECT count(*) AS count FROM turns").get().count, 18);
 
 cleanup();
 console.log("core.test.ts: passed");

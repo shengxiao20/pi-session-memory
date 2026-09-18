@@ -4,7 +4,7 @@ import { writeTurn } from "../src/writer.ts";
 import { confirmMemory, createMemory, deleteMemory, deleteTurn, getMemoryHistory, getMemoryStats, getSession, listMemories, pinTurnAsMemory, supersedeMemory, type MemoryKind } from "../src/db.ts";
 import { recallMemories, formatRecallResults, paginateRecallResults } from "../src/retriever.ts";
 import { backfillAll, syncChangedHistory, type BackfillStats } from "../src/backfill.ts";
-import { migrateCodexProjectSessions, type ProjectSessionMigrationStats } from "../src/session-migration.ts";
+import { migrateClaudeProjectSessions, migrateCodexProjectSessions, type ProjectSessionMigrationStats } from "../src/session-migration.ts";
 import { SESSION_MEMORY_HELP } from "../src/helper.ts";
 
 /** Register lifecycle persistence, memory-management commands, and the recall tool with Pi. */
@@ -170,24 +170,48 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("project-session-migration", {
-    description: "Convert this project's Codex sessions into separate Pi sessions that can be resumed",
+    description: "Convert current-project Codex sessions into separate native Pi sessions for /resume",
     /** Create independently resumable Pi session JSONL files from current-project Codex sessions. */
     handler: async (_args, ctx) => {
-      _notifySessionMigration(ctx, migrateCodexProjectSessions(ctx.sessionManager.getCwd()));
+      _notifySessionMigration(ctx, "Codex", migrateCodexProjectSessions(ctx.sessionManager.getCwd()));
+    },
+  });
+
+  pi.registerCommand("project-claude-session-migration", {
+    description: "Convert current-project Claude Code sessions into separate native Pi sessions for /resume",
+    /** Create independently resumable Pi session JSONL files from current-project Claude Code sessions. */
+    handler: async (_args, ctx) => {
+      _notifySessionMigration(ctx, "Claude Code", migrateClaudeProjectSessions(ctx.sessionManager.getCwd()));
     },
   });
 
   pi.registerTool({
     name: "migrate_codex_project_sessions",
     label: "Migrate Codex Project Sessions",
-    description: "Convert each Codex session for the current project into a separate native Pi session that the user can select with /resume. Call only when the user explicitly wants to continue prior Codex work as a resumable Pi session. This does not index history for recall_memory and must not be used for ordinary cross-client recall or durable-memory requests.",
-    promptSnippet: "Convert this project's Codex sessions into separately resumable Pi sessions only when the user explicitly requests native Pi continuation.",
+    description: "Convert each Codex session for the current project into a separate native Pi session selectable with /resume. Call only when the user explicitly wants native Pi continuation of prior Codex work. This writes resumable sessions; it does not index history for recall_memory or manage durable memories.",
+    promptSnippet: "Use only when the user explicitly requests native Pi continuation of this project's prior Codex sessions.",
     parameters: Type.Object({}),
     /** Give the agent the same native Codex-to-Pi migration available through /project-session-migration. */
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const stats = migrateCodexProjectSessions(ctx.sessionManager.getCwd());
       return {
-        content: [{ type: "text" as const, text: _sessionMigrationSummary(stats) }],
+        content: [{ type: "text" as const, text: _sessionMigrationSummary("Codex", stats) }],
+        details: stats,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "migrate_claude_project_sessions",
+    label: "Migrate Claude Code Project Sessions",
+    description: "Convert each Claude Code session for the current project into a separate native Pi session selectable with /resume. Call only when the user explicitly wants native Pi continuation of prior Claude Code work. This writes resumable sessions; it does not index history for recall_memory or manage durable memories.",
+    promptSnippet: "Use only when the user explicitly requests native Pi continuation of this project's prior Claude Code sessions.",
+    parameters: Type.Object({}),
+    /** Give the agent an explicit Claude Code-to-Pi native-session migration capability. */
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const stats = migrateClaudeProjectSessions(ctx.sessionManager.getCwd());
+      return {
+        content: [{ type: "text" as const, text: _sessionMigrationSummary("Claude Code", stats) }],
         details: stats,
       };
     },
@@ -300,13 +324,13 @@ function _notifyBackfill(ctx: ExtensionContext, stats: BackfillStats, action: st
   for (const issue of stats.issues) ctx.ui.notify(`[session-memory] ${issue.error}`, "error");
 }
 
-/** Report native Codex-to-Pi session migration results and isolated conversion failures. */
-function _notifySessionMigration(ctx: ExtensionContext, stats: ProjectSessionMigrationStats): void {
-  ctx.ui.notify(_sessionMigrationSummary(stats), "info");
-  for (const issue of stats.issues) ctx.ui.notify(`[session-memory] Codex migration failed (${issue.path}): ${issue.error}`, "error");
+/** Report native source-to-Pi session migration results and isolated conversion failures. */
+function _notifySessionMigration(ctx: ExtensionContext, sourceLabel: string, stats: ProjectSessionMigrationStats): void {
+  ctx.ui.notify(_sessionMigrationSummary(sourceLabel, stats), "info");
+  for (const issue of stats.issues) ctx.ui.notify(`[session-memory] ${sourceLabel} migration failed (${issue.path}): ${issue.error}`, "error");
 }
 
 /** Format a concise native-session migration result for commands and tools. */
-function _sessionMigrationSummary(stats: ProjectSessionMigrationStats): string {
-  return `[session-memory] migrated ${stats.migratedSessions} Codex sessions (${stats.migratedMessages} messages); skipped ${stats.skippedSessions} already migrated sessions from ${stats.scannedFiles} scanned files. Use /resume to select a migrated Pi session.`;
+function _sessionMigrationSummary(sourceLabel: string, stats: ProjectSessionMigrationStats): string {
+  return `[session-memory] migrated ${stats.migratedSessions} ${sourceLabel} sessions (${stats.migratedMessages} messages); skipped ${stats.skippedSessions} already migrated sessions from ${stats.scannedFiles} scanned files. Use /resume to select a migrated Pi session.`;
 }

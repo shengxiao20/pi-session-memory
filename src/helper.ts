@@ -9,15 +9,15 @@ You can request history and memory features in natural language.
 无论对话来自 Pi、Claude Code 还是 Codex，你都可以直接请求回忆历史或保存、管理长期记忆。
 Regardless of whether a conversation came from Pi, Claude Code, or Codex, you can directly recall history and save or manage durable memories.
 
-- **在 Pi 中无缝接续 Codex 项目会话 / Seamlessly continue Codex project sessions in Pi**
-  - 只有当你明确希望在 Pi 中接续某个项目的 Codex 历史工作流时，才建议迁移项目会话。
-  - Migrate sessions only when you explicitly want to continue a project's Codex workflow seamlessly in Pi.
-  - “请把当前项目以前的 Codex 会话迁移成 Pi session。”
-  - “Convert this project's previous Codex sessions into Pi sessions.”
-  - 每个 Codex session 会成为一个独立的 Pi session；完成后用 \`/resume\` 选择要继续的会话。
-  - Each Codex session becomes an independent Pi session; use \`/resume\` to select the one you want to continue.
-  - 只迁移记录的工作目录与当前项目一致的 Codex 会话。
-  - Only Codex sessions whose recorded working directory matches the current project are migrated.
+- **在 Pi 中无缝接续 Claude Code 或 Codex 项目会话 / Seamlessly continue Claude Code or Codex project sessions in Pi**
+  - 只有当你明确希望在 Pi 中接续某个项目的 Claude Code 或 Codex 历史工作流时，才建议迁移项目会话。
+  - Migrate sessions only when you explicitly want to continue a project's Claude Code or Codex workflow seamlessly in Pi.
+  - “请把当前项目以前的 Claude Code 会话迁移成 Pi session。”或“请把当前项目以前的 Codex 会话迁移成 Pi session。”
+  - “Convert this project's previous Claude Code sessions into Pi sessions.” or “Convert this project's previous Codex sessions into Pi sessions.”
+  - 每个迁移的 session 会成为一个独立的 Pi session；完成后用 \`/resume\` 选择要继续的会话。
+  - Each migrated session becomes an independent Pi session; use \`/resume\` to select the one you want to continue.
+  - 只迁移记录的工作目录与当前项目一致的会话。
+  - Only sessions whose recorded working directory matches the current project are migrated.
 
 - **回忆以前的讨论 / Recall past discussions**
   - “我们之前讨论过 xxx 的什么方案？”、“找一下我以前关于 xxx 的结论。”

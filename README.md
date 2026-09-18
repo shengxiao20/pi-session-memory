@@ -10,7 +10,7 @@ A local-first Pi extension that saves completed conversations to SQLite and give
 - Persists completed Pi conversations in `~/.pi/agent/memory.db`.
 - Automatically imports only new or changed Pi, Claude Code, and Codex session files when Pi starts.
 - Supports a forced full SQLite history rescan with `/memory-backfill`.
-- Converts current-project Codex sessions into separate native Pi sessions with `/project-session-migration`, ready to select through `/resume`.
+- Converts current-project Codex or Claude Code sessions into separate native Pi sessions, ready to select through `/resume`.
 - Exposes `recall_memory`, allowing Pi to retrieve relevant prior discussions when users explicitly refer to earlier work.
 - Uses stable native user-message IDs and `INSERT OR IGNORE`, making live persistence and backfill idempotent.
 - Searches literal substrings with escaped SQLite `LIKE` patterns, including technical terms containing `%`, `_`, or `\\`.
@@ -46,7 +46,7 @@ pi -e npm:pi-session-memory
 To intentionally pin a known version (which `pi update --extensions` skips), add its version explicitly:
 
 ```bash
-pi install npm:pi-session-memory@0.3.1
+pi install npm:pi-session-memory@0.4.0
 ```
 
 ## Usage
@@ -72,15 +72,16 @@ The command imports eligible user/assistant exchanges from:
 | Claude Code | `~/.claude/projects/**/*.jsonl` |
 | Codex | `~/.codex/sessions/**/*.jsonl` |
 
-### Continue a Codex session natively in Pi
+### Continue a Claude Code or Codex session natively in Pi
 
-Use this command only when you want to continue prior **Codex** work as a real Pi session rather than search it as memory:
+Use a migration command only when you want to continue prior work as a real Pi session rather than search it as memory:
 
 ```text
-/project-session-migration
+/project-claude-session-migration  # Claude Code → Pi
+/project-session-migration         # Codex → Pi
 ```
 
-It selects Codex JSONL files whose recorded `cwd` exactly equals the current project, then creates one independent Pi v3 session JSONL for each under Pi's normal session directory. Each migrated entry is named `Migrated from Codex: <session-id>`.
+Each command selects only source JSONL files whose recorded `cwd` exactly equals the current project, then creates one independent Pi v3 session JSONL under Pi's normal session directory. Entries are named `Migrated from Claude Code: <session-id>` or `Migrated from Codex: <session-id>`.
 
 After the command completes, run:
 
@@ -90,7 +91,7 @@ After the command completes, run:
 
 and select the migrated session to continue it in Pi. Existing migrated outputs are skipped on subsequent runs.
 
-The converter preserves user and assistant text messages only. It deliberately does not convert Codex system/developer prompts, reasoning, tool calls, or tool results into Pi messages. Migration is separate from SQLite backfill and `recall_memory`; normal cross-client recall does not require migration.
+The converters preserve user and assistant text messages only. They deliberately do not convert client-injected context, system/developer prompts, reasoning, tool calls, or tool results into Pi messages. Migration is separate from SQLite backfill and `recall_memory`; normal cross-client recall does not require migration.
 
 #### Context compaction and retention
 
@@ -149,7 +150,9 @@ Pi / Claude Code / Codex history ──► incremental source sync ──► SQL
                                                                   │
                                                            recall_memory
 
-Current-project Codex JSONL ──► /project-session-migration ──► native Pi session JSONL ──► /resume
+Current-project Claude Code JSONL ──► /project-claude-session-migration ─┐
+Current-project Codex JSONL ────────► /project-session-migration ───────┼──► native Pi session JSONL ──► /resume
+                                                                         ┘
 ```
 
 After a Pi agent run settles, the extension captures the latest user message and the subsequent assistant replies/tool names from the active session branch. Historical imports normalize each supported source into the same session/turn schema.
@@ -168,6 +171,7 @@ Conversation data is stored and queried locally. This package does not add a rem
 
 | Version | Highlights |
 | --- | --- |
+| `0.4.0` | Adds native current-project Claude Code-to-Pi session migration through `/project-claude-session-migration` and `migrate_claude_project_sessions`. Claude Code and Codex now share deterministic, source-namespaced, idempotent Pi v3 session output; SQLite data and schema remain compatible, so no database migration is required. |
 | `0.3.1` | Makes `recall_memory` entity-only: 2–8 high-signal literal entities are OR alternatives, results matching more entities rank higher, and output distinguishes search entities from strict scope filters. Existing SQLite data and schema remain compatible; no migration is required. |
 | `0.3.0` | Replaces source-session-only freshness hints with provenance-linked evidence comparison across newer same-session and cross-session turns. This changes recall output and `freshness_candidate` semantics, but keeps SQLite data and explicit user-controlled memory mutation compatible; no migration is required. |
 | `0.2.1` | Pages `recall_memory` results in explicit five-result `offset` windows while still evaluating the complete local match set; npm publishing now uses a runtime-file allowlist. |
@@ -189,7 +193,7 @@ Before every significant release, review these compatibility surfaces and record
 5. **Public TypeScript/module API:** exported types/functions and required result fields.
 6. **Extension loadability:** run `npm test`, which imports `extensions/index.ts`; Markdown inline-code backticks inside a template-literal description must be escaped as `\`` so Pi can parse and start the extension.
 
-The `0.3.1` review found no SQLite breaking change: it does not alter tables, migrations, or stored data, so users can upgrade without a database error or migration. It is therefore released as a patch despite changing `recall_memory` search inputs and behavior.
+The `0.4.0` review found no SQLite breaking change: Claude Code native-session migration adds commands, an agent tool, and Pi session-file output only. It does not alter tables, migrations, or stored data, so users can upgrade without a database error or migration. It is therefore released as a minor version because it adds a backward-compatible user capability.
 
 ## Development
 

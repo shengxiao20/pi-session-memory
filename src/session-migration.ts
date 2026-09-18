@@ -3,18 +3,28 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSyn
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-interface CodexMessage {
+type MigrationSource = "claude" | "codex";
+type Role = "user" | "assistant";
+
+interface MigratedMessage {
   id: string;
-  role: "user" | "assistant";
+  role: Role;
   text: string;
   timestamp: number;
 }
 
-interface CodexSession {
+interface SourceSession {
   id: string;
   cwd: string;
   timestamp: number;
-  messages: CodexMessage[];
+  messages: MigratedMessage[];
+}
+
+interface MigrationDefinition {
+  source: MigrationSource;
+  root: string;
+  displayName: string;
+  parse: (path: string) => SourceSession | undefined;
 }
 
 export interface ProjectSessionMigrationStats {
@@ -25,8 +35,33 @@ export interface ProjectSessionMigrationStats {
   issues: Array<{ path: string; error: string }>;
 }
 
-/** Convert every Codex session recorded for cwd into an independently resumable Pi session file. */
+const MIGRATION_SOURCES: Record<MigrationSource, MigrationDefinition> = {
+  claude: {
+    source: "claude",
+    root: join(homedir(), ".claude", "projects"),
+    displayName: "Claude Code",
+    parse: _parseClaudeSession,
+  },
+  codex: {
+    source: "codex",
+    root: join(homedir(), ".codex", "sessions"),
+    displayName: "Codex",
+    parse: _parseCodexSession,
+  },
+};
+
+/** Convert every current-project Claude Code session into an independently resumable Pi session file. */
+export function migrateClaudeProjectSessions(cwd: string): ProjectSessionMigrationStats {
+  return _migrateProjectSessions(MIGRATION_SOURCES.claude, cwd);
+}
+
+/** Convert every current-project Codex session into an independently resumable Pi session file. */
 export function migrateCodexProjectSessions(cwd: string): ProjectSessionMigrationStats {
+  return _migrateProjectSessions(MIGRATION_SOURCES.codex, cwd);
+}
+
+/** Migrate one supported source while isolating malformed files from other source sessions. */
+function _migrateProjectSessions(definition: MigrationDefinition, cwd: string): ProjectSessionMigrationStats {
   const stats: ProjectSessionMigrationStats = {
     scannedFiles: 0,
     migratedSessions: 0,
@@ -34,17 +69,17 @@ export function migrateCodexProjectSessions(cwd: string): ProjectSessionMigratio
     migratedMessages: 0,
     issues: [],
   };
-  for (const path of _jsonlFiles(join(homedir(), ".codex", "sessions"))) {
+  for (const path of _jsonlFiles(definition.root)) {
     stats.scannedFiles++;
     try {
-      const session = _parseCodexSession(path);
+      const session = definition.parse(path);
       if (!session || session.cwd !== cwd) continue;
-      const outputPath = _targetPath(session);
+      const outputPath = _targetPath(definition.source, session);
       if (existsSync(outputPath)) {
         stats.skippedSessions++;
         continue;
       }
-      _writePiSession(session, outputPath);
+      _writePiSession(definition, session, outputPath);
       stats.migratedSessions++;
       stats.migratedMessages += session.messages.length;
     } catch (error) {
@@ -54,9 +89,40 @@ export function migrateCodexProjectSessions(cwd: string): ProjectSessionMigratio
   return stats;
 }
 
-/** Convert one supported Codex JSONL file into its session metadata and textual messages. */
-function _parseCodexSession(path: string): CodexSession | undefined {
-  const entries = readFileSync(path, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+/** Convert one Claude Code JSONL file into supported textual user and assistant messages. */
+function _parseClaudeSession(path: string): SourceSession | undefined {
+  const entries = _readJsonl(path);
+  const firstConversation = entries.find((entry) =>
+    (entry.type === "user" || entry.type === "assistant") && !entry.isMeta && !entry.isSidechain,
+  );
+  if (!firstConversation) return undefined;
+  const id = _string(firstConversation.sessionId);
+  const cwd = _string(firstConversation.cwd);
+  const timestamp = _timestamp(_string(firstConversation.timestamp));
+  if (!id || !cwd || timestamp === undefined) throw new Error("Claude Code conversation requires sessionId, cwd, and timestamp");
+
+  const messages: MigratedMessage[] = [];
+  for (const [index, entry] of entries.entries()) {
+    if ((entry.type !== "user" && entry.type !== "assistant") || entry.isMeta || entry.isSidechain) continue;
+    const role = _role(entry.message?.role);
+    if (!role) continue;
+    const text = _claudeText(entry.message?.content);
+    if (!text || (role === "user" && _isClaudeInjectedContext(text))) continue;
+    const messageId = _string(entry.uuid) ?? _string(entry.id);
+    if (!messageId) throw new Error(`Claude Code textual message at entry ${index} has no stable native ID`);
+    messages.push({
+      id: messageId,
+      role,
+      text,
+      timestamp: _timestamp(_string(entry.timestamp)) ?? timestamp,
+    });
+  }
+  return { id, cwd, timestamp, messages };
+}
+
+/** Convert one Codex JSONL file into supported textual user and assistant messages. */
+function _parseCodexSession(path: string): SourceSession | undefined {
+  const entries = _readJsonl(path);
   const metadata = entries.find((entry) => entry.type === "session_meta")?.payload as Record<string, unknown> | undefined;
   if (!metadata) return undefined;
   const id = _string(metadata.session_id) ?? _string(metadata.id);
@@ -64,14 +130,14 @@ function _parseCodexSession(path: string): CodexSession | undefined {
   const timestamp = _timestamp(_string(metadata.timestamp));
   if (!id || !cwd || timestamp === undefined) throw new Error("Codex session_meta requires session_id/id, cwd, and timestamp");
 
-  const messages: CodexMessage[] = [];
+  const messages: MigratedMessage[] = [];
   for (const [index, entry] of entries.entries()) {
     if (entry.type !== "response_item") continue;
     const payload = entry.payload as Record<string, unknown> | undefined;
     if (payload?.type !== "message") continue;
-    const role = _string(payload.role);
-    if (role !== "user" && role !== "assistant") continue;
-    const text = _text(payload.content);
+    const role = _role(payload.role);
+    if (!role) continue;
+    const text = _codexText(payload.content);
     if (!text) continue;
     const messageId = _string(payload.id)
       ?? _string(entry.id)
@@ -87,8 +153,8 @@ function _parseCodexSession(path: string): CodexSession | undefined {
   return { id, cwd, timestamp, messages };
 }
 
-/** Write a valid Pi v3 session with a linear message branch and an explicit migration name. */
-function _writePiSession(session: CodexSession, path: string): void {
+/** Write one valid Pi v3 session with a linear message branch and explicit migration provenance. */
+function _writePiSession(definition: MigrationDefinition, session: SourceSession, path: string): void {
   mkdirSync(join(homedir(), ".pi", "agent", "sessions", _encodedCwd(session.cwd)), { recursive: true });
   const lines: string[] = [JSON.stringify({
     type: "session",
@@ -98,17 +164,17 @@ function _writePiSession(session: CodexSession, path: string): void {
     cwd: session.cwd,
   })];
   let parentId: string | null = null;
-  const nameId = _entryId(session.id, "name");
+  const nameId = _entryId(definition.source, session.id, "name");
   lines.push(JSON.stringify({
     type: "session_info",
     id: nameId,
     parentId,
     timestamp: new Date(session.timestamp).toISOString(),
-    name: `Migrated from Codex: ${session.id}`,
+    name: `Migrated from ${definition.displayName}: ${session.id}`,
   }));
   parentId = nameId;
   for (const message of session.messages) {
-    const id = _entryId(session.id, message.id);
+    const id = _entryId(definition.source, session.id, message.id);
     const timestamp = new Date(message.timestamp).toISOString();
     lines.push(JSON.stringify({
       type: "message",
@@ -120,8 +186,8 @@ function _writePiSession(session: CodexSession, path: string): void {
         : {
           role: "assistant",
           content: [{ type: "text", text: message.text }],
-          api: "codex-migration",
-          provider: "codex",
+          api: `${definition.source}-migration`,
+          provider: definition.source,
           model: "unknown",
           usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
           stopReason: "stop",
@@ -139,9 +205,9 @@ function _writePiSession(session: CodexSession, path: string): void {
   }
 }
 
-/** Return the deterministic Pi session-file location for one Codex session. */
-function _targetPath(session: CodexSession): string {
-  return join(homedir(), ".pi", "agent", "sessions", _encodedCwd(session.cwd), `${new Date(session.timestamp).toISOString().replace(/[.:]/g, "-")}_codex-${session.id}.jsonl`);
+/** Return the deterministic Pi session-file location for one migrated source session. */
+function _targetPath(source: MigrationSource, session: SourceSession): string {
+  return join(homedir(), ".pi", "agent", "sessions", _encodedCwd(session.cwd), `${new Date(session.timestamp).toISOString().replace(/[.:]/g, "-")}_${source}-${session.id}.jsonl`);
 }
 
 /** Encode cwd exactly as Pi's default session directory convention. */
@@ -149,9 +215,14 @@ function _encodedCwd(cwd: string): string {
   return `--${cwd.split("/").filter(Boolean).join("-")}--`;
 }
 
-/** Create stable, Pi-safe entry IDs without fabricating source message identity. */
-function _entryId(sessionId: string, sourceId: string): string {
-  return createHash("sha256").update(`${sessionId}:${sourceId}`).digest("hex").slice(0, 16);
+/** Create stable Pi-safe entry IDs while retaining source-specific identity namespaces. */
+function _entryId(source: MigrationSource, sessionId: string, sourceId: string): string {
+  return createHash("sha256").update(`${source}:${sessionId}:${sourceId}`).digest("hex").slice(0, 16);
+}
+
+/** Accept user and assistant roles only. */
+function _role(value: unknown): Role | undefined {
+  return value === "user" || value === "assistant" ? value : undefined;
 }
 
 /** Extract non-empty string values only. */
@@ -166,8 +237,28 @@ function _timestamp(value: string | undefined): number | undefined {
   return Number.isNaN(timestamp) ? undefined : timestamp;
 }
 
+/** Extract Claude Code text from legacy string or text content blocks. */
+function _claudeText(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block): block is { type: string; text: string } => Boolean(block) && typeof block === "object" && (block as { type?: unknown }).type === "text" && typeof (block as { text?: unknown }).text === "string")
+    .map((block) => block.text)
+    .join("\n")
+    .trim();
+}
+
+/** Exclude Claude Code client-injected context from migrated user conversation. */
+function _isClaudeInjectedContext(text: string): boolean {
+  return text.startsWith("<command-name>")
+    || text.startsWith("<command-message>")
+    || text.startsWith("<local-command-")
+    || text.startsWith("<task-notification>")
+    || text.startsWith("This session is being continued from a previous conversation");
+}
+
 /** Join supported Codex text content blocks. */
-function _text(content: unknown): string {
+function _codexText(content: unknown): string {
   if (!Array.isArray(content)) return "";
   return content
     .filter((block): block is { type: string; text: string } => Boolean(block) && typeof block === "object" && typeof (block as { type?: unknown }).type === "string" && typeof (block as { text?: unknown }).text === "string")
@@ -175,6 +266,11 @@ function _text(content: unknown): string {
     .map((block) => block.text)
     .join("\n")
     .trim();
+}
+
+/** Read every non-empty JSONL line into its ordered JSON record. */
+function _readJsonl(path: string): Record<string, any>[] {
+  return readFileSync(path, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as Record<string, any>);
 }
 
 /** Recursively enumerate source JSONL files. */
