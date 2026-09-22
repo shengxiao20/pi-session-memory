@@ -7,11 +7,15 @@ import { formatRecallResults, recallTurns } from "../src/retriever.ts";
 import { backfillAll, syncChangedHistory, type BackfillStats } from "../src/backfill.ts";
 import { migrateClaudeProjectSessions, migrateCodexProjectSessions, type ProjectSessionMigrationStats } from "../src/session-migration.ts";
 import { SESSION_MEMORY_HELP } from "../src/helper.ts";
+import { getWhatsNew, showWhatsNewIfUpdated } from "../src/whats-new.ts";
+import packageJson from "../package.json" with { type: "json" };
 
 /** Register local cross-session transcript retrieval and source-session migration features. */
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (event, ctx) => {
     try {
+      const whatsNew = showWhatsNewIfUpdated(packageJson.version);
+      if (whatsNew) ctx.ui.notify(whatsNew, "info");
       const stats = syncChangedHistory();
       if (event.reason === "startup" || stats.scannedFiles > 0) {
         const summary = stats.scannedFiles > 0 ? `synced ${stats.turns} turns from ${stats.scannedFiles} changed session files` : "ready";
@@ -25,6 +29,10 @@ export default function (pi: ExtensionAPI) {
     try { writeTurn(ctx); } catch (err) { ctx.ui.notify(`[session-memory] write failed: ${String(err)}`, "error"); }
   });
 
+  pi.registerCommand("pi-session-memory-whats-new", {
+    description: "Show release notes for the installed pi-session-memory version",
+    handler: async (_args, ctx) => { ctx.ui.notify(getWhatsNew(packageJson.version) || `No published What's New notes for pi-session-memory v${packageJson.version}.`, "info"); },
+  });
   pi.registerCommand("pi-session-memory-helper", {
     description: "Show cross-session history search and migration features",
     handler: async (_args, ctx) => { ctx.ui.notify(SESSION_MEMORY_HELP, "info"); },

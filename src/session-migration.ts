@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, posix, win32 } from "node:path";
 
 type MigrationSource = "claude" | "codex";
 type Role = "user" | "assistant";
@@ -73,15 +73,16 @@ function _migrateProjectSessions(definition: MigrationDefinition, cwd: string): 
     stats.scannedFiles++;
     try {
       const session = definition.parse(path);
-      if (!session || session.cwd !== cwd) continue;
-      const outputPath = _targetPath(definition.source, session);
+      if (!session || !_sameCwd(session.cwd, cwd)) continue;
+      const targetSession = { ...session, cwd };
+      const outputPath = _targetPath(definition.source, targetSession);
       if (existsSync(outputPath)) {
         stats.skippedSessions++;
         continue;
       }
-      _writePiSession(definition, session, outputPath);
+      _writePiSession(definition, targetSession, outputPath);
       stats.migratedSessions++;
-      stats.migratedMessages += session.messages.length;
+      stats.migratedMessages += targetSession.messages.length;
     } catch (error) {
       stats.issues.push({ path, error: error instanceof Error ? error.message : String(error) });
     }
@@ -210,9 +211,20 @@ function _targetPath(source: MigrationSource, session: SourceSession): string {
   return join(homedir(), ".pi", "agent", "sessions", _encodedCwd(session.cwd), `${new Date(session.timestamp).toISOString().replace(/[.:]/g, "-")}_${source}-${session.id}.jsonl`);
 }
 
+/** Match project CWDs after applying the path syntax of their respective platform. */
+function _sameCwd(left: string, right: string): boolean {
+  return _canonicalCwd(left) === _canonicalCwd(right);
+}
+
+/** Canonicalize either a Windows or POSIX absolute CWD without relying on the host platform. */
+function _canonicalCwd(cwd: string): string {
+  if (/^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("\\\\")) return win32.normalize(cwd).replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+  return posix.normalize(cwd);
+}
+
 /** Encode cwd exactly as Pi's default session directory convention. */
 function _encodedCwd(cwd: string): string {
-  return `--${cwd.split("/").filter(Boolean).join("-")}--`;
+  return `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
 }
 
 /** Create stable Pi-safe entry IDs while retaining source-specific identity namespaces. */

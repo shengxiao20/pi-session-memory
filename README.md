@@ -1,5 +1,11 @@
 # pi-session-memory
 
+## Install
+
+```bash
+pi install npm:pi-session-memory
+```
+
 A local-first Pi extension for **on-demand cross-session transcript search** across Pi, Claude Code, and Codex, plus native project-session migration to Pi `/resume` sessions.
 
 ## What it does
@@ -9,6 +15,7 @@ A local-first Pi extension for **on-demand cross-session transcript search** acr
 - Provides `fetch_session` for read-only expansion of the smallest useful transcript range.
 - Synchronizes changed history at Pi session start; `/memory-backfill` performs an explicit full rescan.
 - Migrates current-project Claude Code or Codex sessions into separate native Pi sessions.
+- Matches equivalent Windows project CWDs during migration, including `\\` versus `/`, drive-letter case, and trailing separators.
 
 Search results are derived from stored source transcripts only and are never automatically injected into model context. Put project rules and preferences in `AGENTS.md`.
 
@@ -43,6 +50,10 @@ project migration command/tool -> native Pi session JSONL -> /resume
 ```
 
 History remains on the local machine, by default in `~/.pi/agent/memory.db`. Deleting that database removes only the index; restarting Pi rebuilds it from local source JSONL files.
+
+## Migration compatibility
+
+Migration selects sessions whose recorded project CWD is equivalent to the current Pi project CWD. On Windows, `C:\\Work\\app\\`, `C:/Work/app`, and differences only in path letter case are treated as the same project. Migrated sessions are written using the current Pi project CWD, so they appear under that project in `/resume`.
 
 ## Development
 

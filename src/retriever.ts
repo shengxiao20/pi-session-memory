@@ -23,7 +23,7 @@ export function recallTurns(options: RecallOptions | string[]): RecallTurnResult
 export function formatRecallResults(results: RecallTurnResult[], options: RecallOptions = { entities: [] }): string {
   const header = ["# Recall results", `**Entities:** ${options.entities.map((entity) => `\`${entity}\``).join(", ")}`, `**Results:** ${results.length}`].join("\n");
   const turns = results.length
-    ? results.map((turn) => `### ${turn.session_id} · turn ${turn.turn_index}\n**Source turn ID:** \`${turn.turn_id}\`\n**You:** ${turn.user_text}\n${turn.reply_text ? `**Assistant:** ${turn.reply_text}` : ""}`).join("\n\n")
+    ? results.map((turn) => `### Session match · turn ${turn.turn_index}\n**Fetch session ID:** \`${turn.session_id}\` (pass this exact value to \`fetch_session.session_id\`)\n**Source turn ID:** \`${turn.turn_id}\`\n**You:** ${turn.user_text}\n${turn.reply_text ? `**Assistant:** ${turn.reply_text}` : ""}`).join("\n\n")
     : "No matching conversation history.";
   return `${header}\n\n## Matching raw conversation history\n${turns}`;
 }

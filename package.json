@@ -1,6 +1,6 @@
 {
   "name": "pi-session-memory",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Local-first cross-session transcript search and native Pi session migration for Pi, Claude Code, and Codex",
   "keywords": [
     "pi-package"

@@ -35,6 +35,8 @@ Fetches an ordered range from a session returned by `recall_memory`.
 
 Use `migrate_claude_project_sessions` or `migrate_codex_project_sessions` only when the user explicitly wants to continue a current-project source session in Pi. Each migrated source session becomes a separate native Pi session selectable through `/resume`.
 
+Project matching is path-format aware. Equivalent Windows CWDs match despite slash direction, drive-letter/path letter case, or a trailing separator; migrated sessions use Pi's current project CWD so `/resume` lists them in the active project.
+
 ## Storage operations
 
 - `get_memory_stats` reports raw history index totals.
