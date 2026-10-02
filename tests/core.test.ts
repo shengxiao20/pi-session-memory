@@ -11,6 +11,7 @@ process.env.HOME = historyHome;
 const { getDb, getHistoryStats, getSession, insertTurn, upsertSession } = await import("../src/db.ts");
 const { fetchSession } = await import("../src/fetch-session.ts");
 const { formatRecallResults, recallTurns } = await import("../src/retriever.ts");
+const { formatProjectRecallResults, recallProjectMemory } = await import("../src/project-retriever.ts");
 const { backfillAll, syncChangedHistory } = await import("../src/backfill.ts");
 const { migrateClaudeProjectSessions, migrateCodexProjectSessions } = await import("../src/session-migration.ts");
 const { getWhatsNew, showWhatsNewIfUpdated } = await import("../src/whats-new.ts");
@@ -26,18 +27,24 @@ assert.match(SESSION_MEMORY_HELP, /Recall past discussions/);
 assert.match(SESSION_MEMORY_HELP, /\/pi-session-memory-whats-new/);
 assert.doesNotMatch(SESSION_MEMORY_HELP, /[#*`]/, "TUI helper output must not contain Markdown markers");
 assert.doesNotMatch(SESSION_MEMORY_HELP, /[\u4e00-\u9fff]/, "TUI helper output must be English only");
-const whatsNew = getWhatsNew("0.6.1");
-assert.match(whatsNew, /What.s New in pi-session-memory v0\.6\.1/);
-assert.match(whatsNew, /Fetch session ID/);
-assert.match(whatsNew, /pi:\/claude:\/codex:/);
+const whatsNew = getWhatsNew("0.6.2");
+assert.match(whatsNew, /What.s New in pi-session-memory v0\.6\.2/);
+assert.match(whatsNew, /Named-project recall/);
+assert.match(whatsNew, /recallLimit/);
 assert.doesNotMatch(whatsNew, /[#*`]/, "TUI What's New output must not contain Markdown markers");
-assert.equal(showWhatsNewIfUpdated("0.6.1"), whatsNew, "a newly installed version must be shown once");
-assert.equal(showWhatsNewIfUpdated("0.6.1"), undefined, "an already shown version must not be shown again");
-assert.equal(showWhatsNewIfUpdated("0.6.2"), "", "an unlisted version still records as shown without inventing release notes");
-assert.equal(showWhatsNewIfUpdated("0.6.2"), undefined);
+assert.equal(showWhatsNewIfUpdated("0.6.2"), whatsNew, "a newly installed version must be shown once");
+assert.equal(showWhatsNewIfUpdated("0.6.2"), undefined, "an already shown version must not be shown again");
+assert.equal(showWhatsNewIfUpdated("0.6.3"), "", "an unlisted version still records as shown without inventing release notes");
+assert.equal(showWhatsNewIfUpdated("0.6.3"), undefined);
 rmSync(join(historyHome, ".pi", "agent", "pi-session-memory"), { recursive: true, force: true });
+mkdirSync(join(historyHome, ".pi", "agent", "pi-session-memory"), { recursive: true });
+writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2 }));
 
-for (const toolName of ["recall_memory", "fetch_session", "get_memory_stats", "backfill_memory", "migrate_codex_project_sessions", "migrate_claude_project_sessions"]) assert.match(extensionSource, new RegExp(`name: "${toolName}"`));
+for (const toolName of ["recall_memory", "recall_project_memory", "fetch_session", "get_memory_stats", "backfill_memory", "migrate_codex_project_sessions", "migrate_claude_project_sessions"]) assert.match(extensionSource, new RegExp(`name: "${toolName}"`));
+assert.match(extensionSource, /memory-project-search/);
+assert.match(extensionSource, /recall_memory returns no matches/);
+assert.match(extensionSource, /identical Chinese-and-English topic entities/);
+assert.match(extensionSource, /never repeat project in entities/);
 assert.match(extensionSource, /This is read-only and never creates a memory/);
 
 upsertSession({ session_id: "claude:project-a", source: "claude", cwd: "/workspace/project-a", started_at: 1, model_id: null, jsonl_path: "/tmp/project-a.jsonl" });
@@ -47,13 +54,28 @@ for (const [index, text] of ["deploy memory testing", "deploy memory release", "
 assert.deepEqual(recallTurns({ entities: ["deploy"] }).map((turn) => turn.turn_id), ["claude:project-a:user-2", "claude:project-a:user-1"]);
 assert.deepEqual(recallTurns({ entities: ["%_\\"] }).map((turn) => turn.turn_id), ["claude:project-a:user-3"]);
 assert.deepEqual(recallTurns({ entities: ["deploy"], cwd: "/wrong" }), []);
+assert.deepEqual(recallTurns({ entities: ["deploy"], sessionIds: ["pi:missing"] }), []);
 const deployResults = recallTurns({ entities: ["deploy"] });
 assert.equal(deployResults.length, 2);
 assert.match(formatRecallResults(deployResults, { entities: ["deploy"] }), /\*\*Results:\*\* 2[\s\S]*Matching raw conversation history[\s\S]*\*\*Fetch session ID:\*\* `claude:project-a`[\s\S]*Source turn ID/);
 for (let index = 0; index < 6; index++) {
   assert.equal(insertTurn({ turn_id: `claude:project-a:extra-${index}`, session_id: "claude:project-a", turn_index: index + 3, ts: index + 4, user_text: "complete result set", reply_text: "", tool_names: null, user_message_id: `extra-${index}` }), true);
 }
-assert.equal(recallTurns({ entities: ["complete"] }).length, 6, "recall must return every match without a page cap");
+assert.equal(recallTurns({ entities: ["complete"] }).length, 2, "recall must use the single configured result limit");
+upsertSession({ session_id: "codex:memory-project", source: "codex", cwd: "C:\\work\\pi-session-memory\\", started_at: 11, model_id: null, jsonl_path: "/tmp/pi-session-memory.jsonl" });
+assert.equal(insertTurn({ turn_id: "codex:memory-project:user-1", session_id: "codex:memory-project", turn_index: 0, ts: 11, user_text: "设计数据库 schema", reply_text: "SQLite tables", tool_names: null, user_message_id: "memory-user-1" }), true);
+const bilingualTopicEntities = ["数据库", "database"];
+assert.deepEqual(recallTurns({ entities: bilingualTopicEntities }).map((turn) => turn.turn_id), ["codex:memory-project:user-1"], "direct recall is the first stage when bilingual topic entities match transcript text");
+const projectRecall = recallProjectMemory({ project: "pi-session-memory", entities: bilingualTopicEntities });
+assert.deepEqual(projectRecall.results.map((turn) => turn.turn_id), ["codex:memory-project:user-1"], "project-scoped retrieval accepts the identical bilingual entities if direct recall had no matches");
+assert.equal(recallTurns({ entities: ["pi-session-memory"] }).length, 0, "target project name may be absent from its own transcript");
+const missingBilingualTopicEntities = ["不存在主题", "nonexistent topic"];
+assert.deepEqual(recallTurns({ entities: missingBilingualTopicEntities }), [], "named-project fallback starts only after direct recall has no bilingual topic match");
+const noTopicProjectRecall = recallProjectMemory({ project: "pi-session-memory", entities: missingBilingualTopicEntities });
+assert.deepEqual(noTopicProjectRecall.results, []);
+assert.deepEqual(noTopicProjectRecall.sessions.map((session) => session.session_id), ["codex:memory-project"]);
+assert.match(formatProjectRecallResults(noTopicProjectRecall, { project: "pi-session-memory", entities: missingBilingualTopicEntities }), /Project match:[\s\S]*Project session candidates[\s\S]*codex:memory-project/);
+assert.deepEqual(recallProjectMemory({ project: "pi-session-memory-fork", entities: bilingualTopicEntities }).sessions, [], "project matching must use exact final CWD directory names");
 const fetched = fetchSession("claude:project-a", 1, 1);
 assert.deepEqual(fetched.stored.turns.map((turn) => turn.turn_id), ["claude:project-a:user-2"]);
 upsertSession({ session_id: "pi:session-uuid", source: "pi", cwd: "/workspace/project-a", started_at: 10, model_id: null, jsonl_path: "/tmp/session.jsonl" });
@@ -63,12 +85,13 @@ assert.match(formatRecallResults(piResults, { entities: ["source-prefix"] }), /\
 assert.deepEqual(fetchSession("pi:session-uuid").stored.turns.map((turn) => turn.turn_id), ["pi:session-uuid:user-1"]);
 assert.throws(() => fetchSession("session-uuid"), /session_id must include its source prefix.*pi:<id>/);
 const initialStats = getHistoryStats();
-assert.equal(initialStats.sessions, 2);
-assert.equal(initialStats.turns, 10);
+assert.equal(initialStats.sessions, 3);
+assert.equal(initialStats.turns, 11);
 assert.equal(initialStats.oldestTs, 1);
-assert.equal(initialStats.newestTs, 10);
+assert.equal(initialStats.newestTs, 11);
 assert.deepEqual(initialStats.sources.map((source) => ({ ...source })), [
   { source: "claude", sessions: 1, turns: 9 },
+  { source: "codex", sessions: 1, turns: 1 },
   { source: "pi", sessions: 1, turns: 1 },
 ]);
 

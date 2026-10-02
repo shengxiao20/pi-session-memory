@@ -1,7 +1,8 @@
 import { getDb } from "./db.ts";
+import { getRecallLimit } from "./config.ts";
 
 export type HistorySource = "pi" | "claude" | "codex";
-export interface RecallOptions { entities: string[]; sources?: HistorySource[]; cwd?: string; after?: number; before?: number; }
+export interface RecallOptions { entities: string[]; sources?: HistorySource[]; cwd?: string; sessionIds?: string[]; after?: number; before?: number; }
 export interface RecallTurnResult { turn_id: string; session_id: string; turn_index: number; source: HistorySource; cwd: string; ts: number; user_text: string; reply_text: string; score: number; }
 
 /** Search every matching raw local transcript turn using literal entity alternatives and strict optional scope filters. */
@@ -14,9 +15,14 @@ export function recallTurns(options: RecallOptions | string[]): RecallTurnResult
   const scopedParameters: Array<string | number> = [];
   if (normalized.sources?.length) { filters.push(`sessions.source IN (${normalized.sources.map(() => "?").join(", ")})`); scopedParameters.push(...normalized.sources); }
   if (normalized.cwd !== undefined) { filters.push("sessions.cwd = ?"); scopedParameters.push(normalized.cwd); }
+  if (normalized.sessionIds !== undefined) {
+    if (normalized.sessionIds.length === 0) return [];
+    filters.push(`turns.session_id IN (${normalized.sessionIds.map(() => "?").join(", ")})`);
+    scopedParameters.push(...normalized.sessionIds);
+  }
   if (normalized.after !== undefined) { filters.push("turns.ts >= ?"); scopedParameters.push(normalized.after); }
   if (normalized.before !== undefined) { filters.push("turns.ts <= ?"); scopedParameters.push(normalized.before); }
-  return getDb().prepare(`SELECT turns.turn_id, turns.session_id, turns.turn_index, sessions.source, sessions.cwd, turns.ts, turns.user_text, turns.reply_text, (${scoreExpression}) AS score FROM turns JOIN sessions ON sessions.session_id = turns.session_id WHERE ${filters.join(" AND ")} ORDER BY score DESC, turns.ts DESC, turns.turn_id`).all(...terms, ...terms, ...scopedParameters) as RecallTurnResult[];
+  return getDb().prepare(`SELECT turns.turn_id, turns.session_id, turns.turn_index, sessions.source, sessions.cwd, turns.ts, turns.user_text, turns.reply_text, (${scoreExpression}) AS score FROM turns JOIN sessions ON sessions.session_id = turns.session_id WHERE ${filters.join(" AND ")} ORDER BY score DESC, turns.ts DESC, turns.turn_id LIMIT ?`).all(...terms, ...terms, ...scopedParameters, getRecallLimit()) as RecallTurnResult[];
 }
 
 /** Render all raw transcript matches without implying that they are persistent summary memories. */
