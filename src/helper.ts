@@ -17,8 +17,8 @@ What's New
 - Run /pi-session-memory-whats-new to view release notes for the installed version. New release notes appear once when a new version first starts.
 
 Local storage
-- Run /memory-search <Chinese topic> | <English topic> first to search raw local transcript history with equivalent bilingual topics. Edit ~/.pi/agent/pi-session-memory/config.json to set recallLimit.
-- Only when that direct search has no matches, run /memory-project-search <project> -- <Chinese topic> | <English topic> with the identical bilingual topics. The project name matches session CWD metadata and never searches transcript text.
+- Run /memory-search <Chinese topic> | <English topic> to search raw local transcript history with equivalent bilingual topics when no project context is relevant. Edit ~/.pi/agent/pi-session-memory/config.json to set recallLimit.
+- When a project is relevant, run /memory-project-search <project> -- <Chinese topic> | <English topic>; it returns both global and project-scoped results using identical bilingual topics. Normalized project words match session CWD metadata (for example, pi app can match pi-native-app) and never search transcript text.
 - Run /memory-backfill only when you explicitly want to rescan all historical sessions.
 - Run /memory-status to show indexed session and turn totals.
 - Put persistent rules, preferences, and project instructions in AGENTS.md.

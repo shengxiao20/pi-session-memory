@@ -43,7 +43,7 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => { ctx.ui.notify(_historyStatsSummary(getHistoryStats()), "info"); },
   });
   pi.registerCommand("memory-search", {
-    description: "First-stage search of local cross-session transcript history; use equivalent Chinese and English topics as <Chinese topic> | <English topic>",
+    description: "Search local cross-session transcript history when no project-specific context is needed; use equivalent Chinese and English topics as <Chinese topic> | <English topic>",
     handler: async (args, ctx) => {
       const entities = args.split(/\s+\|\s+/).map((topic) => topic.trim()).filter(Boolean);
       if (entities.length !== 2) throw new Error("Usage: /memory-search <Chinese topic> | <English topic>");
@@ -52,19 +52,15 @@ export default function (pi: ExtensionAPI) {
     },
   });
   pi.registerCommand("memory-project-search", {
-    description: "Search prior history, then fall back to a named project's CWD-scoped sessions only if direct search has no matches; use <project> -- <Chinese topic> | <English topic>",
+    description: "Search local history and the named project's CWD-scoped sessions together; use when a project is relevant and provide <project> -- <Chinese topic> | <English topic>. Project words are normalized, so pi app can match pi-native-app.",
     handler: async (args, ctx) => {
       const [project, topics] = args.split(/\s+--\s+/, 2).map((part) => part.trim());
       const entities = topics?.split(/\s+\|\s+/).map((topic) => topic.trim()).filter(Boolean);
       if (!project || !entities || entities.length !== 2) throw new Error("Usage: /memory-project-search <project> -- <Chinese topic> | <English topic>");
       const directResults = recallTurns({ entities });
-      if (directResults.length) {
-        ctx.ui.notify(formatRecallResults(directResults, { entities }), "info");
-        return;
-      }
       const options = { project, entities };
       const result = recallProjectMemory(options);
-      ctx.ui.notify(formatProjectRecallResults(result, options), "info");
+      ctx.ui.notify(`${formatProjectRecallResults(result, options)}\n\n---\n\n${formatRecallResults(directResults, { entities })}`, "info");
     },
   });
   pi.registerCommand("memory-backfill", {
@@ -94,8 +90,8 @@ export default function (pi: ExtensionAPI) {
   });
   pi.registerTool({
     name: "recall_memory", label: "Search Cross-Session History",
-    description: "Search past Pi, Claude Code, and Codex transcript history using 2-8 specific literal topic entities. Call first when the user explicitly asks about prior work, or after the user agrees to search history. Include equivalent Chinese and English topic entities, and retain exactly that same entity list if named-project fallback is needed. Returns the configured number of ranked raw transcript matches; results are never automatic prompt context.",
-    promptSnippet: "First step of history recall: use 2-8 high-signal literal topic entities, including Chinese and English equivalents. Only if this returns no matches may recall_project_memory be called with the identical entities. Search is on demand; fetch a smallest useful session range only when excerpts need context.",
+    description: "Search past Pi, Claude Code, and Codex transcript history using 2-8 specific literal topic entities. Use for prior-work questions when no project is relevant; when a current or explicitly named project is relevant, also call recall_project_memory with the same bilingual entities and prioritize its evidence. Returns the configured number of ranked raw transcript matches; results are never automatic prompt context.",
+    promptSnippet: "Use 2-8 high-signal literal topic entities, including Chinese and English equivalents. When a current or explicitly named project is relevant, also call recall_project_memory with the identical entities and prioritize its results. Otherwise search only on demand; fetch a smallest useful session range when excerpts need context.",
     parameters: Type.Object({
       entities: Type.Array(Type.String({ minLength: 1 }), { minItems: 2, maxItems: 8 }),
       sources: Type.Optional(Type.Array(Type.Union([Type.Literal("pi"), Type.Literal("claude"), Type.Literal("codex")]))),
@@ -107,11 +103,11 @@ export default function (pi: ExtensionAPI) {
   });
   pi.registerTool({
     name: "recall_project_memory", label: "Search Named Project History",
-    description: "Second-step fallback for named-project history: call ONLY after recall_memory returns no matches. Pass the exact same Chinese-and-English topic entities used in that direct search. Use project ONLY to match the final directory name of stored session CWDs; never repeat project in entities. For example, first call recall_memory with ['数据库', 'database']; only if empty, call this tool with project: 'pi-session-memory' and the identical entities. If no project-scoped topic turn matches, returns recent matching project sessions for targeted fetch_session expansion.",
-    promptSnippet: "Fallback only: call after recall_memory has no matches, using its identical Chinese-and-English topic entities. Put the project directory name only in project, never in entities; it may be absent from that project's own transcript.",
+    description: "Search a named project's prior history by matching every normalized project word in the final directory name of stored session CWDs, then applying the provided topic entities only within those sessions. For example, pi app matches pi-native-app. Use alongside recall_memory whenever a current or explicitly named project is relevant; reuse the same Chinese-and-English topic entities and prioritize this project's evidence. Never put the project name in entities. If no project-scoped topic turn matches, returns recent matching project sessions for targeted fetch_session expansion.",
+    promptSnippet: "Use alongside recall_memory when a current or explicitly named project is relevant, with identical Chinese-and-English topic entities. Put the user-supplied project name only in project, never in entities; its normalized words match the final CWD directory name and it may be absent from that project's own transcript.",
     parameters: Type.Object({
-      project: Type.String({ minLength: 1, description: "Project directory name. Used only to exactly match the final directory name of stored session CWDs; do not repeat it in entities." }),
-      entities: Type.Array(Type.String({ minLength: 1, description: "The identical Chinese-and-English literal topic entities from the preceding zero-result recall_memory call. Search only resolved project sessions; never include the project name here." }), { minItems: 2, maxItems: 8 }),
+      project: Type.String({ minLength: 1, description: "Project name. Used only to match its normalized words against the final directory name of stored session CWDs (for example, pi app matches pi-native-app); do not repeat it in entities." }),
+      entities: Type.Array(Type.String({ minLength: 1, description: "The same Chinese-and-English literal topic entities used for recall_memory. Search only resolved project sessions; never include the project name here." }), { minItems: 2, maxItems: 8 }),
       sources: Type.Optional(Type.Array(Type.Union([Type.Literal("pi"), Type.Literal("claude"), Type.Literal("codex")]))),
       after: Type.Optional(Type.Number()),
       before: Type.Optional(Type.Number()),

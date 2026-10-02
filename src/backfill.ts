@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { getSourceFile, insertTurn, upsertSession, upsertSourceFile } from "./db.ts";
+import { getSourceFile, replaceSourceFile, upsertSourceFile, type StoredSession, type TurnRow } from "./db.ts";
 
 type Source = "pi" | "claude" | "codex";
 type Role = "user" | "assistant";
@@ -96,10 +96,11 @@ function _syncSourceFile(definition: typeof SOURCES[number], jsonlPath: string, 
     }
 
     const session = definition.parse(jsonlPath);
-    if (session) {
+    const stored = session ? _toStoredSession(session) : undefined;
+    replaceSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256 }, stored);
+    if (stored) {
       stats[definition.source]++;
-      stats.turns += _persist(session);
-      upsertSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256 });
+      stats.turns += stored.turns.length;
     }
     stats.scannedFiles++;
   } catch (error) {
@@ -118,28 +119,19 @@ function _backfillIssue(source: Source, jsonlPath: string | null, error: unknown
   };
 }
 
-/** Convert one normalized source session into paired, idempotently stored memory turns. */
-function _persist(session: ImportedSession): number {
+/** Convert one normalized source session into its complete replacement-ready stored representation. */
+function _toStoredSession(session: ImportedSession): StoredSession {
   const sessionId = `${session.source}:${session.nativeSessionId}`;
-  upsertSession({
-    session_id: sessionId,
-    source: session.source,
-    cwd: session.cwd,
-    started_at: session.startedAt,
-    model_id: session.modelId,
-    jsonl_path: session.jsonlPath,
-  });
-
+  const turns: TurnRow[] = [];
   let turnIndex = 0;
   let user: ImportedMessage | undefined;
   let replyText = "";
   const toolNames: string[] = [];
-  let persisted = 0;
 
-  /** Persist the current user-plus-assistant accumulation when a turn boundary is reached. */
+  /** Add the current user-plus-assistant accumulation when a turn boundary is reached. */
   const flush = () => {
     if (!user || !replyText.trim()) return;
-    const inserted = insertTurn({
+    turns.push({
       turn_id: `${sessionId}:${user.id}`,
       session_id: sessionId,
       turn_index: turnIndex++,
@@ -149,7 +141,6 @@ function _persist(session: ImportedSession): number {
       tool_names: toolNames.length ? JSON.stringify([...new Set(toolNames)]) : null,
       user_message_id: user.id,
     });
-    if (inserted) persisted++;
   };
 
   for (const message of session.messages) {
@@ -165,7 +156,17 @@ function _persist(session: ImportedSession): number {
     toolNames.push(...message.toolNames);
   }
   flush();
-  return persisted;
+  return {
+    session: {
+      session_id: sessionId,
+      source: session.source,
+      cwd: session.cwd,
+      started_at: session.startedAt,
+      model_id: session.modelId,
+      jsonl_path: session.jsonlPath,
+    },
+    turns,
+  };
 }
 
 /** Parse a Pi JSONL session into the source-neutral import representation. */

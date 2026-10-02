@@ -11,8 +11,8 @@ A local-first Pi extension for **on-demand cross-session transcript search** acr
 ## What it does
 
 - Indexes local Pi, Claude Code, and Codex JSONL transcript turns in local SQLite.
-- Provides `recall_memory` as the required first-stage literal raw-history search, returning a configured number of ranked matches.
-- Provides `recall_project_memory` only as the second-stage fallback when direct recall has no matches: the project matches stored session CWD metadata and the identical bilingual topic entities search only those sessions.
+- Provides `recall_memory` for literal raw-history search, returning a configured number of ranked matches.
+- Provides `recall_project_memory` alongside direct recall whenever a current or named project is relevant: the project matches stored session CWD metadata and the identical bilingual topic entities search only those sessions.
 - Provides `fetch_session` for read-only expansion of the smallest useful transcript range.
 - Synchronizes changed history at Pi session start; `/memory-backfill` performs an explicit full rescan.
 - Migrates current-project Claude Code or Codex sessions into separate native Pi sessions.
@@ -22,8 +22,8 @@ Search results are derived from stored source transcripts only and are never aut
 
 ## What's new in 0.6.2
 
-- Named-project recall is now a strict second stage: first search raw history, then resolve the exact final project-directory name from session CWD metadata only if direct recall returns no matches.
-- Both stages reuse the same Chinese and English topic entities. A project name scopes session metadata and is never required to appear in its own transcript.
+- When a current or named project is relevant, search raw history and project-directory CWD metadata together, then prioritize project-scoped evidence. Project words are normalized, so `pi app` matches `pi-native-app`.
+- Both searches reuse the same Chinese and English topic entities. A project name scopes session metadata and is never required to appear in its own transcript.
 - One editable `recallLimit` in `~/.pi/agent/pi-session-memory/config.json` caps results consistently for direct and project-scoped recall.
 
 Run `/pi-session-memory-whats-new` in Pi to show the release notes for the installed version.
@@ -35,8 +35,8 @@ Run `/pi-session-memory-whats-new` in Pi to show the release notes for the insta
 | `/pi-session-memory-helper` | Show cross-session search and migration help. |
 | `/pi-session-memory-whats-new` | Show release notes for the installed version. |
 | `/memory-status` | Show locally indexed session and turn totals. |
-| `/memory-search <Chinese topic> \| <English topic>` | First-stage search of locally indexed raw transcript history using equivalent bilingual topic entities. |
-| `/memory-project-search <project> -- <Chinese topic> \| <English topic>` | Second-stage fallback only after `/memory-search` has no matches; reuse the identical bilingual topics. The project matches CWD metadata and never searches transcript text. |
+| `/memory-search <Chinese topic> \| <English topic>` | Search locally indexed raw transcript history using equivalent bilingual topic entities when no project-specific context is needed. |
+| `/memory-project-search <project> -- <Chinese topic> \| <English topic>` | Search both local history and the named project's CWD-scoped sessions; use when a project is relevant and reuse identical bilingual topics. The project matches CWD metadata and never searches transcript text. |
 | `/memory-backfill` | Explicitly rescan historical Pi, Claude Code, and Codex JSONL. |
 | `/project-session-migration` | Convert current-project Codex sessions for `/resume`. |
 | `/project-claude-session-migration` | Convert current-project Claude Code sessions for `/resume`. |
@@ -45,8 +45,8 @@ Run `/pi-session-memory-whats-new` in Pi to show the release notes for the insta
 
 | Tool | Use when |
 | --- | --- |
-| `recall_memory` | Required first step when the user explicitly asks about prior work or agrees to history search. Use 2–8 specific literal topic entities, including Chinese and English equivalents. |
-| `recall_project_memory` | Second-stage fallback only when `recall_memory` returns no matches. Reuse its identical Chinese-and-English topic entities; put the directory name only in `project`, never in `entities`. |
+| `recall_memory` | Search prior work using 2–8 specific literal topic entities, including Chinese and English equivalents. When a current or named project is relevant, also call `recall_project_memory`. |
+| `recall_project_memory` | Call alongside `recall_memory` whenever a current or explicitly named project is relevant. Reuse identical Chinese-and-English topic entities; put the project name only in `project`, never in `entities`, and prioritize its evidence. Its normalized words match the stored CWD directory name, so `pi app` can resolve `pi-native-app`. |
 | `fetch_session` | A recall excerpt lacks needed context. Fetch the smallest useful range. It is read-only. |
 | `get_memory_stats` | The user asks how much local history is indexed. |
 | `backfill_memory` | The user explicitly asks to import, backfill, or rescan history. |
@@ -57,8 +57,8 @@ Run `/pi-session-memory-whats-new` in Pi to show the release notes for the insta
 
 ```text
 session_start -> syncChangedHistory() -> SQLite raw transcript index
-recall_memory(bilingual topic entities) -> matching raw transcript turns -> fetch_session (optional, read-only)
-zero direct matches -> recall_project_memory(project metadata + identical bilingual topic entities) -> project-scoped turns or session candidates -> fetch_session (optional, read-only)
+no project context -> recall_memory(bilingual topic entities) -> matching raw transcript turns -> fetch_session (optional, read-only)
+current or named project -> recall_memory(bilingual topic entities) + recall_project_memory(project metadata + identical bilingual topic entities) -> prioritize project-scoped turns or session candidates -> fetch_session (optional, read-only)
 project migration command/tool -> native Pi session JSONL -> /resume
 ```
 
@@ -72,7 +72,7 @@ Edit `~/.pi/agent/pi-session-memory/config.json` to control recall volume:
 }
 ```
 
-`recall_memory` and `recall_project_memory` always return at most `recallLimit` ranked turns. Invalid or missing configuration raises an error instead of silently choosing a fallback.
+`recall_memory` and `recall_project_memory` always return at most `recallLimit` ranked turns. Project-scoped topic search still examines every session whose CWD matches the project; the limit is applied after ranking, so older matching sessions remain searchable. When no project-scoped turn matches, at most `recallLimit` recent project-session candidates are returned instead. Invalid or missing configuration raises an error instead of silently choosing a fallback.
 
 History remains on the local machine, by default in `~/.pi/agent/memory.db`. Deleting that database removes only the index; restarting Pi rebuilds it from local source JSONL files.
 

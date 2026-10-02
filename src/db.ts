@@ -62,6 +62,31 @@ export function getSourceFile(jsonlPath: string): SourceFileRow | undefined { re
 export function upsertSourceFile(row: SourceFileRow): void { getDb().prepare(`INSERT INTO source_files (jsonl_path, source, size, mtime_ms, sha256) VALUES (?, ?, ?, ?, ?)
   ON CONFLICT(jsonl_path) DO UPDATE SET source = excluded.source, size = excluded.size, mtime_ms = excluded.mtime_ms, sha256 = excluded.sha256`).run(row.jsonl_path, row.source, row.size, row.mtime_ms, row.sha256); }
 export function upsertSession(row: SessionRow): void { getDb().prepare("INSERT OR IGNORE INTO sessions (session_id, source, cwd, started_at, model_id, jsonl_path) VALUES (?, ?, ?, ?, ?, ?)").run(row.session_id, row.source, row.cwd, row.started_at, row.model_id, row.jsonl_path); }
+
+/** Replace one JSONL file's complete indexed representation atomically after it was parsed successfully. */
+export function replaceSourceFile(sourceFile: SourceFileRow, stored?: StoredSession): void {
+  const db = getDb();
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM turns WHERE session_id IN (SELECT session_id FROM sessions WHERE jsonl_path = ?)").run(sourceFile.jsonl_path);
+    db.prepare("DELETE FROM sessions WHERE jsonl_path = ?").run(sourceFile.jsonl_path);
+    if (stored) {
+      db.prepare("INSERT INTO sessions (session_id, source, cwd, started_at, model_id, jsonl_path) VALUES (?, ?, ?, ?, ?, ?)").run(
+        stored.session.session_id, stored.session.source, stored.session.cwd, stored.session.started_at, stored.session.model_id, stored.session.jsonl_path,
+      );
+      const insertTurn = db.prepare("INSERT INTO turns (turn_id, session_id, turn_index, ts, user_text, reply_text, tool_names, user_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      for (const turn of stored.turns) insertTurn.run(turn.turn_id, turn.session_id, turn.turn_index, turn.ts, turn.user_text, turn.reply_text, turn.tool_names, turn.user_message_id);
+    }
+    db.prepare(`INSERT INTO source_files (jsonl_path, source, size, mtime_ms, sha256) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(jsonl_path) DO UPDATE SET source = excluded.source, size = excluded.size, mtime_ms = excluded.mtime_ms, sha256 = excluded.sha256`).run(
+      sourceFile.jsonl_path, sourceFile.source, sourceFile.size, sourceFile.mtime_ms, sourceFile.sha256,
+    );
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
 export function getSession(sessionId: string, fromTurnIndex?: number, toTurnIndex?: number): StoredSession {
   const session = getDb().prepare("SELECT * FROM sessions WHERE session_id = ?").get(sessionId) as SessionRow | undefined;
   if (!session) throw new Error(`History session not found: ${sessionId}`);

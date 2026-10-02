@@ -7,9 +7,9 @@ const STATE_PATH = join(homedir(), ".pi", "agent", "pi-session-memory", "whats-n
 const RELEASE_NOTES: Record<string, string> = {
   "0.6.2": `What's New in pi-session-memory v0.6.2
 
-- Named-project recall now safely finds sessions by exact project-directory CWD metadata after a zero-result direct recall.
-- Use the same Chinese and English topic entities in both recall stages; project names remain metadata, not transcript search terms.
-- Set one recallLimit value in ~/.pi/agent/pi-session-memory/config.json to cap every recall result set.`,
+- Named-project recall now matches normalized project words against session CWD directory names alongside direct recall whenever project context is relevant.
+- Use the same Chinese and English topic entities in both searches; project names remain metadata, not transcript search terms.
+- Project topic search covers every matching session before recallLimit caps ranked turns; with no topic match, recallLimit caps recent session candidates.`,
 };
 
 interface WhatsNewState { shownVersion: string; }
