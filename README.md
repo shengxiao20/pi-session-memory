@@ -1,6 +1,6 @@
 # pi-session-memory
 
-**Current version: 0.7.0**
+**Current version: 0.7.1**
 
 ## Install
 
@@ -21,6 +21,12 @@ A local-first Pi extension for **on-demand cross-session transcript search** acr
 - Matches equivalent Windows project CWDs during migration, including `\\` versus `/`, drive-letter case, and trailing separators.
 
 Search results are derived from stored source transcripts only and are never automatically injected into model context. Put project rules and preferences in `AGENTS.md`.
+
+## What's new in 0.7.1
+
+- **Codex history compatibility:** import legacy transcripts with missing message IDs and distinguish child threads from their root session. Repeated turn metadata no longer causes duplicate turn keys.
+- **Shared migration identities:** native-session migration uses the same deterministic message identity rules as indexing, preserving repeated messages.
+- **Automatic index upgrade:** unchanged Codex files are reparsed once after the parser upgrade. Existing records are replaced transactionally without resetting the database. Back up the index if exact pre-upgrade restoration is required; record-based IDs are stable under append, but not earlier record insertions or removals.
 
 ## What's new in 0.7.0
 

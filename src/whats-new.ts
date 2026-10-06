@@ -5,6 +5,13 @@ import { join } from "node:path";
 const STATE_PATH = join(homedir(), ".pi", "agent", "pi-session-memory", "whats-new.json");
 
 const RELEASE_NOTES: Record<string, string> = {
+  "0.7.1": `What's New in pi-session-memory v0.7.1
+
+- Codex history import now supports optional and repeated message IDs and keeps parent and child threads separate.
+- Native-session migration shares the same deterministic message identity rules without deduplicating repeated text.
+- Existing Codex index entries are reparsed once after the parser upgrade, with transactional replacement and conflict rollback.
+- The npm package version is now 0.7.1.`,
+
   "0.7.0": `What's New in pi-session-memory v0.7.0
 
 - One command only: use the /pi-session-memory folded menu for help, release notes, storage status, global/project recall, history import, and session migration. Former standalone slash commands are removed.

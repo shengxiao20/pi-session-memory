@@ -1,0 +1,90 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, appendFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
+
+const home = mkdtempSync(join(tmpdir(), "codex-history-test-"));
+process.env.HOME = process.env.USERPROFILE = home;
+process.env.MEMORY_DB_PATH = join(home, "history.db");
+// An existing v0.7 schema must upgrade without deleting sessions.
+const oldDb = new DatabaseSync(process.env.MEMORY_DB_PATH);
+oldDb.exec("CREATE TABLE source_files (jsonl_path TEXT PRIMARY KEY, source TEXT NOT NULL, size INTEGER NOT NULL, mtime_ms REAL NOT NULL, sha256 TEXT NOT NULL)");
+oldDb.close();
+const { getDb, getSession, getSourceFile, replaceSourceFile } = await import("../src/db.ts");
+const { codexMessageIds } = await import("../src/codex-history.ts");
+const { backfillAll, syncChangedHistory } = await import("../src/backfill.ts");
+const { migrateCodexProjectSessions } = await import("../src/session-migration.ts");
+const root = join(home, ".codex", "sessions");
+mkdirSync(root, { recursive: true });
+const timestamp = "2026-06-06T12:17:40Z";
+const cwd = "C:/work/test";
+const meta = (id: string, session_id?: string) => ({ type: "session_meta", payload: { id, session_id, timestamp, cwd } });
+const msg = (role: string, text: string, id?: string) => ({ type: "response_item", timestamp, payload: { type: "message", role, id, internal_chat_message_metadata_passthrough: { turn_id: "shared-turn" }, content: [{ type: role === "user" ? "input_text" : "output_text", text }] } });
+const write = (name: string, records: unknown[]) => { const path = join(root, `${name}.jsonl`); writeFileSync(path, records.map(x => JSON.stringify(x)).join("\n") + "\n"); return path; };
+try {
+  write("a-parent", [meta("parent", "parent"), msg("user", "first", "u"), msg("assistant", "reply", "a")]);
+  const child = write("b-child", [meta("child", "parent"), msg("user", "repeat"), msg("assistant", "answer"), msg("user", "repeat"), msg("assistant", "answer"), msg("user", "duplicate", "same"), msg("assistant", "one", "same"), msg("user", "duplicate", "same"), msg("assistant", "two", "same")]);
+  write("c-legacy", [{ type: "session_meta", payload: { session_id: "legacy", timestamp, cwd } }, msg("user", "legacy"), msg("assistant", "yes")]);
+  let stats = backfillAll();
+  assert.deepEqual(stats.issues, [], "valid historical Codex files must import");
+  assert.equal(stats.codex, 3);
+  const before = getSession("codex:child");
+  assert.equal(before.turns.length, 4, "repeated text and turn metadata are not deduplicated");
+  assert.equal(new Set(before.turns.map(t => t.turn_id)).size, 4);
+  assert.equal(getSession("codex:parent").turns.length, 1);
+  assert.deepEqual(backfillAll().issues, []);
+  assert.deepEqual(getSession("codex:child"), before, "force import is deterministic");
+  assert.equal(syncChangedHistory().skippedFiles, 3);
+  appendFileSync(child, [msg("user", "appended"), msg("assistant", "done")].map(x => JSON.stringify(x)).join("\n") + "\n");
+  assert.deepEqual(syncChangedHistory().issues, []);
+  assert.deepEqual(getSession("codex:child").turns.slice(0, 4), before.turns, "append preserves earlier IDs");
+  // Mark unchanged sources as old-parser data: both metadata and hash skips must be invalidated.
+  getDb().exec("UPDATE source_files SET parser_version = '' WHERE source = 'codex'");
+  stats = syncChangedHistory();
+  assert.equal(stats.codex, 3);
+  assert.deepEqual(stats.issues, []);
+  // Simulate the old bug: a child's file currently owns its parent's root ID.
+  getDb().exec("DELETE FROM turns WHERE session_id IN ('codex:parent','codex:child'); DELETE FROM sessions WHERE session_id IN ('codex:parent','codex:child')");
+  getDb().prepare("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)").run("codex:parent", "codex", cwd, 0, null, child);
+  getDb().exec("UPDATE source_files SET parser_version = '' WHERE source = 'codex'");
+  stats = syncChangedHistory();
+  assert.deepEqual(stats.issues, [], "upgrade retries root after the child releases its old root ID");
+  assert.equal(getSession("codex:parent").turns.length, 1);
+  assert.equal(getSession("codex:child").turns.length, 5);
+  const valid = readFileSync(child, "utf8");
+  const saved = getSession("codex:child");
+  const parentSaved = getSession("codex:parent");
+  const sourceSaved = getSourceFile(child)!;
+  const badSource = { ...sourceSaved, sha256: "must-roll-back", parser_version: "must-roll-back" };
+  assert.throws(() => replaceSourceFile(badSource, { ...saved, session: { ...saved.session, session_id: "codex:parent" } }), /UNIQUE constraint failed: sessions.session_id/);
+  assert.throws(() => replaceSourceFile(badSource, { ...saved, turns: [{ ...saved.turns[0], turn_id: parentSaved.turns[0].turn_id }] }), /UNIQUE constraint failed: turns.turn_id/);
+  assert.deepEqual(getSession("codex:child"), saved);
+  assert.deepEqual(getSession("codex:parent"), parentSaved);
+  assert.deepEqual(getSourceFile(child), sourceSaved, "DB collision rolls back hash and parser version too");
+  const records = valid.trim().split("\n").map(x => JSON.parse(x));
+  const beforeIds = [...codexMessageIds(records).values()];
+  const appended = [...records, msg("user", "duplicate append", "same"), msg("assistant", "answer", `record:${records.length}`)];
+  const afterIds = [...codexMessageIds(appended).values()];
+  assert.deepEqual(afterIds.slice(0, beforeIds.length), beforeIds);
+  assert.equal(new Set(afterIds).size, afterIds.length, "native IDs cannot collide with synthetic IDs, even on append");
+  writeFileSync(child, JSON.stringify(msg("user", "header missing")) + "\n");
+  assert.equal(syncChangedHistory().issues.length, 1);
+  assert.deepEqual(getSession("codex:child"), saved);
+  writeFileSync(child, JSON.stringify({ type: "session_meta", payload: { cwd, timestamp } }) + "\n");
+  assert.equal(syncChangedHistory().issues.length, 1);
+  assert.deepEqual(getSession("codex:child"), saved, "malformed metadata cannot erase indexed history");
+  writeFileSync(child, valid);
+  const migrated = migrateCodexProjectSessions(cwd);
+  assert.deepEqual(migrated.issues, []);
+  assert.equal(migrated.migratedSessions, 3);
+  const target = join(home, ".pi", "agent", "sessions", "--C--work-test--");
+  for (const name of readdirSync(target)) {
+    const entries = readFileSync(join(target, name), "utf8").trim().split("\n").map(x => JSON.parse(x));
+    const branch = entries.slice(1);
+    assert.equal(new Set(branch.map(x => x.id)).size, branch.length);
+    for (let i = 0; i < branch.length; i++) assert.equal(branch[i].parentId, i ? branch[i - 1].id : null);
+  }
+  assert.equal(migrateCodexProjectSessions(cwd).skippedSessions, 3);
+  console.log("codex-history: schema, legacy, parent/child, anonymous/duplicate IDs, append, invalidation, rollback, migration passed");
+} finally { getDb().close(); rmSync(home, { recursive: true, force: true }); }
