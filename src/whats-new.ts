@@ -5,6 +5,14 @@ import { join } from "node:path";
 const STATE_PATH = join(homedir(), ".pi", "agent", "pi-session-memory", "whats-new.json");
 
 const RELEASE_NOTES: Record<string, string> = {
+  "0.7.0": `What's New in pi-session-memory v0.7.0
+
+- One command only: use the /pi-session-memory folded menu for help, release notes, storage status, global/project recall, history import, and session migration. Former standalone slash commands are removed.
+- Optional Jev filtering reviews already-ranked literal results locally and filters keyword-only false positives; review or setup failures keep literal recall active.
+- Expanded agent tools include project-scoped recall, unified Claude Code/Codex migration, and review_jev_filtered for auditing filtered evidence.
+- The global JSON configuration path and supported fields are documented in the Help menu and README.
+- The npm package version is now 0.7.0.`,
+
   "0.6.2": `What's New in pi-session-memory v0.6.2
 
 - Named-project recall now matches normalized project words against session CWD directory names alongside direct recall whenever project context is relevant.

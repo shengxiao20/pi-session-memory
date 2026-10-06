@@ -1,6 +1,6 @@
 {
   "name": "pi-session-memory",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "Local-first cross-session transcript search and native Pi session migration for Pi, Claude Code, and Codex",
   "keywords": [
     "pi-package"
@@ -20,7 +20,7 @@
     "src/"
   ],
   "scripts": {
-    "test": "tsx tests/core.test.ts",
+    "test": "tsx tests/core.test.ts && tsx tests/jev-filter.test.ts",
     "test:e2e": "tsx tests/e2e.test.ts",
     "test:all": "npm test && npm run test:e2e"
   },
@@ -35,5 +35,8 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "^0.6.0"
   }
 }

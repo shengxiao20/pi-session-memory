@@ -16,17 +16,24 @@ const { backfillAll, syncChangedHistory } = await import("../src/backfill.ts");
 const { migrateClaudeProjectSessions, migrateCodexProjectSessions } = await import("../src/session-migration.ts");
 const { getWhatsNew, showWhatsNewIfUpdated } = await import("../src/whats-new.ts");
 const { SESSION_MEMORY_HELP } = await import("../src/helper.ts");
+const { getSessionMemoryConfig, JEV_MODELS } = await import("../src/config.ts");
 
 function cleanup(): void { for (const suffix of ["", "-wal", "-shm"]) rmSync(`${dbPath}${suffix}`, { force: true }); rmSync(historyHome, { recursive: true, force: true }); }
 cleanup();
 
 const extensionSource = readFileSync(join(process.cwd(), "extensions", "index.ts"), "utf8");
-assert.match(extensionSource, /"pi-session-memory-whats-new"/);
+assert.match(extensionSource, /"pi-session-memory"/);
+assert.doesNotMatch(extensionSource, /registerCommand\("(?!pi-session-memory")/);
 assert.match(SESSION_MEMORY_HELP, /^pi-session-memory\n/);
 assert.match(SESSION_MEMORY_HELP, /Recall past discussions/);
-assert.match(SESSION_MEMORY_HELP, /\/pi-session-memory-whats-new/);
+assert.match(SESSION_MEMORY_HELP, /Run \/pi-session-memory to open one selectable menu/);
 assert.doesNotMatch(SESSION_MEMORY_HELP, /[#*`]/, "TUI helper output must not contain Markdown markers");
 assert.doesNotMatch(SESSION_MEMORY_HELP, /[\u4e00-\u9fff]/, "TUI helper output must be English only");
+const currentWhatsNew = getWhatsNew("0.7.0");
+assert.match(currentWhatsNew, /What.s New in pi-session-memory v0\.7\.0/);
+assert.match(currentWhatsNew, /One command only: use the \/pi-session-memory folded menu/);
+assert.doesNotMatch(currentWhatsNew, /pi-session-memory-helper|memory-search|memory-status/);
+assert.match(readFileSync(join(process.cwd(), "README.md"), "utf8"), /Current version: 0\.7\.0/);
 const whatsNew = getWhatsNew("0.6.2");
 assert.match(whatsNew, /What.s New in pi-session-memory v0\.6\.2/);
 assert.match(whatsNew, /Named-project recall/);
@@ -38,10 +45,21 @@ assert.equal(showWhatsNewIfUpdated("0.6.3"), "", "an unlisted version still reco
 assert.equal(showWhatsNewIfUpdated("0.6.3"), undefined);
 rmSync(join(historyHome, ".pi", "agent", "pi-session-memory"), { recursive: true, force: true });
 mkdirSync(join(historyHome, ".pi", "agent", "pi-session-memory"), { recursive: true });
-writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2 }));
+const configPath = join(historyHome, ".pi", "agent", "pi-session-memory", "config.json");
+writeFileSync(configPath, JSON.stringify({ recallLimit: 2 }));
+assert.deepEqual(getSessionMemoryConfig(), { recallLimit: 2, jevEnable: false, model: "nimble" }, "legacy config must use backward-compatible defaults");
+for (const model of JEV_MODELS) {
+  writeFileSync(configPath, JSON.stringify({ recallLimit: 2, jevEnable: true, model }));
+  assert.deepEqual(getSessionMemoryConfig(), { recallLimit: 2, jevEnable: true, model });
+}
+writeFileSync(configPath, JSON.stringify({ recallLimit: 2, model: "unsupported" }));
+assert.throws(() => getSessionMemoryConfig(), /model must be one of nimble, tev1:4b, tev1:0.8b/);
+writeFileSync(configPath, JSON.stringify({ recallLimit: 2 }));
 
-for (const toolName of ["recall_memory", "recall_project_memory", "fetch_session", "get_memory_stats", "backfill_memory", "migrate_codex_project_sessions", "migrate_claude_project_sessions"]) assert.match(extensionSource, new RegExp(`name: "${toolName}"`));
-assert.match(extensionSource, /memory-project-search/);
+for (const toolName of ["recall_memory", "recall_project_memory", "fetch_session", "get_memory_stats", "backfill_memory", "migrate_project_sessions"]) assert.match(extensionSource, new RegExp(`name: "${toolName}"`));
+assert.doesNotMatch(extensionSource, /name: "migrate_(claude|codex)_project_sessions"/);
+assert.match(extensionSource, /Search project history/);
+assert.doesNotMatch(extensionSource, /"memory-project-search"/);
 assert.match(extensionSource, /also call recall_project_memory/);
 assert.match(extensionSource, /identical Chinese-and-English topic entities/);
 assert.match(extensionSource, /never include the project name here/);

@@ -1,26 +1,34 @@
-/** Static user-facing overview displayed by the pi-session-memory helper command. */
+/** Static user-facing overview displayed from the pi-session-memory command menu. */
 export const SESSION_MEMORY_HELP = `pi-session-memory
 
 This extension indexes local Pi, Claude Code, and Codex transcript history for on-demand cross-session retrieval.
+
+Run /pi-session-memory to open one selectable menu (the only user-facing command):
+- Help and release notes
+- Local storage status
+- Global history search with equivalent Chinese and English topics
+- Project-scoped history search plus global history
+- Historical-session import
+- Current-project Claude Code and Codex session migration for /resume
+
+All user-facing actions are accessed from this folded menu; no separate slash commands are registered.
 
 Recall past discussions
 - Ask what was discussed or decided about a specific topic.
 - Pi searches local history only when needed, then reads the smallest useful session range.
 - History is not injected automatically into context, and agent-generated summaries are not saved.
 
-Migrate project sessions
-- Run /project-claude-session-migration or /project-session-migration only when you explicitly want to continue current-project Claude Code or Codex sessions through Pi /resume.
-- Each source session becomes a separate native Pi session.
-- Equivalent Windows path spellings use the same project match; migrated sessions appear in the current project's /resume list.
-
-What's New
-- Run /pi-session-memory-whats-new to view release notes for the installed version. New release notes appear once when a new version first starts.
-
 Local storage
-- Run /memory-search <Chinese topic> | <English topic> to search raw local transcript history with equivalent bilingual topics when no project context is relevant. Edit ~/.pi/agent/pi-session-memory/config.json to set recallLimit.
-- When a project is relevant, run /memory-project-search <project> -- <Chinese topic> | <English topic>; it returns both global and project-scoped results using identical bilingual topics. Normalized project words match session CWD metadata (for example, pi app can match pi-native-app) and never search transcript text.
-- Run /memory-backfill only when you explicitly want to rescan all historical sessions.
-- Run /memory-status to show indexed session and turn totals.
+- For search, enter exactly <Chinese topic> | <English topic> in the menu prompt.
+- Project search additionally asks for the project name. Normalized project words match session CWD metadata (for example, pi app can match pi-native-app) and never search transcript text.
 - Put persistent rules, preferences, and project instructions in AGENTS.md.
+
+Configuration
+- The optional JSON configuration file is ~/.pi/agent/pi-session-memory/config.json.
+- Configure recallLimit as a positive integer to control the maximum ranked turns returned by recall.
+- Set jevEnable to true to enable local Jev relevance filtering; it defaults to false.
+- Set model to nimble, tev1:4b, or tev1:0.8b for Jev; it defaults to nimble.
+- Example: { "recallLimit": 20, "jevEnable": false, "model": "nimble" }
+- Missing or invalid configuration is reported as an error; there is no silent fallback.
 
 History stays in local SQLite. An import error in one source file does not prevent indexing sessions from other Pi, Claude Code, or Codex sources.`;

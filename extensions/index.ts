@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { writeTurn } from "../src/writer.ts";
 import { getHistoryStats } from "../src/db.ts";
@@ -9,18 +9,26 @@ import { backfillAll, syncChangedHistory, type BackfillStats } from "../src/back
 import { migrateClaudeProjectSessions, migrateCodexProjectSessions, type ProjectSessionMigrationStats } from "../src/session-migration.ts";
 import { SESSION_MEMORY_HELP } from "../src/helper.ts";
 import { getWhatsNew, showWhatsNewIfUpdated } from "../src/whats-new.ts";
+import { getSessionMemoryConfig } from "../src/config.ts";
+import { JevRuntime } from "../src/jev-runtime.ts";
+import { filterRecallWithJev, type JevFilterStats } from "../src/jev-filter.ts";
 import packageJson from "../package.json" with { type: "json" };
 
 /** Register local cross-session transcript retrieval and source-session migration features. */
 export default function (pi: ExtensionAPI) {
+  const jevRuntime = new JevRuntime();
   pi.on("session_start", async (event, ctx) => {
     try {
       const whatsNew = showWhatsNewIfUpdated(packageJson.version);
       if (whatsNew) ctx.ui.notify(whatsNew, "info");
       const stats = syncChangedHistory();
+      const config = getSessionMemoryConfig();
+      const jev = await jevRuntime.ensureReady(config.jevEnable, config.model);
+      if (jev.state === "ready") ctx.ui.notify(`[session-memory] jev is ready to review recalled turns with ${config.model}.`, "info");
+      if (jev.state === "unavailable") ctx.ui.notify(`[session-memory] jev unavailable; literal recall remains active: ${jev.reason}`, "warning");
       if (event.reason === "startup" || stats.scannedFiles > 0) {
         const summary = stats.scannedFiles > 0 ? `synced ${stats.turns} turns from ${stats.scannedFiles} changed session files` : "ready";
-        ctx.ui.notify(`[session-memory] ${summary}. Run /pi-session-memory-helper for cross-session history features.`, "info");
+        ctx.ui.notify(`[session-memory] ${summary}. Run /pi-session-memory to open cross-session history actions.`, "info");
       }
       for (const issue of stats.issues) ctx.ui.notify(`[session-memory] ${issue.error}`, "error");
     } catch (err) { ctx.ui.notify(`[session-memory] history sync failed: ${String(err)}`, "error"); }
@@ -29,64 +37,24 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_settled", async (_event, ctx) => {
     try { writeTurn(ctx); } catch (err) { ctx.ui.notify(`[session-memory] write failed: ${String(err)}`, "error"); }
   });
+  pi.on("session_shutdown", () => { jevRuntime.shutdown(); });
 
-  pi.registerCommand("pi-session-memory-whats-new", {
-    description: "Show release notes for the installed pi-session-memory version",
-    handler: async (_args, ctx) => { ctx.ui.notify(getWhatsNew(packageJson.version) || `No published What's New notes for pi-session-memory v${packageJson.version}.`, "info"); },
-  });
-  pi.registerCommand("pi-session-memory-helper", {
-    description: "Show cross-session history search and migration features",
-    handler: async (_args, ctx) => { ctx.ui.notify(SESSION_MEMORY_HELP, "info"); },
-  });
-  pi.registerCommand("memory-status", {
-    description: "Show local cross-session history storage and source statistics",
-    handler: async (_args, ctx) => { ctx.ui.notify(_historyStatsSummary(getHistoryStats()), "info"); },
-  });
-  pi.registerCommand("memory-search", {
-    description: "Search local cross-session transcript history when no project-specific context is needed; use equivalent Chinese and English topics as <Chinese topic> | <English topic>",
-    handler: async (args, ctx) => {
-      const entities = args.split(/\s+\|\s+/).map((topic) => topic.trim()).filter(Boolean);
-      if (entities.length !== 2) throw new Error("Usage: /memory-search <Chinese topic> | <English topic>");
-      const results = recallTurns({ entities });
-      ctx.ui.notify(formatRecallResults(results, { entities }), "info");
-    },
-  });
-  pi.registerCommand("memory-project-search", {
-    description: "Search local history and the named project's CWD-scoped sessions together; use when a project is relevant and provide <project> -- <Chinese topic> | <English topic>. Project words are normalized, so pi app can match pi-native-app.",
-    handler: async (args, ctx) => {
-      const [project, topics] = args.split(/\s+--\s+/, 2).map((part) => part.trim());
-      const entities = topics?.split(/\s+\|\s+/).map((topic) => topic.trim()).filter(Boolean);
-      if (!project || !entities || entities.length !== 2) throw new Error("Usage: /memory-project-search <project> -- <Chinese topic> | <English topic>");
-      const directResults = recallTurns({ entities });
-      const options = { project, entities };
-      const result = recallProjectMemory(options);
-      ctx.ui.notify(`${formatProjectRecallResults(result, options)}\n\n---\n\n${formatRecallResults(directResults, { entities })}`, "info");
-    },
-  });
-  pi.registerCommand("memory-backfill", {
-    description: "Import historical Pi, Claude Code, and Codex transcript sessions into the local index",
-    handler: async (_args, ctx) => { _notifyBackfill(ctx, backfillAll(), "imported"); },
-  });
-  pi.registerCommand("project-session-migration", {
-    description: "Convert current-project Codex sessions into separate native Pi sessions for /resume",
-    handler: async (_args, ctx) => { _notifySessionMigration(ctx, "Codex", migrateCodexProjectSessions(ctx.sessionManager.getCwd())); },
-  });
-  pi.registerCommand("project-claude-session-migration", {
-    description: "Convert current-project Claude Code sessions into separate native Pi sessions for /resume",
-    handler: async (_args, ctx) => { _notifySessionMigration(ctx, "Claude Code", migrateClaudeProjectSessions(ctx.sessionManager.getCwd())); },
+  pi.registerCommand("pi-session-memory", {
+    description: "Open a selectable menu for local history search, indexing, migration, help, and release notes",
+    handler: async (_args, ctx) => { await _openSessionMemoryMenu(ctx); },
   });
 
   pi.registerTool({
-    name: "migrate_codex_project_sessions", label: "Migrate Codex Project Sessions",
-    description: "Convert each Codex session for the current project into a separate native Pi session selectable with /resume. Use only when the user explicitly wants native Pi continuation of prior Codex work.",
-    promptSnippet: "Use only when the user explicitly requests native Pi continuation of this project's prior Codex sessions.", parameters: Type.Object({}),
-    async execute(_id, _params, _signal, _update, ctx) { const stats = migrateCodexProjectSessions(ctx.sessionManager.getCwd()); return { content: [{ type: "text" as const, text: _sessionMigrationSummary("Codex", stats) }], details: stats }; },
-  });
-  pi.registerTool({
-    name: "migrate_claude_project_sessions", label: "Migrate Claude Code Project Sessions",
-    description: "Convert each Claude Code session for the current project into a separate native Pi session selectable with /resume. Use only when the user explicitly wants native Pi continuation of prior Claude Code work.",
-    promptSnippet: "Use only when the user explicitly requests native Pi continuation of this project's prior Claude Code sessions.", parameters: Type.Object({}),
-    async execute(_id, _params, _signal, _update, ctx) { const stats = migrateClaudeProjectSessions(ctx.sessionManager.getCwd()); return { content: [{ type: "text" as const, text: _sessionMigrationSummary("Claude Code", stats) }], details: stats }; },
+    name: "migrate_project_sessions", label: "Migrate Project Sessions",
+    description: "Convert current-project Claude Code and Codex sessions into separate native Pi sessions selectable with /resume. Use only when the user explicitly wants native Pi continuation; omit sources to migrate both, or select only the requested source.",
+    promptSnippet: "Use only when the user explicitly requests native Pi continuation of prior Claude Code or Codex work. Omit sources to migrate both.",
+    parameters: Type.Object({
+      sources: Type.Optional(Type.Array(Type.Union([Type.Literal("claude"), Type.Literal("codex")]), { minItems: 1, uniqueItems: true, description: "Sources to migrate; omit to migrate both Claude Code and Codex." })),
+    }),
+    async execute(_id, { sources }, _signal, _update, ctx) {
+      const migrations = _migrateProjectSources(ctx.sessionManager.getCwd(), sources);
+      return { content: [{ type: "text" as const, text: _projectMigrationSummary(migrations) }], details: migrations };
+    },
   });
   pi.registerTool({
     name: "recall_memory", label: "Search Cross-Session History",
@@ -98,8 +66,13 @@ export default function (pi: ExtensionAPI) {
       cwd: Type.Optional(Type.String({ minLength: 1 })),
       after: Type.Optional(Type.Number()),
       before: Type.Optional(Type.Number()),
+      question: Type.String({ minLength: 1, description: "The complete user question used by optional jev filtering to judge each literal recall candidate." }),
     }),
-    async execute(_id, options) { const results = recallTurns(options); return { content: [{ type: "text" as const, text: formatRecallResults(results, options) }], details: { returnedResults: results.length, results } }; },
+    async execute(_id, options, _signal, update) {
+      const literalResults = recallTurns(options);
+      const reviewed = await _reviewWithJev(jevRuntime, options.question, literalResults, (message) => update({ content: [{ type: "text", text: message }] }));
+      return { content: [{ type: "text" as const, text: `${_jevSummary(reviewed.stats)}\n\n${formatRecallResults(reviewed.results, options)}` }], details: { returnedResults: reviewed.results.length, results: reviewed.results, jev: reviewed.stats, jevFilteredOut: reviewed.filteredOut } };
+    },
   });
   pi.registerTool({
     name: "recall_project_memory", label: "Search Named Project History",
@@ -111,8 +84,34 @@ export default function (pi: ExtensionAPI) {
       sources: Type.Optional(Type.Array(Type.Union([Type.Literal("pi"), Type.Literal("claude"), Type.Literal("codex")]))),
       after: Type.Optional(Type.Number()),
       before: Type.Optional(Type.Number()),
+      question: Type.String({ minLength: 1, description: "The complete user question used by optional jev filtering to judge each literal project recall candidate." }),
     }),
-    async execute(_id, options) { const result = recallProjectMemory(options); return { content: [{ type: "text" as const, text: formatProjectRecallResults(result, options) }], details: { project: options.project, totalSessions: result.sessions.length, returnedResults: result.results.length, sessions: result.sessions, results: result.results } }; },
+    async execute(_id, options, _signal, update) {
+      const literalResult = recallProjectMemory(options);
+      const reviewed = await _reviewWithJev(jevRuntime, options.question, literalResult.results, (message) => update({ content: [{ type: "text", text: message }] }));
+      const retainedSessionIds = new Set(reviewed.results.map((turn) => turn.session_id));
+      const result = { ...literalResult, results: reviewed.results, sessions: literalResult.sessions.filter((session) => retainedSessionIds.has(session.session_id)) };
+      return { content: [{ type: "text" as const, text: `${_jevSummary(reviewed.stats)}\n\n${formatProjectRecallResults(result, options)}` }], details: { project: options.project, totalSessions: result.sessions.length, returnedResults: result.results.length, sessions: result.sessions, results: result.results, jev: reviewed.stats, jevFilteredOut: reviewed.filteredOut } };
+    },
+  });
+  pi.registerTool({
+    name: "review_jev_filtered", label: "Review Jev-Filtered Recall Evidence",
+    description: "Re-run literal recall and display only turns Jev filtered out, with each turn's maximum Jev noul relevance. Use when auditing possible Jev false negatives after a recall; supply the same entities, question, and optional scopes as the original recall.",
+    promptSnippet: "Use only to inspect possible Jev false negatives after recall. Reuse the original entities, complete question, and any project or scope filters.",
+    parameters: Type.Object({
+      entities: Type.Array(Type.String({ minLength: 1 }), { minItems: 2, maxItems: 8 }),
+      question: Type.String({ minLength: 1, description: "The complete original user question used for Jev relevance judgment." }),
+      project: Type.Optional(Type.String({ minLength: 1, description: "Optional project name; when provided, review only candidates resolved for this project." })),
+      sources: Type.Optional(Type.Array(Type.Union([Type.Literal("pi"), Type.Literal("claude"), Type.Literal("codex")]))),
+      cwd: Type.Optional(Type.String({ minLength: 1 })),
+      after: Type.Optional(Type.Number()),
+      before: Type.Optional(Type.Number()),
+    }),
+    async execute(_id, options, _signal, update) {
+      const literal = options.project === undefined ? recallTurns(options) : recallProjectMemory({ ...options, project: options.project }).results;
+      const reviewed = await _reviewWithJev(jevRuntime, options.question, literal, (message) => update({ content: [{ type: "text", text: message }] }));
+      return { content: [{ type: "text" as const, text: `${_jevSummary(reviewed.stats)}\n\n${_formatJevFilteredOut(reviewed.filteredOut)}` }], details: { returnedResults: reviewed.filteredOut.length, results: reviewed.filteredOut, jev: reviewed.stats } };
+    },
   });
   pi.registerTool({
     name: "fetch_session",  label: "Fetch Session",
@@ -139,8 +138,101 @@ export default function (pi: ExtensionAPI) {
     async execute() { const stats = backfillAll(); return { content: [{ type: "text" as const, text: _backfillSummary(stats, "imported") }], details: stats }; },
   });
 }
+const SESSION_MEMORY_ACTIONS = {
+  help: "Help — explain history search, indexing, and migration",
+  whatsNew: `What's new — pi-session-memory v${packageJson.version}`,
+  status: "Storage status — show indexed session and turn totals",
+  search: "Search history — search global history with Chinese | English topics",
+  projectSearch: "Search project history — search project plus global history",
+  backfill: "Import historical sessions — rescan Pi, Claude Code, and Codex history",
+  migrate: "Migrate project sessions — make Claude Code and Codex sessions available in /resume",
+} as const;
+
+/** Open every manual pi-session-memory capability from one selectable slash-command menu. */
+async function _openSessionMemoryMenu(ctx: ExtensionCommandContext): Promise<void> {
+  const selection = await ctx.ui.select("pi-session-memory", Object.values(SESSION_MEMORY_ACTIONS));
+  if (!selection) return;
+  if (selection === SESSION_MEMORY_ACTIONS.help) return ctx.ui.notify(SESSION_MEMORY_HELP, "info");
+  if (selection === SESSION_MEMORY_ACTIONS.whatsNew) return ctx.ui.notify(getWhatsNew(packageJson.version) || `No published What's New notes for pi-session-memory v${packageJson.version}.`, "info");
+  if (selection === SESSION_MEMORY_ACTIONS.status) return ctx.ui.notify(_historyStatsSummary(getHistoryStats()), "info");
+  if (selection === SESSION_MEMORY_ACTIONS.backfill) return _notifyBackfill(ctx, backfillAll(), "imported");
+  if (selection === SESSION_MEMORY_ACTIONS.migrate) return _notifyProjectMigration(ctx, _migrateProjectSources(ctx.sessionManager.getCwd()));
+  if (selection === SESSION_MEMORY_ACTIONS.search) return _searchHistoryFromMenu(ctx);
+  return _searchProjectHistoryFromMenu(ctx);
+}
+
+async function _searchHistoryFromMenu(ctx: ExtensionCommandContext): Promise<void> {
+  const entities = _bilingualTopics(await ctx.ui.input("Search local history", "Chinese topic | English topic"));
+  if (!entities) return;
+  ctx.ui.notify(formatRecallResults(recallTurns({ entities }), { entities }), "info");
+}
+
+async function _searchProjectHistoryFromMenu(ctx: ExtensionCommandContext): Promise<void> {
+  const project = await ctx.ui.input("Search project history", "Project name");
+  if (!project) return;
+  const entities = _bilingualTopics(await ctx.ui.input("Search project history", "Chinese topic | English topic"));
+  if (!entities) return;
+  const options = { project, entities };
+  const projectResults = recallProjectMemory(options);
+  const globalResults = recallTurns({ entities });
+  ctx.ui.notify(`${formatProjectRecallResults(projectResults, options)}\n\n---\n\n${formatRecallResults(globalResults, { entities })}`, "info");
+}
+
+function _bilingualTopics(value: string | undefined): string[] | undefined {
+  if (value === undefined) return undefined;
+  const entities = value.split(/\s+\|\s+/).map((topic) => topic.trim()).filter(Boolean);
+  if (entities.length !== 2) throw new Error("Enter exactly two topics as <Chinese topic> | <English topic>");
+  return entities;
+}
+
 function _historyStatsSummary(stats: ReturnType<typeof getHistoryStats>): string { const sources = stats.sources.length ? stats.sources.map((source) => `${source.source}: ${source.turns} turns / ${source.sessions} sessions`).join(", ") : "no imported sources"; const newest = stats.newestTs ? new Date(stats.newestTs).toLocaleString() : "n/a"; return `[session-memory] ${stats.turns} turns across ${stats.sessions} sessions; ${sources}; newest: ${newest}`; }
 function _backfillSummary(stats: BackfillStats, action: string): string { return `[session-memory] ${action} ${stats.turns} turns from ${stats.scannedFiles} files: ${stats.pi} Pi, ${stats.claude} Claude, ${stats.codex} Codex sessions`; }
 function _notifyBackfill(ctx: ExtensionContext, stats: BackfillStats, action: string): void { ctx.ui.notify(_backfillSummary(stats, action), "info"); for (const issue of stats.issues) ctx.ui.notify(`[session-memory] ${issue.error}`, "error"); }
-function _sessionMigrationSummary(sourceLabel: string, stats: ProjectSessionMigrationStats): string { return `[session-memory] migrated ${stats.migratedSessions} ${sourceLabel} sessions (${stats.migratedMessages} messages); skipped ${stats.skippedSessions} already migrated sessions from ${stats.scannedFiles} scanned files. Use /resume to select a migrated Pi session.`; }
-function _notifySessionMigration(ctx: ExtensionContext, sourceLabel: string, stats: ProjectSessionMigrationStats): void { ctx.ui.notify(_sessionMigrationSummary(sourceLabel, stats), "info"); for (const issue of stats.issues) ctx.ui.notify(`[session-memory] ${sourceLabel} migration failed (${issue.path}): ${issue.error}`, "error"); }
+type ProjectMigrationSource = "claude" | "codex";
+type ProjectMigrationResults = Record<ProjectMigrationSource, ProjectSessionMigrationStats>;
+
+function _migrateProjectSources(cwd: string, sources: ProjectMigrationSource[] = ["claude", "codex"]): Partial<ProjectMigrationResults> {
+  return Object.fromEntries(sources.map((source) => [source, source === "claude" ? migrateClaudeProjectSessions(cwd) : migrateCodexProjectSessions(cwd)])) as Partial<ProjectMigrationResults>;
+}
+function _projectMigrationSummary(migrations: Partial<ProjectMigrationResults>): string {
+  const summaries = Object.entries(migrations).map(([source, stats]) => {
+    const label = source === "claude" ? "Claude Code" : "Codex";
+    return `${label}: ${stats.migratedSessions} migrated, ${stats.skippedSessions} skipped, ${stats.migratedMessages} messages from ${stats.scannedFiles} files`;
+  });
+  return `[session-memory] project session migration complete — ${summaries.join("; ")}. Use /resume to select a migrated Pi session.`;
+}
+function _notifyProjectMigration(ctx: ExtensionContext, migrations: Partial<ProjectMigrationResults>): void {
+  ctx.ui.notify(_projectMigrationSummary(migrations), "info");
+  for (const [source, stats] of Object.entries(migrations)) for (const issue of stats.issues) ctx.ui.notify(`[session-memory] ${source} migration failed (${issue.path}): ${issue.error}`, "error");
+}
+
+async function _reviewWithJev(runtime: JevRuntime, question: string, results: import("../src/retriever.ts").RecallTurnResult[], progress: (message: string) => void): Promise<{ results: import("../src/retriever.ts").RecallTurnResult[]; filteredOut: import("../src/jev-filter.ts").JevFilteredOutTurn[]; stats: JevFilterStats }> {
+  const config = getSessionMemoryConfig();
+  if (!config.jevEnable) return { results, filteredOut: [], stats: { status: "disabled", model: config.model, contextWindow: 0, reviewed: 0, retained: results.length, filtered: 0, truncated: 0, reason: "jevEnable is false" } };
+  const status = await runtime.ensureReady(true, config.model);
+  if (status.state !== "ready") return { results, filteredOut: [], stats: { status: "unavailable", model: config.model, contextWindow: 0, reviewed: 0, retained: results.length, filtered: 0, truncated: 0, reason: status.reason ?? "Jev runtime is not ready" } };
+  progress(`[session-memory] jev reviewing ${results.length} recalled turns…`);
+  try {
+    const filtered = await filterRecallWithJev(runtime, question, results);
+    progress(`[session-memory] jev retained ${filtered.stats.retained} of ${filtered.stats.reviewed} recalled turns; filtered ${filtered.stats.filtered}.`);
+    return filtered;
+  } catch (error) {
+    runtime.markUnavailable(error);
+    const reason = String(error);
+    progress(`[session-memory] jev unavailable; literal recall remains active: ${reason}`);
+    return { results, filteredOut: [], stats: { status: "unavailable", model: config.model, contextWindow: 0, reviewed: 0, retained: results.length, filtered: 0, truncated: 0, reason } };
+  }
+}
+
+function _formatJevFilteredOut(filteredOut: import("../src/jev-filter.ts").JevFilteredOutTurn[]): string {
+  const header = `# Jev filtered-out evidence\n**Turns:** ${filteredOut.length}\n**Interpretation:** noul relevance is Jev's probability that a turn is directly relevant. The displayed value is the maximum noul across this turn's segments; values below 0.5 were excluded from normal recall.`;
+  const turns = filteredOut.length
+    ? filteredOut.map(({ turn, noul }) => `## Filtered turn · noul relevance ${noul.toFixed(3)}\n**Fetch session ID:** \`${turn.session_id}\`\n**Source turn ID:** \`${turn.turn_id}\`\n**You:** ${turn.user_text}\n${turn.reply_text ? `**Assistant:** ${turn.reply_text}` : ""}`).join("\n\n")
+    : "No turns were filtered out by Jev.";
+  return `${header}\n\n${turns}`;
+}
+
+function _jevSummary(stats: JevFilterStats): string {
+  const reason = stats.reason ? `\n**Reason:** ${stats.reason}` : "";
+  return `# Jev result\n**Status:** ${stats.status}\n**Model:** ${stats.model}\n**Context window:** ${stats.contextWindow || "unavailable"} tokens\n**Reviewed:** ${stats.reviewed}\n**Retained:** ${stats.retained}\n**Filtered:** ${stats.filtered}\n**Segmented turns:** ${stats.truncated}${reason}`;
+}

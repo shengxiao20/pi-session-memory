@@ -54,7 +54,7 @@ const SOURCES: Array<{ source: Source; root: string; parse: (path: string) => Im
   { source: "codex", root: join(homedir(), ".codex", "sessions"), parse: _parseCodex },
 ];
 
-/** Reparse every known source file. Intended for the explicit /memory-backfill command. */
+/** Reparse every known source file. Intended for the explicit history-import action in /pi-session-memory. */
 export function backfillAll(): BackfillStats {
   return _syncHistory(true);
 }
