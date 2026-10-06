@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { getSourceFile, replaceSourceFile, upsertSourceFile, type StoredSession, type TurnRow } from "./db.ts";
 
+import { CODEX_PARSER_VERSION, codexMessageIds, codexThreadId } from "./codex-history.ts";
+
 type Source = "pi" | "claude" | "codex";
 type Role = "user" | "assistant";
 
@@ -71,6 +73,14 @@ function _syncHistory(force: boolean): BackfillStats {
     if (!existsSync(definition.root)) continue;
     try {
       for (const jsonlPath of _jsonlFiles(definition.root)) _syncSourceFile(definition, jsonlPath, force, stats);
+      // Old indexes may assign a child's file the root ID. Retry the root once
+      // after children have been reindexed; never overwrite another source path.
+      const collisions = stats.issues.filter(issue => issue.source === definition.source
+        && issue.jsonlPath && issue.error.includes("UNIQUE constraint failed: sessions.session_id"));
+      for (const issue of collisions) {
+        stats.issues.splice(stats.issues.indexOf(issue), 1);
+        _syncSourceFile(definition, issue.jsonlPath!, force, stats);
+      }
     } catch (error) {
       stats.issues.push(_backfillIssue(definition.source, null, error));
     }
@@ -83,21 +93,23 @@ function _syncSourceFile(definition: typeof SOURCES[number], jsonlPath: string, 
   try {
     const metadata = statSync(jsonlPath);
     const known = getSourceFile(jsonlPath);
-    if (!force && known?.size === metadata.size && known.mtime_ms === metadata.mtimeMs) {
+    const parser_version = definition.source === "codex" ? CODEX_PARSER_VERSION : "";
+    const sameParser = known?.parser_version === parser_version;
+    if (!force && sameParser && known?.size === metadata.size && known.mtime_ms === metadata.mtimeMs) {
       stats.skippedFiles++;
       return;
     }
 
     const sha256 = _sha256(jsonlPath);
-    if (!force && known?.sha256 === sha256) {
-      upsertSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256 });
+    if (!force && sameParser && known?.sha256 === sha256) {
+      upsertSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256, parser_version });
       stats.skippedFiles++;
       return;
     }
 
     const session = definition.parse(jsonlPath);
     const stored = session ? _toStoredSession(session) : undefined;
-    replaceSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256 }, stored);
+    replaceSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256, parser_version }, stored);
     if (stored) {
       stats[definition.source]++;
       stats.turns += stored.turns.length;
@@ -249,23 +261,21 @@ function _parseClaude(jsonlPath: string): ImportedSession | undefined {
 function _parseCodex(jsonlPath: string): ImportedSession | undefined {
   const entries = _readJsonl(jsonlPath);
   const meta = entries.find((entry) => entry.type === "session_meta")?.payload;
-  if (!meta?.session_id) return undefined;
-
+  if (!meta) throw new Error("Invalid Codex JSONL: missing session_meta");
+  const nativeSessionId = codexThreadId(meta as Record<string, unknown>);
+  if (typeof meta.cwd !== "string" || !Number.isFinite(Date.parse(meta.timestamp))) {
+    throw new Error("Invalid Codex session_meta: expected cwd and valid timestamp");
+  }
+  const ids = codexMessageIds(entries);
   const messages: ImportedMessage[] = [];
-  for (const entry of entries) {
+  for (const [index, entry] of entries.entries()) {
     if (entry.type !== "response_item") continue;
     const payload = entry.payload;
     if (payload?.type !== "message" || (payload.role !== "user" && payload.role !== "assistant")) continue;
     const text = _codexText(payload);
     if (!text || (payload.role === "user" && _isCodexInjectedContext(text))) continue;
-    // Workaround: Codex JSONL schema differs by version; legacy sessions store the ID as metadata.turn_id.
     messages.push({
-      id: _messageId(
-        "Codex payload.id, entry.id, or metadata.turn_id",
-        payload.id,
-        entry.id,
-        payload.internal_chat_message_metadata_passthrough?.turn_id,
-      ),
+      id: ids.get(index)!,
       role: payload.role,
       text,
       ts: Date.parse(entry.timestamp),
@@ -275,7 +285,7 @@ function _parseCodex(jsonlPath: string): ImportedSession | undefined {
 
   return {
     source: "codex",
-    nativeSessionId: meta.session_id,
+    nativeSessionId,
     cwd: meta.cwd ?? "",
     startedAt: Date.parse(meta.timestamp),
     modelId: meta.model_provider ?? null,

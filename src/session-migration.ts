@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSyn
 import { homedir } from "node:os";
 import { join, posix, win32 } from "node:path";
 
+import { codexMessageIds, codexThreadId } from "./codex-history.ts";
+
 type MigrationSource = "claude" | "codex";
 type Role = "user" | "assistant";
 
@@ -126,11 +128,12 @@ function _parseCodexSession(path: string): SourceSession | undefined {
   const entries = _readJsonl(path);
   const metadata = entries.find((entry) => entry.type === "session_meta")?.payload as Record<string, unknown> | undefined;
   if (!metadata) return undefined;
-  const id = _string(metadata.session_id) ?? _string(metadata.id);
+  const id = codexThreadId(metadata);
   const cwd = _string(metadata.cwd);
   const timestamp = _timestamp(_string(metadata.timestamp));
-  if (!id || !cwd || timestamp === undefined) throw new Error("Codex session_meta requires session_id/id, cwd, and timestamp");
+  if (!cwd || timestamp === undefined) throw new Error("Codex session_meta requires id/session_id, cwd, and timestamp");
 
+  const ids = codexMessageIds(entries);
   const messages: MigratedMessage[] = [];
   for (const [index, entry] of entries.entries()) {
     if (entry.type !== "response_item") continue;
@@ -140,10 +143,7 @@ function _parseCodexSession(path: string): SourceSession | undefined {
     if (!role) continue;
     const text = _codexText(payload.content);
     if (!text) continue;
-    const messageId = _string(payload.id)
-      ?? _string(entry.id)
-      ?? _string((payload.internal_chat_message_metadata_passthrough as Record<string, unknown> | undefined)?.turn_id);
-    if (!messageId) throw new Error(`Codex textual message at entry ${index} has no stable native ID`);
+    const messageId = ids.get(index)!;
     messages.push({
       id: messageId,
       role,

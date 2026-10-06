@@ -7,6 +7,7 @@ const dbPath = join(tmpdir(), `pi-session-memory-e2e-${process.pid}.db`);
 const historyHome = join(tmpdir(), `pi-session-memory-e2e-home-${process.pid}`);
 process.env.MEMORY_DB_PATH = dbPath;
 process.env.HOME = historyHome;
+process.env.USERPROFILE = historyHome; // isolate Windows home too.
 
 function cleanup(): void {
   for (const suffix of ["", "-wal", "-shm"]) rmSync(`${dbPath}${suffix}`, { force: true });
@@ -46,7 +47,7 @@ assert.ok(menu);
 await menu.options.handler("", ctx);
 assert.match(notices[0]?.message ?? "", /pi-session-memory/);
 await menu.options.handler("", ctx);
-assert.match(notices[1]?.message ?? "", /What's New in pi-session-memory v0\.7\.0/);
+assert.match(notices[1]?.message ?? "", /What's New in pi-session-memory v0\.7\.1/);
 
 const migration = tools.find((tool) => tool.name === "migrate_project_sessions");
 assert.ok(migration);
@@ -73,5 +74,6 @@ const reviewFiltered = tools.find((tool) => tool.name === "review_jev_filtered")
 assert.ok(reviewFiltered);
 assert.match(reviewFiltered.description, /false negatives/);
 
+(await import("../src/db.ts")).getDb().close();
 cleanup();
 console.log("e2e.test.ts: passed");

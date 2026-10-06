@@ -7,6 +7,7 @@ const dbPath = join(tmpdir(), `pi-session-history-${process.pid}.db`);
 const historyHome = join(tmpdir(), `pi-session-history-home-${process.pid}`);
 process.env.MEMORY_DB_PATH = dbPath;
 process.env.HOME = historyHome;
+process.env.USERPROFILE = historyHome; // os.homedir() uses USERPROFILE on Windows.
 
 const { getDb, getHistoryStats, getSession, insertTurn, upsertSession } = await import("../src/db.ts");
 const { fetchSession } = await import("../src/fetch-session.ts");
@@ -33,7 +34,10 @@ const currentWhatsNew = getWhatsNew("0.7.0");
 assert.match(currentWhatsNew, /What.s New in pi-session-memory v0\.7\.0/);
 assert.match(currentWhatsNew, /One command only: use the \/pi-session-memory folded menu/);
 assert.doesNotMatch(currentWhatsNew, /pi-session-memory-helper|memory-search|memory-status/);
-assert.match(readFileSync(join(process.cwd(), "README.md"), "utf8"), /Current version: 0\.7\.0/);
+assert.match(readFileSync(join(process.cwd(), "README.md"), "utf8"), /Current version: 0\.7\.1/);
+const codexWhatsNew = getWhatsNew("0.7.1");
+assert.match(codexWhatsNew, /parent and child threads separate/);
+assert.match(codexWhatsNew, /reparsed once/);
 const whatsNew = getWhatsNew("0.6.2");
 assert.match(whatsNew, /What.s New in pi-session-memory v0\.6\.2/);
 assert.match(whatsNew, /Named-project recall/);
@@ -168,5 +172,6 @@ assert.equal(windowsMigration.migratedSessions, 1, "equivalent Windows CWD spell
 assert.equal(windowsMigration.migratedMessages, 2);
 assert.ok(existsSync(join(historyHome, ".pi", "agent", "sessions", "--C--Users-Michael-project--")));
 
+getDb().close();
 cleanup();
 console.log("core.test.ts: passed");
