@@ -8,7 +8,7 @@
 pi install npm:pi-session-memory
 ```
 
-A local-first Pi extension for **on-demand cross-session transcript search** across Pi, Claude Code, and Codex, plus native project-session migration to Pi `/resume` sessions.
+A local-first Pi extension for **on-demand cross-session transcript search with optional local Jev semantic relevance filtering** across Pi, Claude Code, and Codex, plus native project-session migration to Pi `/resume` sessions.
 
 ## What it does
 

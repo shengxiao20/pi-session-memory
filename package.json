@@ -1,7 +1,7 @@
 {
   "name": "pi-session-memory",
-  "version": "0.7.0",
-  "description": "Local-first cross-session transcript search and native Pi session migration for Pi, Claude Code, and Codex",
+  "version": "0.7.1",
+  "description": "Local-first cross-session & cross-agent dialogue search based on sqlite with optional local Jev semantic relevance filtering, or direct session migration from Claude Code and Codex to Pi, lightweighted as a motto, compatible in Chinese and English",
   "keywords": [
     "pi-package"
   ],
