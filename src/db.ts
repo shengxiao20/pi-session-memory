@@ -103,6 +103,14 @@ export function getHistoryStats(): HistoryStats {
   const sources = getDb().prepare("SELECT sessions.source, count(DISTINCT sessions.session_id) AS sessions, count(turns.turn_id) AS turns FROM sessions LEFT JOIN turns ON turns.session_id = sessions.session_id GROUP BY sessions.source ORDER BY sessions.source").all() as HistoryStats["sources"];
   return { sessions: sessionCount.count, turns: summary.turns, oldestTs: summary.oldestTs, newestTs: summary.newestTs, sources };
 }
+/** Refresh a live turn's aggregate reply and tool names as the persisted transcript grows. */
+export function upsertTurn(row: TurnRow): void {
+  getDb().prepare(`INSERT INTO turns (turn_id, session_id, turn_index, ts, user_text, reply_text, tool_names, user_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(turn_id) DO UPDATE SET turn_index = excluded.turn_index, ts = excluded.ts,
+      user_text = excluded.user_text, reply_text = excluded.reply_text, tool_names = excluded.tool_names`)
+    .run(row.turn_id, row.session_id, row.turn_index, row.ts, row.user_text, row.reply_text, row.tool_names, row.user_message_id);
+}
+
 export function insertTurn(row: TurnRow): boolean {
   return getDb().prepare("INSERT OR IGNORE INTO turns (turn_id, session_id, turn_index, ts, user_text, reply_text, tool_names, user_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(row.turn_id, row.session_id, row.turn_index, row.ts, row.user_text, row.reply_text, row.tool_names, row.user_message_id).changes === 1;
 }

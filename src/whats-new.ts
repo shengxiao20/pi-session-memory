@@ -5,6 +5,40 @@ import { join } from "node:path";
 const STATE_PATH = join(homedir(), ".pi", "agent", "pi-session-memory", "whats-new.json");
 
 const RELEASE_NOTES: Record<string, string> = {
+  "0.7.23": `What's New in pi-session-memory v0.7.23
+
+- Adds a two-line configuration snapshot to all six agent tool results and progress updates; compact recall keeps both lines visible.
+- Reports Jev/model, Obsidian, manageOllama, recall limit, and set/unset states for MEMORY_DB_PATH, the configured API key environment variable and OLLAMA_HOST. Managed Ollama overrides its child process's OLLAMA_HOST.
+- Never displays key values, database/vault paths or endpoint URLs. Configured switches do not imply runtime readiness; original evidence, structured details and Obsidian exports remain unchanged.
+- Adds isolated decorator and E2E regressions for two-line output, progress, compact rendering, redaction and exports. Run /reload to load the updated local extension.`,
+  "0.7.22": `What's New in pi-session-memory v0.7.22
+
+- Handles asynchronous Ollama startup errors without crashing Pi; failures remain visible through existing runtime diagnostics.
+- Assigns Pi replies through parentId, including alternate branches and intermediate non-message entries. Live writes and imports share complete-history user positions.
+- Refreshes appended replies and tool names on repeated live writes instead of ignoring them. Preserves unanswered user turns and tool-only responses during import.
+- Automatically repairs existing Pi, Claude Code and Codex indexes at the next session start through updated parser versions; source transcripts are not modified. Use fresh recall ranges after the upgrade.
+- Validates every serialized single-segment Jev request against the existing budget before sending batches, including segments that start a new batch. Oversized requests raise an explicit error; no new fallback is added.
+- Adds isolated regression tests for all five fixes. Run /reload to load the updated local extension.`,
+  "0.7.21": `What's New in pi-session-memory v0.7.21
+
+- Fixes recall text visibility by applying Pi's toolOutput foreground color to every line of compact results, expanded originals, progress and errors.
+- Keeps tool-panel backgrounds and global theme settings unchanged; text follows the active Pi theme rather than terminal default colors.
+- Includes the linked Chinese README in the npm package.
+- Changes display only: retrieval, Jev filtering, deduplication, structured results and exports are unchanged. Run /reload to load the updated local extension.`,
+  "0.7.20": `What's New in pi-session-memory v0.7.20
+
+- Uses one System One client for Ollama, official Jev, and Qwen Decision API; no OpenAI Decisions adapter is added.
+- Adds jevConnection with baseURL, apiKeyEnv, contextWindow and explicit manageOllama; model accepts any non-empty decision model name.
+- Separates local Ollama startup, model pull and num_ctx inspection from API requests. Omitted connection configuration retains the original managed local behavior.
+- Unmanaged connections require explicit model, API key environment variable and input budget; missing credentials raise errors, without backend detection or automatic switching.
+- Keeps retrieval and relevance filtering unchanged. Remote filtering sends candidate transcript fragments and the complete question to the configured endpoint; reload after changing connection settings.`,
+  "0.7.19": `What's New in pi-session-memory v0.7.19
+
+- One recall_memory call automatically runs global recall first, then entity-discovered project recall with the same entities and question.
+- Removes final project turns whose turn_id was already returned globally; no pre-query exclusion or refill is performed.
+- Keeps ranking, recallLimit, directory matching, and optional Jev filtering unchanged. Jev statistics describe filtering before output deduplication.
+- Displays Global recall and Project recall separately in tool progress and compact results; expanded results and Obsidian export contain the complete deduplicated output.
+- Removes the separate recall_project_memory agent tool; manual global/project menu searches and review_jev_filtered keep their existing behavior.`,
   "0.7.18": `What's New in pi-session-memory v0.7.18
 
 - Continues the bilingual Chinese and English README presentation.`,

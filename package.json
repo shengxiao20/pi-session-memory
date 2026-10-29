@@ -1,7 +1,7 @@
 {
   "name": "pi-session-memory",
-  "version": "0.7.18",
-  "description": "Local-first cross-session and cross-agent dialogue search: SQLite indexing, optional local Jev semantic filtering, Claude Code/Codex-to-Pi migration, and optional Obsidian export. / 本地优先的跨会话、跨 Agent 对话搜索：SQLite 索引、可选的本地 Jev 语义筛选、从 Claude Code/Codex 迁移到 Pi，以及可选的 Obsidian 导出。",
+  "version": "0.7.23",
+  "description": "Local-first cross-session and cross-agent dialogue search: SQLite indexing, optional local or remote System One relevance filtering, Claude Code/Codex-to-Pi migration, and optional Obsidian export. / 本地优先的跨会话、跨 Agent 对话搜索：SQLite 索引、可选的本地或远程 System One 相关性筛选、从 Claude Code/Codex 迁移到 Pi，以及可选的 Obsidian 导出。",
   "keywords": [
     "pi-package",
     "pi-extension"
@@ -18,10 +18,11 @@
   "type": "module",
   "files": [
     "extensions/",
-    "src/"
+    "src/",
+    "README_zh.md"
   ],
   "scripts": {
-    "test": "tsx tests/codex-history.test.ts && tsx tests/core.test.ts && tsx tests/jev-filter.test.ts",
+    "test": "tsx tests/codex-history.test.ts && tsx tests/history-turns.test.ts && tsx tests/core.test.ts && tsx tests/jev-filter.test.ts && tsx tests/jev-runtime.test.ts && tsx tests/recall-workflow.test.ts && tsx tests/tool-config-summary.test.ts",
     "test:e2e": "tsx tests/e2e.test.ts",
     "test:all": "npm test && npm run test:e2e"
   },
@@ -35,6 +36,7 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "dependencies": {

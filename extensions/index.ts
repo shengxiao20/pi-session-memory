@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { writeTurn } from "../src/writer.ts";
 import { getHistoryStats } from "../src/db.ts";
@@ -6,11 +7,13 @@ import { fetchSession } from "../src/fetch-session.ts";
 import { formatRecallResults, recallTurns } from "../src/retriever.ts";
 import { exportSearchResultsToObsidian } from "../src/obsidian-export.ts";
 import { formatProjectRecallResults, recallProjectMemory } from "../src/project-retriever.ts";
+import { recallSequentially } from "../src/recall-workflow.ts";
 import { backfillAll, syncChangedHistory, type BackfillStats } from "../src/backfill.ts";
 import { migrateClaudeProjectSessions, migrateCodexProjectSessions, type ProjectSessionMigrationStats } from "../src/session-migration.ts";
 import { SESSION_MEMORY_HELP } from "../src/helper.ts";
 import { getWhatsNew, showWhatsNewIfUpdated } from "../src/whats-new.ts";
 import { getSessionMemoryConfig } from "../src/config.ts";
+import { CONFIG_SUMMARY_PREFIX, withConfigSummary } from "../src/tool-config-summary.ts";
 import { JevRuntime } from "../src/jev-runtime.ts";
 import { filterRecallWithJev, type JevFilterStats } from "../src/jev-filter.ts";
 import packageJson from "../package.json" with { type: "json" };
@@ -18,13 +21,14 @@ import packageJson from "../package.json" with { type: "json" };
 /** Register local cross-session transcript retrieval and source-session migration features. */
 export default function (pi: ExtensionAPI) {
   const jevRuntime = new JevRuntime();
+  const registerTool: ExtensionAPI["registerTool"] = (tool) => pi.registerTool(withConfigSummary(tool));
   pi.on("session_start", async (_event, ctx) => {
     try {
       const whatsNew = showWhatsNewIfUpdated(packageJson.version);
       if (whatsNew) ctx.ui.notify(whatsNew, "info");
       const stats = syncChangedHistory();
       const config = getSessionMemoryConfig();
-      const jev = await jevRuntime.ensureReady(config.jevEnable, config.model);
+      const jev = await jevRuntime.ensureReady(config.jevEnable, config.model, config.jevConnection);
       if (jev.state === "ready") ctx.ui.notify(`[session-memory] jev is ready to review recalled turns with ${config.model}.`, "info");
       if (jev.state === "unavailable") ctx.ui.notify(`[session-memory] jev unavailable; literal recall remains active: ${jev.reason}`, "warning");
       for (const issue of stats.issues) ctx.ui.notify(`[session-memory] ${issue.error}`, "error");
@@ -41,7 +45,7 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => { await _openSessionMemoryMenu(ctx); },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "migrate_project_sessions", label: "Migrate Project Sessions",
     description: "Convert current-project Claude Code and Codex sessions into separate native Pi sessions selectable with /resume. Use only when the user explicitly wants native Pi continuation; omit sources to migrate both, or select only the requested source.",
     promptSnippet: "Use only when the user explicitly requests native Pi continuation of prior Claude Code or Codex work. Omit sources to migrate both.",
@@ -53,41 +57,44 @@ export default function (pi: ExtensionAPI) {
       return { content: [{ type: "text" as const, text: _projectMigrationSummary(migrations) }], details: migrations };
     },
   });
-  pi.registerTool({
-    name: "recall_memory", label: "Search Cross-Session History",
-    description: "Search every indexed Pi, Claude Code, and Codex transcript turn globally using 2-8 literal topic entities. Use for any question about prior conversations or prior work. Always call recall_project_memory too with identical entities and question: recall_memory searches all turns, while recall_project_memory uses the entities to discover matching stored project/session directory names and then searches those sessions' turns. This tool has no project, current-session, current-CWD, source, session, or time context.",
-    promptSnippet: "For every prior-conversation question, call both recall_memory and recall_project_memory with identical entities and question. This tool searches every indexed transcript turn globally. Never scope or infer from the current Pi session, project, or CWD.",
+  registerTool({
+    name: "recall_memory", label: "Recall History · Global → Project",
+    description: "Use for any question about prior conversations or prior work. One call with 2-8 literal topic entities and the complete question automatically searches all indexed Pi, Claude Code, and Codex turns globally, then uses those same entities to discover stored session CWD final-directory names and search only matched sessions. Each stage keeps its existing ranking, limit, and optional Jev filtering. After both stages finish, project results are deduplicated by the turn_id values actually returned globally; removed results are not refilled. Global and project results are displayed separately. No current Pi session, project, CWD, source, session, or time context is used; no separate project recall call is needed.",
+    promptSnippet: "For every prior-conversation or prior-work question, call recall_memory once with literal entities and the complete question. It automatically runs global recall first, then entity-discovered project recall, removing already-returned turn IDs from final project output. Never scope or infer from the current Pi session, project, or CWD.",
     parameters: Type.Object({
-      entities: Type.Array(Type.String({ minLength: 1 }), { minItems: 2, maxItems: 8 }),
-      question: Type.String({ minLength: 1, description: "The complete user question used by optional jev filtering to judge each literal recall candidate." }),
+      entities: Type.Array(Type.String({ minLength: 1, description: "Literal topic entities used for both global transcript search and stored session directory-name discovery, then transcript search in those discovered sessions." }), { minItems: 2, maxItems: 8 }),
+      question: Type.String({ minLength: 1, description: "The complete user question used by optional Jev filtering in both recall stages." }),
     }),
     async execute(_id, options, _signal, update) {
-      const literalResults = recallTurns(options.entities);
-      const reviewed = await _reviewWithJev(jevRuntime, options.question, literalResults, (message) => update({ content: [{ type: "text", text: message }] }));
-      const text = _withOptionalJevSummary(reviewed.stats, formatRecallResults(reviewed.results, { entities: options.entities }));
-      _exportSearchResultsIfEnabled("Recall search", text);
-      return { content: [{ type: "text" as const, text }], details: { returnedResults: reviewed.results.length, results: reviewed.results, jev: reviewed.stats, jevFilteredOut: reviewed.filteredOut } };
+      const { global, project } = await recallSequentially(
+        options,
+        (question, results, progress) => _reviewWithJev(jevRuntime, question, results, progress),
+        (progress) => update?.({ content: [{ type: "text", text: progress.message }], details: progress }),
+      );
+      const globalText = _recallStageText(`Global recall · returned turns: ${global.results.length}`, global.stats, formatRecallResults(global.results, options));
+      const projectResultsText = project.results.length
+        ? formatProjectRecallResults(project, options)
+        : "No additional project turns returned after the existing project search, optional Jev review, and exact turn_id deduplication.";
+      const projectText = _recallStageText(`Project recall · new turns: ${project.results.length} · duplicates removed: ${project.duplicatesRemoved}`, project.stats, projectResultsText);
+      _exportSearchResultsIfEnabled("Recall search", `${globalText}\n\n${projectText}`);
+      return {
+        content: [{ type: "text" as const, text: globalText }, { type: "text" as const, text: projectText }],
+        details: {
+          returnedResults: global.results.length + project.results.length,
+          global: { returnedResults: global.results.length, results: global.results, jev: global.stats, jevFilteredOut: global.filteredOut },
+          project: { totalSessions: project.sessions.length, returnedResults: project.results.length, sessions: project.sessions, results: project.results, duplicatesRemoved: project.duplicatesRemoved, jev: project.stats, jevFilteredOut: project.filteredOut },
+        },
+      };
+    },
+    renderResult(result, { expanded, isPartial }, theme, { isError }) {
+      const text = result.content.filter((block) => block.type === "text").map((block) =>
+        expanded || isPartial || isError || block.text.startsWith(CONFIG_SUMMARY_PREFIX) ? block.text : block.text.split("\n")[0].replace(/^# /, ""),
+      ).join("\n\n");
+      // Style each line so terminal default colors cannot obscure the tool result.
+      return new Text(text.split("\n").map((line) => theme.fg("toolOutput", line)).join("\n"), 0, 0);
     },
   });
-  pi.registerTool({
-    name: "recall_project_memory", label: "Search Named Project History",
-    description: "Use the supplied entities to search stored project/session directory names, then search the same entities in transcript turns belonging only to matched sessions. Always call this tool together with recall_memory for every prior-conversation or prior-work question, using identical entities and question. A stored session matches when any entity's normalized token sequence appears in its final CWD directory name. No project argument exists, and the current Pi session, current project, current CWD, and runtime context are never used.",
-    promptSnippet: "For every prior-conversation question, call both recall_project_memory and recall_memory with identical entities and question. Use entities to discover matching stored session CWD final-directory names, then search the same entities only in those sessions' turns. Never use current runtime context.",
-    parameters: Type.Object({
-      entities: Type.Array(Type.String({ minLength: 1, description: "The identical literal topic entities supplied to recall_memory. Each entity is also tested against stored session CWD final-directory names; any matching entity discovers that session." }), { minItems: 2, maxItems: 8 }),
-      question: Type.String({ minLength: 1, description: "The complete user question used by optional jev filtering to judge each literal project recall candidate." }),
-    }),
-    async execute(_id, options, _signal, update) {
-      const literalResult = recallProjectMemory(options);
-      const reviewed = await _reviewWithJev(jevRuntime, options.question, literalResult.results, (message) => update({ content: [{ type: "text", text: message }] }));
-      const retainedSessionIds = new Set(reviewed.results.map((turn) => turn.session_id));
-      const result = { ...literalResult, results: reviewed.results, sessions: literalResult.sessions.filter((session) => retainedSessionIds.has(session.session_id)) };
-      const text = _withOptionalJevSummary(reviewed.stats, formatProjectRecallResults(result, options));
-      _exportSearchResultsIfEnabled("Project recall search", text);
-      return { content: [{ type: "text" as const, text }], details: { totalSessions: result.sessions.length, returnedResults: result.results.length, sessions: result.sessions, results: result.results, jev: reviewed.stats, jevFilteredOut: reviewed.filteredOut } };
-    },
-  });
-  pi.registerTool({
+  registerTool({
     name: "review_jev_filtered", label: "Review Jev-Filtered Recall Evidence",
     description: "Re-run global and entity-discovered project-session literal recall and display only turns Jev filtered out, with each turn's maximum Jev noul relevance. Use when auditing possible Jev false negatives after recall; supply the same entities and question.",
     promptSnippet: "Use only to inspect possible Jev false negatives after recall. Reuse the original entities and complete question; no runtime or project parameter is available.",
@@ -105,7 +112,7 @@ export default function (pi: ExtensionAPI) {
       return { content: [{ type: "text" as const, text }], details: { returnedResults: reviewed.filteredOut.length, results: reviewed.filteredOut, jev: reviewed.stats } };
     },
   });
-  pi.registerTool({
+  registerTool({
     name: "fetch_session",  label: "Fetch Session",
     description: "Fetch ordered persisted transcript turns from a session returned by recall_memory. Use only when a recall excerpt lacks necessary context, and request the smallest useful inclusive range. This is read-only and never creates a memory.",
     promptSnippet: "Expand a recall result only when its excerpt is insufficient, using the smallest useful range. This reads source evidence only.",
@@ -117,13 +124,13 @@ export default function (pi: ExtensionAPI) {
       return { content: [{ type: "text" as const, text: `${header}\n\n${turns}` }], details: { session_id, from_turn_index, to_turn_index, turnCount: stored.turns.length, fetchedTurnIds: stored.turns.map((turn) => turn.turn_id) } };
     },
   });
-  pi.registerTool({
+  registerTool({
     name: "get_memory_stats", label: "Get History Storage Statistics",
     description: "Report locally indexed cross-session transcript storage totals. Use when the user asks how much Pi, Claude Code, or Codex history is stored.",
     promptSnippet: "Use when the user asks for locally indexed history totals.", parameters: Type.Object({}),
     async execute() { const stats = getHistoryStats(); return { content: [{ type: "text" as const, text: _historyStatsSummary(stats) }], details: stats }; },
   });
-  pi.registerTool({
+  registerTool({
     name: "backfill_memory", label: "Import Historical Sessions",
     description: "Import all historical Pi, Claude Code, and Codex transcript sessions into the local index. Use only when the user explicitly asks to import, backfill, or rescan history.",
     promptSnippet: "Use only for an explicit request to import, backfill, or rescan historical conversation data.", parameters: Type.Object({}),
@@ -209,7 +216,7 @@ function _notifyProjectMigration(ctx: ExtensionContext, migrations: Partial<Proj
 async function _reviewWithJev(runtime: JevRuntime, question: string, results: import("../src/retriever.ts").RecallTurnResult[], progress: (message: string) => void): Promise<{ results: import("../src/retriever.ts").RecallTurnResult[]; filteredOut: import("../src/jev-filter.ts").JevFilteredOutTurn[]; stats: JevFilterStats }> {
   const config = getSessionMemoryConfig();
   if (!config.jevEnable) return { results, filteredOut: [], stats: { status: "disabled", model: config.model, contextWindow: 0, reviewed: 0, retained: results.length, filtered: 0, truncated: 0, reason: "jevEnable is false" } };
-  const status = await runtime.ensureReady(true, config.model);
+  const status = await runtime.ensureReady(true, config.model, config.jevConnection);
   if (status.state !== "ready") return { results, filteredOut: [], stats: { status: "unavailable", model: config.model, contextWindow: 0, reviewed: 0, retained: results.length, filtered: 0, truncated: 0, reason: status.reason ?? "Jev runtime is not ready" } };
   progress(`[session-memory] jev reviewing ${results.length} recalled turns…`);
   try {
@@ -230,6 +237,11 @@ function _formatJevFilteredOut(filteredOut: import("../src/jev-filter.ts").JevFi
     ? filteredOut.map(({ turn, noul }) => `## Filtered turn · noul relevance ${noul.toFixed(3)}\n**Fetch session ID:** \`${turn.session_id}\`\n**Source turn ID:** \`${turn.turn_id}\`\n**You:** ${turn.user_text}\n${turn.reply_text ? `**Assistant:** ${turn.reply_text}` : ""}`).join("\n\n")
     : "No turns were filtered out by Jev.";
   return `${header}\n\n${turns}`;
+}
+
+function _recallStageText(title: string, stats: JevFilterStats, recallText: string): string {
+  const status = stats.status === "disabled" ? "" : ` · Jev: ${stats.status}`;
+  return `# ${title}${status}\n\n${_withOptionalJevSummary(stats, recallText)}`;
 }
 
 function _withOptionalJevSummary(stats: JevFilterStats, recallText: string): string {

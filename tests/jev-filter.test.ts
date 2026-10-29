@@ -57,4 +57,18 @@ assert.deepEqual(oversizedResult.results, [oversized], "a relevant segment must 
 assert.ok(requests.flatMap((request) => Object.values(request.questions)).length > 1, "one oversized candidate must be judged in multiple UTF-8-safe segments");
 assert.ok(requests.every((request) => Buffer.byteLength(JSON.stringify(request), "utf8") <= 2_050 - 256 - Buffer.byteLength("question", "utf8")));
 
+// JSON escaping can make a raw-byte segment overflow when it starts the next batch.
+const constrainedRuntime = { ...runtime, contextWindow: () => 1_800 };
+const small = { ...turn(1), user_text: "small", reply_text: "reply" };
+const escaped = { ...turn(2), user_text: '"'.repeat(2_000), reply_text: "" };
+for (const input of [[escaped], [small, escaped], [escaped, small]]) {
+  requests.length = 0;
+  await assert.rejects(filterRecallWithJev(constrainedRuntime, "q", input), /A single Jev segment exceeds the 1543-token request budget/);
+  assert.equal(requests.length, 0, "validate every complete single-item request before sending any batches");
+}
+requests.length = 0;
+const cappedRuntime = { ...runtime, contextWindow: () => 100_000 };
+await filterRecallWithJev(cappedRuntime, "q", Array.from({ length: 65 }, (_, index) => ({ ...small, turn_id: `small-${index}` })));
+assert.deepEqual(requests.map((request) => Object.keys(request.questions).length), [64, 1], "the item cap still splits batches independently of bytes");
+
 console.log("jev-filter.test.ts: passed");

@@ -91,12 +91,12 @@ function _requestBatches(question: string, items: JevWorkItem[], tokenBudget: nu
   const batches: JevWorkItem[][] = [];
   let batch: JevWorkItem[] = [];
   for (const item of items) {
+    if (_requestTokens(question, [item]) > tokenBudget) throw new Error(`A single Jev segment exceeds the ${tokenBudget}-token request budget`);
     const proposed = [...batch, item];
     if (proposed.length <= MAX_BATCH_ITEMS && _requestTokens(question, proposed) <= tokenBudget) {
       batch = proposed;
       continue;
     }
-    if (!batch.length) throw new Error(`A single Jev segment exceeds the ${tokenBudget}-token request budget`);
     batches.push(batch);
     batch = [item];
   }

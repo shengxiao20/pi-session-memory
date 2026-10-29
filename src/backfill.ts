@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { getSourceFile, replaceSourceFile, upsertSourceFile, type StoredSession, type TurnRow } from "./db.ts";
 
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { buildPiTurns } from "./pi-turns.ts";
 import { CODEX_PARSER_VERSION, codexMessageIds, codexThreadId } from "./codex-history.ts";
 
 type Source = "pi" | "claude" | "codex";
@@ -50,10 +52,10 @@ export const HISTORY_SCHEMA_REFERENCE_VERSIONS = {
   codex: "0.154.0",
 } as const;
 
-const SOURCES: Array<{ source: Source; root: string; parse: (path: string) => ImportedSession | undefined }> = [
-  { source: "pi", root: join(homedir(), ".pi", "agent", "sessions"), parse: _parsePi },
-  { source: "claude", root: join(homedir(), ".claude", "projects"), parse: _parseClaude },
-  { source: "codex", root: join(homedir(), ".codex", "sessions"), parse: _parseCodex },
+const SOURCES: Array<{ source: Source; root: string; parserVersion: string; parse: (path: string) => StoredSession | undefined }> = [
+  { source: "pi", root: join(homedir(), ".pi", "agent", "sessions"), parserVersion: "tree-turns-v1", parse: _parsePi },
+  { source: "claude", root: join(homedir(), ".claude", "projects"), parserVersion: "complete-turns-v1", parse: _parseClaude },
+  { source: "codex", root: join(homedir(), ".codex", "sessions"), parserVersion: `${CODEX_PARSER_VERSION}:complete-turns-v1`, parse: _parseCodex },
 ];
 
 /** Reparse every known source file. Intended for the explicit history-import action in /pi-session-memory. */
@@ -93,7 +95,7 @@ function _syncSourceFile(definition: typeof SOURCES[number], jsonlPath: string, 
   try {
     const metadata = statSync(jsonlPath);
     const known = getSourceFile(jsonlPath);
-    const parser_version = definition.source === "codex" ? CODEX_PARSER_VERSION : "";
+    const parser_version = definition.parserVersion;
     const sameParser = known?.parser_version === parser_version;
     if (!force && sameParser && known?.size === metadata.size && known.mtime_ms === metadata.mtimeMs) {
       stats.skippedFiles++;
@@ -107,8 +109,7 @@ function _syncSourceFile(definition: typeof SOURCES[number], jsonlPath: string, 
       return;
     }
 
-    const session = definition.parse(jsonlPath);
-    const stored = session ? _toStoredSession(session) : undefined;
+    const stored = definition.parse(jsonlPath);
     replaceSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256, parser_version }, stored);
     if (stored) {
       stats[definition.source]++;
@@ -142,7 +143,7 @@ function _toStoredSession(session: ImportedSession): StoredSession {
 
   /** Add the current user-plus-assistant accumulation when a turn boundary is reached. */
   const flush = () => {
-    if (!user || !replyText.trim()) return;
+    if (!user) return;
     turns.push({
       turn_id: `${sessionId}:${user.id}`,
       session_id: sessionId,
@@ -181,45 +182,28 @@ function _toStoredSession(session: ImportedSession): StoredSession {
   };
 }
 
-/** Parse a Pi JSONL session into the source-neutral import representation. */
-function _parsePi(jsonlPath: string): ImportedSession | undefined {
+/** Parse Pi's entry tree with the same turn builder used by live writes. */
+function _parsePi(jsonlPath: string): StoredSession | undefined {
   const entries = _readJsonl(jsonlPath);
   const header = entries.find((entry) => entry.type === "session");
   if (!header) return undefined;
   const model = entries.find((entry) => entry.type === "model_change");
-  const messages: ImportedMessage[] = [];
-
-  for (const entry of entries) {
-    if (entry.type !== "message") continue;
-    const message = entry.message;
-    if (message?.role !== "user" && message?.role !== "assistant") continue;
-    const text = _piText(message);
-    if (!text) continue;
-    const toolNames = message.role === "assistant"
-      ? message.content.filter((block: any) => block.type === "toolCall").map((block: any) => block.name)
-      : [];
-    messages.push({
-      id: _messageId("Pi entry.id", entry.id),
-      role: message.role,
-      text,
-      ts: message.timestamp,
-      toolNames,
-    });
-  }
-
+  const sessionId = `pi:${_messageId("Pi session.id", header.id)}`;
   return {
-    source: "pi",
-    nativeSessionId: header.id,
-    cwd: header.cwd,
-    startedAt: Date.parse(header.timestamp),
-    modelId: model?.modelId ?? null,
-    jsonlPath,
-    messages,
+    session: {
+      session_id: sessionId,
+      source: "pi",
+      cwd: header.cwd as string,
+      started_at: Date.parse(header.timestamp as string),
+      model_id: (model?.modelId as string | undefined) ?? null,
+      jsonl_path: jsonlPath,
+    },
+    turns: buildPiTurns(sessionId, entries.filter((entry) => entry.type !== "session") as unknown as SessionEntry[]),
   };
 }
 
 /** Parse non-meta Claude Code conversation records into normalized messages. */
-function _parseClaude(jsonlPath: string): ImportedSession | undefined {
+function _parseClaude(jsonlPath: string): StoredSession | undefined {
   const entries = _readJsonl(jsonlPath);
   const firstConversation = entries.find((entry) =>
     (entry.type === "user" || entry.type === "assistant") && !entry.isMeta && !entry.isSidechain,
@@ -232,7 +216,7 @@ function _parseClaude(jsonlPath: string): ImportedSession | undefined {
     const role = entry.message?.role;
     if (role !== "user" && role !== "assistant") continue;
     const text = _claudeText(entry.message);
-    if (!text || (role === "user" && _isClaudeInjectedContext(text))) continue;
+    if (role === "user" && (!text || _isClaudeInjectedContext(text))) continue;
     const toolNames = role === "assistant"
       ? entry.message.content.filter((block: any) => block.type === "tool_use").map((block: any) => block.name)
       : [];
@@ -246,7 +230,7 @@ function _parseClaude(jsonlPath: string): ImportedSession | undefined {
     });
   }
 
-  return {
+  return _toStoredSession({
     source: "claude",
     nativeSessionId: firstConversation.sessionId,
     cwd: firstConversation.cwd ?? "",
@@ -254,11 +238,11 @@ function _parseClaude(jsonlPath: string): ImportedSession | undefined {
     modelId: null,
     jsonlPath,
     messages,
-  };
+  });
 }
 
 /** Parse Codex session metadata and response-message envelopes into normalized messages. */
-function _parseCodex(jsonlPath: string): ImportedSession | undefined {
+function _parseCodex(jsonlPath: string): StoredSession | undefined {
   const entries = _readJsonl(jsonlPath);
   const meta = entries.find((entry) => entry.type === "session_meta")?.payload;
   if (!meta) throw new Error("Invalid Codex JSONL: missing session_meta");
@@ -283,7 +267,7 @@ function _parseCodex(jsonlPath: string): ImportedSession | undefined {
     });
   }
 
-  return {
+  return _toStoredSession({
     source: "codex",
     nativeSessionId,
     cwd: meta.cwd ?? "",
@@ -291,7 +275,7 @@ function _parseCodex(jsonlPath: string): ImportedSession | undefined {
     modelId: meta.model_provider ?? null,
     jsonlPath,
     messages,
-  };
+  });
 }
 
 /** Read a source message ID from a known schema field without inventing one for malformed records. */
@@ -299,16 +283,6 @@ function _messageId(field: string, ...values: unknown[]): string {
   const id = values.find((value): value is string => typeof value === "string" && value.length > 0);
   if (!id) throw new Error(`Invalid ${field}: expected a non-empty string`);
   return id;
-}
-
-/** Extract Pi text content while excluding thinking and non-text blocks. */
-function _piText(message: any): string {
-  if (typeof message.content === "string") return message.content.trim();
-  return message.content
-    .filter((block: any) => block.type === "text")
-    .map((block: any) => block.text ?? "")
-    .join("\n")
-    .trim();
 }
 
 /** Extract Claude Code text content from either legacy strings or content blocks. */

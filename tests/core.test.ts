@@ -18,7 +18,7 @@ const { backfillAll, syncChangedHistory } = await import("../src/backfill.ts");
 const { migrateClaudeProjectSessions, migrateCodexProjectSessions } = await import("../src/session-migration.ts");
 const { getWhatsNew, showWhatsNewIfUpdated } = await import("../src/whats-new.ts");
 const { SESSION_MEMORY_HELP } = await import("../src/helper.ts");
-const { getSessionMemoryConfig, JEV_MODELS } = await import("../src/config.ts");
+const { getSessionMemoryConfig, JEV_MODELS, DEFAULT_JEV_CONNECTION } = await import("../src/config.ts");
 
 function cleanup(): void { for (const suffix of ["", "-wal", "-shm"]) rmSync(`${dbPath}${suffix}`, { force: true }); rmSync(historyHome, { recursive: true, force: true }); }
 cleanup();
@@ -35,7 +35,46 @@ const currentWhatsNew = getWhatsNew("0.7.0");
 assert.match(currentWhatsNew, /What.s New in pi-session-memory v0\.7\.0/);
 assert.match(currentWhatsNew, /One command only: use the \/pi-session-memory folded menu/);
 assert.doesNotMatch(currentWhatsNew, /pi-session-memory-helper|memory-search|memory-status/);
-assert.match(readFileSync(join(process.cwd(), "README.md"), "utf8"), /Current version: 0\.7\.18/);
+assert.match(readFileSync(join(process.cwd(), "README.md"), "utf8"), /Current version: 0\.7\.23/);
+const packageManifest = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
+assert.ok(packageManifest.files.includes("README_zh.md"), "the linked Chinese README must be included in npm releases");
+assert.match(readFileSync(join(process.cwd(), "README_zh.md"), "utf8"), /当前版本：0\.7\.23/);
+const fixesWhatsNew = getWhatsNew("0.7.22");
+assert.match(fixesWhatsNew, /asynchronous Ollama startup errors/);
+assert.match(fixesWhatsNew, /parentId/);
+assert.match(fixesWhatsNew, /Preserves unanswered user turns and tool-only responses/);
+assert.match(fixesWhatsNew, /updated parser versions/);
+assert.match(fixesWhatsNew, /serialized single-segment Jev request/);
+assert.doesNotMatch(fixesWhatsNew, /[#*`]/);
+const summaryWhatsNew = getWhatsNew("0.7.23");
+assert.match(summaryWhatsNew, /two-line configuration snapshot/);
+assert.match(summaryWhatsNew, /all six agent tool results and progress updates/);
+assert.match(summaryWhatsNew, /MEMORY_DB_PATH/);
+assert.match(summaryWhatsNew, /Never displays key values/);
+assert.match(summaryWhatsNew, /Obsidian exports remain unchanged/);
+assert.doesNotMatch(summaryWhatsNew, /[#*`]/);
+assert.equal(packageManifest.version, "0.7.23");
+const lockManifest = JSON.parse(readFileSync(join(process.cwd(), "package-lock.json"), "utf8"));
+assert.equal(lockManifest.version, packageManifest.version);
+assert.equal(lockManifest.packages[""].version, packageManifest.version);
+const themeWhatsNew = getWhatsNew("0.7.21");
+assert.match(themeWhatsNew, /toolOutput foreground color to every line/);
+assert.match(themeWhatsNew, /compact results, expanded originals, progress and errors/);
+assert.match(themeWhatsNew, /retrieval, Jev filtering, deduplication, structured results and exports are unchanged/);
+assert.doesNotMatch(themeWhatsNew, /[#*`]/);
+const systemOneWhatsNew = getWhatsNew("0.7.20");
+assert.match(systemOneWhatsNew, /System One client/);
+assert.match(systemOneWhatsNew, /jevConnection/);
+assert.match(systemOneWhatsNew, /Ollama, official Jev, and Qwen/);
+assert.doesNotMatch(systemOneWhatsNew, /[#*`]/);
+assert.match(SESSION_MEMORY_HELP, /apiKeyEnv/);
+assert.match(SESSION_MEMORY_HELP, /Remote filtering sends candidate transcript fragments/);
+const sequentialRecallWhatsNew = getWhatsNew("0.7.19");
+assert.match(sequentialRecallWhatsNew, /One recall_memory call automatically runs global recall first/);
+assert.match(sequentialRecallWhatsNew, /turn_id was already returned globally/);
+assert.match(sequentialRecallWhatsNew, /no pre-query exclusion or refill/);
+assert.match(sequentialRecallWhatsNew, /manual global\/project menu searches and review_jev_filtered keep their existing behavior/);
+assert.match(SESSION_MEMORY_HELP, /One recall_memory tool call runs global recall first/);
 const bilingualDocumentationWhatsNew = getWhatsNew("0.7.18");
 assert.match(bilingualDocumentationWhatsNew, /bilingual Chinese and English README presentation/);
 const galleryExtensionWhatsNew = getWhatsNew("0.7.16");
@@ -73,28 +112,31 @@ rmSync(join(historyHome, ".pi", "agent", "pi-session-memory"), { recursive: true
 mkdirSync(join(historyHome, ".pi", "agent", "pi-session-memory"), { recursive: true });
 const configPath = join(historyHome, ".pi", "agent", "pi-session-memory", "config.json");
 writeFileSync(configPath, JSON.stringify({ recallLimit: 2 }));
-assert.deepEqual(getSessionMemoryConfig(), { recallLimit: 2, jevEnable: false, model: "nimble", obsidianExportEnabled: false, obsidianVaultPath: undefined }, "legacy config must use backward-compatible defaults");
+assert.deepEqual(getSessionMemoryConfig(), { recallLimit: 2, jevEnable: false, model: "nimble", jevConnection: DEFAULT_JEV_CONNECTION, obsidianExportEnabled: false, obsidianVaultPath: undefined }, "legacy config must use backward-compatible defaults");
 for (const model of JEV_MODELS) {
   writeFileSync(configPath, JSON.stringify({ recallLimit: 2, jevEnable: true, model }));
-  assert.deepEqual(getSessionMemoryConfig(), { recallLimit: 2, jevEnable: true, model, obsidianExportEnabled: false, obsidianVaultPath: undefined });
+  assert.deepEqual(getSessionMemoryConfig(), { recallLimit: 2, jevEnable: true, model, jevConnection: DEFAULT_JEV_CONNECTION, obsidianExportEnabled: false, obsidianVaultPath: undefined });
 }
-writeFileSync(configPath, JSON.stringify({ recallLimit: 2, model: "unsupported" }));
-assert.throws(() => getSessionMemoryConfig(), /model must be one of nimble, tev1:4b, tev1:0.8b/);
+writeFileSync(configPath, JSON.stringify({ recallLimit: 2, model: "custom-decision-model" }));
+assert.equal(getSessionMemoryConfig().model, "custom-decision-model");
+writeFileSync(configPath, JSON.stringify({ recallLimit: 2, model: " " }));
+assert.throws(() => getSessionMemoryConfig(), /model must be a non-empty string/);
 writeFileSync(configPath, JSON.stringify({ recallLimit: 2, obsidianExportEnabled: true }));
 assert.throws(() => getSessionMemoryConfig(), /obsidianVaultPath must be a non-empty string/);
 writeFileSync(configPath, JSON.stringify({ recallLimit: 2, obsidianExportEnabled: true, obsidianVaultPath: "/vault" }));
-assert.deepEqual(getSessionMemoryConfig(), { recallLimit: 2, jevEnable: false, model: "nimble", obsidianExportEnabled: true, obsidianVaultPath: "/vault" });
+assert.deepEqual(getSessionMemoryConfig(), { recallLimit: 2, jevEnable: false, model: "nimble", jevConnection: DEFAULT_JEV_CONNECTION, obsidianExportEnabled: true, obsidianVaultPath: "/vault" });
 writeFileSync(configPath, JSON.stringify({ recallLimit: 2 }));
 
-for (const toolName of ["recall_memory", "recall_project_memory", "fetch_session", "get_memory_stats", "backfill_memory", "migrate_project_sessions"]) assert.match(extensionSource, new RegExp(`name: "${toolName}"`));
+for (const toolName of ["recall_memory", "fetch_session", "get_memory_stats", "backfill_memory", "migrate_project_sessions"]) assert.match(extensionSource, new RegExp(`name: "${toolName}"`));
+assert.doesNotMatch(extensionSource, /name: "recall_project_memory"/);
 assert.doesNotMatch(extensionSource, /name: "export_recall_to_obsidian"/);
 assert.match(SESSION_MEMORY_HELP, /obsidianExportEnabled/);
 assert.doesNotMatch(extensionSource, /name: "migrate_(claude|codex)_project_sessions"/);
 assert.match(extensionSource, /Search project history/);
 assert.doesNotMatch(extensionSource, /"memory-project-search"/);
-assert.match(extensionSource, /Always call recall_project_memory too with identical entities and question/);
-assert.match(extensionSource, /any matching entity discovers that session/i);
-assert.match(extensionSource, /current Pi session, current project, current CWD, and runtime context are never used/);
+assert.match(extensionSource, /One call with 2-8 literal topic entities/);
+assert.match(extensionSource, /then uses those same entities to discover stored session CWD final-directory names/);
+assert.match(extensionSource, /No current Pi session, project, CWD, source, session, or time context is used/);
 assert.match(extensionSource, /This is read-only and never creates a memory/);
 
 upsertSession({ session_id: "claude:project-a", source: "claude", cwd: "/workspace/project-a", started_at: 1, model_id: null, jsonl_path: "/tmp/project-a.jsonl" });
@@ -171,7 +213,7 @@ assert.equal(backfillAll().scannedFiles, 1);
 assert.ok(getSession("pi:imported").turns.length === 1);
 writeFileSync(fixture, [
   JSON.stringify({ type: "session", version: 3, id: "imported", timestamp: "2026-01-02T00:00:00.000Z", cwd: "/reindexed" }),
-  JSON.stringify({ type: "model_change", modelId: "updated-model" }),
+  JSON.stringify({ type: "model_change", id: "model", parentId: null, timestamp: "2026-01-02T00:00:00.000Z", modelId: "updated-model" }),
   JSON.stringify({ type: "message", id: "u-updated", parentId: null, timestamp: "2026-01-02T00:00:01.000Z", message: { role: "user", timestamp: 3, content: [{ type: "text", text: "replacement user" }] } }),
   JSON.stringify({ type: "message", id: "a-updated", parentId: "u-updated", timestamp: "2026-01-02T00:00:02.000Z", message: { role: "assistant", timestamp: 4, content: [{ type: "text", text: "replacement reply" }] } }),
 ].join("\n"));
