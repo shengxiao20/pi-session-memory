@@ -12,6 +12,9 @@ Version 1.0 establishes the current product baseline. The previously published n
 - Adds GitHub Actions deployment that uploads only the website directory.
 - Adds website and clipboard tests while keeping the unpublished package version at 1.0.0.
 - Presents independent Discussion and source-verification routing as a primary 1.0 architecture feature.
+- Adds a prominent responsive routing diagram to the hero and architecture section.
+- Highlights the multi-agent topology: one main agent and up to three user-confirmed historical Pi agents.
+- Shows direct transcript review, sequential private Discussion, independent `fetch_session` verification, and cited output as distinct paths.
 - Links the homepage to ADR 0001 for the complete decision and implementation evidence.
 
 ### Historical review workflow
@@ -27,7 +30,7 @@ Version 1.0 establishes the current product baseline. The previously published n
 
 - Uses English labels in the historical-session picker and consultation results.
 - Keeps historical questions and replies in their original language.
-- Adds optional private consultation with user-confirmed historical Pi sessions.
+- Adds optional private multi-agent consultation with user-confirmed historical Pi sessions.
 - Runs historical participants sequentially in memory without modifying their source JSONL files.
 - Adds private follow-up, explicit finish, and explicit cancellation tools.
 - Keeps main-agent tool permissions unchanged and never treats participant agreement as verification.

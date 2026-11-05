@@ -1,42 +1,56 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 480" fill="none">
-  <title>The memory ledger</title>
-  <desc>Three local transcript sources feed a SQLite index. A review timeline retrieves evidence, optionally consults Pi sessions, and writes cited Markdown knowledge.</desc>
+  <title>Multi-agent historical review routing</title>
+  <desc>One current main agent routes one recall request to transcript evidence or up to three user-confirmed historical Pi agents. The main agent can independently use fetch_session to verify persisted source context.</desc>
+  <defs>
+    <marker id="arrow-mint" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#98c8b3"/></marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#efbc71"/></marker>
+  </defs>
   <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace">
-    <g fill="#223133" stroke="#3c514d">
-      <rect x="30" y="25" width="146" height="46" rx="8"/>
-      <rect x="226" y="25" width="146" height="46" rx="8"/>
-      <rect x="422" y="25" width="146" height="46" rx="8"/>
+    <rect x="190" y="20" width="220" height="54" rx="10" fill="#24352b" stroke="#81966b"/>
+    <circle cx="216" cy="47" r="11" fill="#98c8b31c" stroke="#98c8b3"/>
+    <text x="216" y="51" fill="#98c8b3" font-size="10" text-anchor="middle">M</text>
+    <text x="238" y="43" fill="#edf0e8" font-size="14">Current main agent</text>
+    <text x="238" y="60" fill="#98c8b3" font-size="9">tools + final judgment stay here</text>
+
+    <path d="M300 74v22" stroke="#98c8b3" marker-end="url(#arrow-mint)"/>
+    <rect x="182" y="98" width="236" height="44" rx="8" fill="#192628" stroke="#435b51"/>
+    <text x="300" y="116" fill="#edf0e8" font-size="12" text-anchor="middle">recall_memory</text>
+    <text x="300" y="132" fill="#adbab6" font-size="9" text-anchor="middle">one request · explicit historical review</text>
+
+    <path d="M300 142v21M300 163H135v21M300 163h165v21" stroke="#5b7368"/>
+    <circle cx="300" cy="163" r="3" fill="#efbc71"/>
+
+    <rect x="28" y="185" width="214" height="126" rx="11" fill="#192628" stroke="#435b51"/>
+    <text x="48" y="208" fill="#98c8b3" font-size="9">TRANSCRIPT ROUTE</text>
+    <text x="48" y="234" fill="#edf0e8" font-size="14">Ranked excerpts</text>
+    <text x="48" y="254" fill="#adbab6" font-size="10">Discussion off</text>
+    <rect x="48" y="272" width="174" height="22" rx="4" fill="#98c8b312"/>
+    <text x="60" y="287" fill="#b8d6bd" font-size="9">direct evidence review</text>
+
+    <rect x="258" y="185" width="314" height="126" rx="11" fill="#29251e" stroke="#9c7542" stroke-width="1.4"/>
+    <rect x="430" y="197" width="122" height="20" rx="10" fill="#efbc7119"/>
+    <text x="491" y="211" fill="#efbc71" font-size="8" text-anchor="middle">MULTI-AGENT</text>
+    <text x="278" y="208" fill="#efbc71" font-size="9">DISCUSSION ROUTE</text>
+    <text x="278" y="234" fill="#edf0e8" font-size="14">Historical Pi agents</text>
+    <g>
+      <rect x="278" y="252" width="78" height="37" rx="7" fill="#1d2a2b" stroke="#5b7368"/>
+      <rect x="376" y="252" width="78" height="37" rx="7" fill="#1d2a2b" stroke="#5b7368"/>
+      <rect x="474" y="252" width="78" height="37" rx="7" fill="#1d2a2b" stroke="#5b7368"/>
+      <text x="317" y="274" fill="#c2d0c8" font-size="10" text-anchor="middle">Agent 1</text>
+      <text x="415" y="274" fill="#c2d0c8" font-size="10" text-anchor="middle">Agent 2</text>
+      <text x="513" y="274" fill="#c2d0c8" font-size="10" text-anchor="middle">Agent 3</text>
+      <path d="M356 270h17M454 270h17" stroke="#efbc71" marker-end="url(#arrow-amber)"/>
     </g>
-    <g fill="#c2d0c8" font-size="13" text-anchor="middle">
-      <text x="103" y="53">Pi</text><text x="299" y="53">Claude Code</text><text x="495" y="53">Codex</text>
-    </g>
-    <path d="M103 71v18h392V71M299 71v36" stroke="#5b7368" stroke-width="1.2"/>
-    <circle cx="299" cy="89" r="3" fill="#efbc71"/>
-    <text x="300" y="126" text-anchor="middle" fill="#98c8b3" font-size="12">local SQLite · complete user turns</text>
-    <path d="M56 172v246" stroke="#4b6259" stroke-width="1.5" stroke-dasharray="3 6"/>
-    <g fill="#192628" stroke="#435b51">
-      <rect x="86" y="154" width="482" height="76" rx="10"/>
-      <rect x="86" y="246" width="482" height="76" rx="10"/>
-      <rect x="86" y="338" width="482" height="102" rx="10" fill="#24352b" stroke="#81966b"/>
-    </g>
-    <g fill="#101719" stroke="#efbc71" stroke-width="1.2">
-      <circle cx="56" cy="192" r="13"/><circle cx="56" cy="284" r="13"/><circle cx="56" cy="389" r="13"/>
-    </g>
-    <g fill="#efbc71" font-size="10" text-anchor="middle"><text x="56" y="196">01</text><text x="56" y="288">02</text><text x="56" y="393">03</text></g>
-    <g fill="#edf0e8" font-size="15">
-      <text x="108" y="184">Explicit review request</text>
-      <text x="108" y="276">Historical evidence</text>
-      <text x="108" y="368" fill="#f2d39e">Draft OKF Markdown</text>
-    </g>
-    <g fill="#adbab6" font-size="11">
-      <text x="108" y="209">saved knowledge first · recall when needed</text>
-      <text x="108" y="301">global + project turns · exact context</text>
-      <text x="108" y="392">findings / decisions / uncertainty / actions</text>
-    </g>
-    <rect x="108" y="408" width="177" height="20" rx="4" fill="#98c8b31a"/>
-    <text x="120" y="422" fill="#b8d6bd" font-size="10">minutes + cited evidence</text>
-    <rect x="385" y="349" width="169" height="21" rx="4" fill="#efbc711a"/>
-    <text x="395" y="363" fill="#efbc71" font-size="9">optional Pi consultation</text>
-    <text x="30" y="468" fill="#82978c" font-size="10">REVIEW → RETRIEVE → SAVE</text>
+    <text x="415" y="303" fill="#adbab6" font-size="8" text-anchor="middle">user-confirmed · sequential · private · tool-free</text>
+
+    <path d="M135 311v28h330v-28M300 339v25" stroke="#5b7368"/>
+    <rect x="190" y="365" width="220" height="48" rx="9" fill="#24352b" stroke="#81966b"/>
+    <text x="300" y="385" fill="#edf0e8" font-size="12" text-anchor="middle">Cited conclusion</text>
+    <text x="300" y="401" fill="#adbab6" font-size="9" text-anchor="middle">compare evidence · keep uncertainty</text>
+
+    <rect x="28" y="432" width="544" height="30" rx="7" fill="#efbc7109" stroke="#9c7542" stroke-dasharray="4 4"/>
+    <text x="46" y="451" fill="#efbc71" font-size="10">fetch_session</text>
+    <text x="145" y="451" fill="#adbab6" font-size="9">independent source check stays available · never automatic fallback</text>
+    <path d="M515 432v-16H410" stroke="#efbc71" stroke-dasharray="3 4" marker-end="url(#arrow-amber)"/>
   </g>
 </svg>
