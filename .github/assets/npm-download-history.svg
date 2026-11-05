@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="340" viewBox="0 0 900 340" role="img" aria-labelledby="title description">
+  <title id="title">pi-session-memory npm download history</title>
+  <desc id="description">4,533 cumulative downloads from 2026-09-13 through 2026-11-04, using daily npm downloads API data.</desc>
+  <metadata>Source: https://api.npmjs.org/downloads/range/last-year/pi-session-memory; range end: 2026-11-04</metadata>
+  <defs>
+    <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5b5bd6" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#5b5bd6" stop-opacity="0.03"/>
+    </linearGradient>
+    <style>
+      .background { fill: #ffffff; stroke: #d8dee4; }
+      .heading { fill: #1f2328; font: 600 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .metric { fill: #1f2328; font: 700 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .label { fill: #656d76; font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .grid { stroke: #d8dee4; stroke-width: 1; }
+      .line { fill: none; stroke: #5b5bd6; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      @media (prefers-color-scheme: dark) {
+        .background { fill: #0d1117; stroke: #30363d; }
+        .heading, .metric { fill: #e6edf3; }
+        .label { fill: #8d96a0; }
+        .grid { stroke: #30363d; }
+        .line { stroke: #8b8bf0; }
+      }
+    </style>
+  </defs>
+  <rect class="background" x="0.5" y="0.5" width="899" height="339" rx="12"/>
+  <text class="heading" x="28" y="38">npm download history</text>
+  <text class="metric" x="28" y="73">4,533</text>
+  <text class="label" x="113" y="72">cumulative downloads</text>
+  <text class="label" x="852" y="38" text-anchor="end">Rolling 365-day API range · updated through Nov 4, 2026</text>
+  <line class="grid" x1="72" y1="104.00" x2="852" y2="104.00"/><text class="label" x="62" y="108.00" text-anchor="end">4,533</text>
+  <line class="grid" x1="72" y1="147.50" x2="852" y2="147.50"/><text class="label" x="62" y="151.50" text-anchor="end">3,400</text>
+  <line class="grid" x1="72" y1="191.00" x2="852" y2="191.00"/><text class="label" x="62" y="195.00" text-anchor="end">2,267</text>
+  <line class="grid" x1="72" y1="234.50" x2="852" y2="234.50"/><text class="label" x="62" y="238.50" text-anchor="end">1,133</text>
+  <line class="grid" x1="72" y1="278.00" x2="852" y2="278.00"/><text class="label" x="62" y="282.00" text-anchor="end">0</text>
+  <path d="M72.00,278.00 L87.00,251.36 L102.00,251.36 L117.00,245.72 L132.00,227.79 L147.00,215.39 L162.00,213.86 L177.00,211.09 L192.00,210.33 L207.00,203.65 L222.00,201.69 L237.00,201.08 L252.00,200.65 L267.00,200.12 L282.00,199.81 L297.00,199.12 L312.00,198.58 L327.00,198.50 L342.00,198.20 L357.00,196.93 L372.00,196.62 L387.00,196.24 L402.00,196.05 L417.00,196.05 L432.00,195.28 L447.00,188.91 L462.00,187.56 L477.00,187.22 L492.00,180.12 L507.00,172.56 L522.00,172.56 L537.00,172.56 L552.00,172.56 L567.00,166.53 L582.00,165.42 L597.00,132.64 L612.00,132.64 L627.00,132.64 L642.00,132.64 L657.00,131.10 L672.00,130.14 L687.00,128.60 L702.00,127.76 L717.00,127.07 L732.00,120.31 L747.00,119.43 L762.00,111.64 L777.00,109.80 L792.00,109.07 L807.00,108.61 L822.00,105.50 L837.00,104.54 L852.00,104.00 L852,278 L72,278 Z" fill="url(#area)"/>
+  <path class="line" d="M72.00,278.00 L87.00,251.36 L102.00,251.36 L117.00,245.72 L132.00,227.79 L147.00,215.39 L162.00,213.86 L177.00,211.09 L192.00,210.33 L207.00,203.65 L222.00,201.69 L237.00,201.08 L252.00,200.65 L267.00,200.12 L282.00,199.81 L297.00,199.12 L312.00,198.58 L327.00,198.50 L342.00,198.20 L357.00,196.93 L372.00,196.62 L387.00,196.24 L402.00,196.05 L417.00,196.05 L432.00,195.28 L447.00,188.91 L462.00,187.56 L477.00,187.22 L492.00,180.12 L507.00,172.56 L522.00,172.56 L537.00,172.56 L552.00,172.56 L567.00,166.53 L582.00,165.42 L597.00,132.64 L612.00,132.64 L627.00,132.64 L642.00,132.64 L657.00,131.10 L672.00,130.14 L687.00,128.60 L702.00,127.76 L717.00,127.07 L732.00,120.31 L747.00,119.43 L762.00,111.64 L777.00,109.80 L792.00,109.07 L807.00,108.61 L822.00,105.50 L837.00,104.54 L852.00,104.00"/>
+  <circle cx="852.00" cy="104.00" r="4.5" fill="#5b5bd6"/>
+  <text class="label" x="72.00" y="302" text-anchor="start">Sep 13, 2026</text>
+  <text class="label" x="462.00" y="302" text-anchor="middle">Oct 9, 2026</text>
+  <text class="label" x="852.00" y="302" text-anchor="end">Nov 4, 2026</text>
+  <text class="label" x="450" y="326" text-anchor="middle">Sep 13, 2026 – Nov 4, 2026 · public npm downloads API</text>
+</svg>

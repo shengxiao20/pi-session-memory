@@ -1,0 +1,38 @@
+name: Refresh npm download history
+
+on:
+  schedule:
+    - cron: '23 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: npm-download-history
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Generate chart from the npm downloads API
+        run: npm run downloads:chart
+      - name: Commit an updated chart
+        shell: bash
+        run: |
+          if git diff --quiet -- .github/assets/npm-download-history.svg; then
+            echo "The npm download chart is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/assets/npm-download-history.svg
+          git commit -m "docs: refresh npm download history"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

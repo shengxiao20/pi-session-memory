@@ -9,6 +9,12 @@ It indexes complete user turns in SQLite, retrieves historical evidence only for
 
 The plugin is local-first. Literal retrieval and storage remain local unless you explicitly enable a remote System One relevance service.
 
+## Download history
+
+[![Cumulative npm download history for pi-session-memory](.github/assets/npm-download-history.svg)](https://www.npmjs.com/package/pi-session-memory)
+
+The chart sums daily counts from the public [npm downloads API](https://github.com/npm/registry/blob/main/docs/download-counts.md) over its rolling 365-day range. A scheduled workflow refreshes the repository-owned SVG each day.
+
 ## Install
 
 ```bash
