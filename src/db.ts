@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
+import { installMemoryTurnExclusion, isMemoryToolTurn } from "./memory-index-policy.ts";
 
 const DB_PATH = process.env.MEMORY_DB_PATH ?? join(homedir(), ".pi", "agent", "memory.db");
 
@@ -24,17 +25,27 @@ CREATE TABLE IF NOT EXISTS source_files (
 
 let _db: DatabaseSync | undefined;
 
+/** Return the configured index path without opening or migrating the database. */
+export function getMemoryDbPath(): string { return DB_PATH; }
+
 /** Open the singleton local transcript index and upgrade its raw-history schema. */
 export function getDb(): DatabaseSync {
   if (_db) return _db;
   mkdirSync(join(homedir(), ".pi", "agent"), { recursive: true });
-  _db = new DatabaseSync(DB_PATH);
-  _db.exec("PRAGMA journal_mode = WAL");
-  _db.exec("PRAGMA synchronous = NORMAL");
-  _db.exec(SCHEMA);
-  _migrate(_db);
-  _db.exec(SCHEMA);
-  return _db;
+  const db = new DatabaseSync(DB_PATH);
+  try {
+    db.exec("PRAGMA journal_mode = WAL");
+    db.exec("PRAGMA synchronous = NORMAL");
+    db.exec(SCHEMA);
+    _migrate(db);
+    db.exec(SCHEMA);
+    installMemoryTurnExclusion(db);
+    _db = db;
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
 }
 
 /** Keep only raw session history when opening databases created by earlier package versions. */
@@ -79,7 +90,9 @@ export function replaceSourceFile(sourceFile: SourceFileRow, stored?: StoredSess
         stored.session.session_id, stored.session.source, stored.session.cwd, stored.session.started_at, stored.session.model_id, stored.session.jsonl_path,
       );
       const insertTurn = db.prepare("INSERT INTO turns (turn_id, session_id, turn_index, ts, user_text, reply_text, tool_names, user_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-      for (const turn of stored.turns) insertTurn.run(turn.turn_id, turn.session_id, turn.turn_index, turn.ts, turn.user_text, turn.reply_text, turn.tool_names, turn.user_message_id);
+      for (const turn of stored.turns) {
+        if (!isMemoryToolTurn(turn.tool_names)) insertTurn.run(turn.turn_id, turn.session_id, turn.turn_index, turn.ts, turn.user_text, turn.reply_text, turn.tool_names, turn.user_message_id);
+      }
     }
     upsertSourceFile(sourceFile);
     db.exec("COMMIT");
@@ -87,6 +100,12 @@ export function replaceSourceFile(sourceFile: SourceFileRow, stored?: StoredSess
     db.exec("ROLLBACK");
     throw error;
   }
+}
+/** Read one persisted turn by its exact ID without interpreting its suffix. */
+export function getTurn(turnId: string): TurnRow {
+  const turn = getDb().prepare("SELECT turn_id, session_id, turn_index, ts, user_text, reply_text, tool_names, user_message_id FROM turns WHERE turn_id = ?").get(turnId) as TurnRow | undefined;
+  if (!turn) throw new Error(`History turn not found: ${turnId}`);
+  return turn;
 }
 export function getSession(sessionId: string, fromTurnIndex?: number, toTurnIndex?: number): StoredSession {
   const session = getDb().prepare("SELECT * FROM sessions WHERE session_id = ?").get(sessionId) as SessionRow | undefined;
@@ -103,14 +122,23 @@ export function getHistoryStats(): HistoryStats {
   const sources = getDb().prepare("SELECT sessions.source, count(DISTINCT sessions.session_id) AS sessions, count(turns.turn_id) AS turns FROM sessions LEFT JOIN turns ON turns.session_id = sessions.session_id GROUP BY sessions.source ORDER BY sessions.source").all() as HistoryStats["sources"];
   return { sessions: sessionCount.count, turns: summary.turns, oldestTs: summary.oldestTs, newestTs: summary.newestTs, sources };
 }
-/** Refresh a live turn's aggregate reply and tool names as the persisted transcript grows. */
+/** Refresh an ordinary live turn; remove it when any package tool has been called. */
 export function upsertTurn(row: TurnRow): void {
-  getDb().prepare(`INSERT INTO turns (turn_id, session_id, turn_index, ts, user_text, reply_text, tool_names, user_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  _writeTurn(row, `INSERT INTO turns (turn_id, session_id, turn_index, ts, user_text, reply_text, tool_names, user_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(turn_id) DO UPDATE SET turn_index = excluded.turn_index, ts = excluded.ts,
-      user_text = excluded.user_text, reply_text = excluded.reply_text, tool_names = excluded.tool_names`)
-    .run(row.turn_id, row.session_id, row.turn_index, row.ts, row.user_text, row.reply_text, row.tool_names, row.user_message_id);
+      user_text = excluded.user_text, reply_text = excluded.reply_text, tool_names = excluded.tool_names`);
 }
 
 export function insertTurn(row: TurnRow): boolean {
-  return getDb().prepare("INSERT OR IGNORE INTO turns (turn_id, session_id, turn_index, ts, user_text, reply_text, tool_names, user_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(row.turn_id, row.session_id, row.turn_index, row.ts, row.user_text, row.reply_text, row.tool_names, row.user_message_id).changes === 1;
+  return _writeTurn(row, "INSERT OR IGNORE INTO turns (turn_id, session_id, turn_index, ts, user_text, reply_text, tool_names, user_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)") === 1;
+}
+
+/** Share the exclusion rule across incremental writes; SQLite triggers also protect direct and older writes. */
+function _writeTurn(row: TurnRow, sql: string): number {
+  const db = getDb();
+  if (isMemoryToolTurn(row.tool_names)) {
+    db.prepare("DELETE FROM turns WHERE turn_id = ?").run(row.turn_id);
+    return 0;
+  }
+  return Number(db.prepare(sql).run(row.turn_id, row.session_id, row.turn_index, row.ts, row.user_text, row.reply_text, row.tool_names, row.user_message_id).changes);
 }

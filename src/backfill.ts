@@ -6,6 +6,7 @@ import { getSourceFile, replaceSourceFile, upsertSourceFile, type StoredSession,
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { buildPiTurns } from "./pi-turns.ts";
+import { isMemoryToolTurn } from "./memory-index-policy.ts";
 import { CODEX_PARSER_VERSION, codexMessageIds, codexThreadId } from "./codex-history.ts";
 
 type Source = "pi" | "claude" | "codex";
@@ -113,7 +114,7 @@ function _syncSourceFile(definition: typeof SOURCES[number], jsonlPath: string, 
     replaceSourceFile({ jsonl_path: jsonlPath, source: definition.source, size: metadata.size, mtime_ms: metadata.mtimeMs, sha256, parser_version }, stored);
     if (stored) {
       stats[definition.source]++;
-      stats.turns += stored.turns.length;
+      stats.turns += stored.turns.filter(turn => !isMemoryToolTurn(turn.tool_names)).length;
     }
     stats.scannedFiles++;
   } catch (error) {

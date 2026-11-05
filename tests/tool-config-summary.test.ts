@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { formatConfigSummary, withConfigSummary } from "../src/tool-config-summary.ts";
+import { formatConfigSummary, formatConsultationSummary, withConfigSummary } from "../src/tool-config-summary.ts";
 import { DEFAULT_JEV_CONNECTION, type SessionMemoryConfig } from "../src/config.ts";
 
 const config: SessionMemoryConfig = { recallLimit: 20, jevEnable: false, model: "nimble", jevConnection: { ...DEFAULT_JEV_CONNECTION }, obsidianExportEnabled: false };
@@ -52,6 +52,17 @@ try {
   // A second invocation rereads the config rather than using a session-start snapshot.
   const second = await tool.execute("call", { topic: "history" }, undefined, undefined, context);
   assert.match((second.content[2] as any).text, /Config · Jev=on/);
+
+  const discussionConfig = { ...config, enableDiscussion: true, consultation: { knowledgePath: join(home, "knowledge"), timeoutMs: 120000 } };
+  assert.doesNotMatch(formatConsultationSummary(discussionConfig), /Jev|Ollama|knowledgePath/);
+  assert.match(formatConsultationSummary(discussionConfig), /recall only; main tools unchanged/);
+  writeFileSync(configPath, JSON.stringify(discussionConfig));
+  for (const name of ["recall_memory", "follow_up_session", "finish_session_consultation", "cancel_session_consultation"]) {
+    const discussionTool = withConfigSummary({ name, label: name, description: "Test consultation summary", parameters: {} as any, async execute() { return original; } });
+    const output = await discussionTool.execute("call", {}, undefined, undefined, context);
+    assert.match((output.content.at(-1) as any).text, /Discussion=on/);
+    assert.doesNotMatch((output.content.at(-1) as any).text, /Jev=|Ollama/);
+  }
 
   const failure = new Error("explicit tool failure");
   const failing = withConfigSummary({ name: "failure", label: "Failure", description: "Test error propagation", parameters: {} as any, async execute() { throw failure; } });

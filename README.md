@@ -1,8 +1,13 @@
 # pi-session-memory
 
-[中文](README_zh.md)
+**Current version: 1.0.0**
 
-**Current version: 0.7.23**
+Project website: [GitHub Pages](https://shengxiao20.github.io/pi-session-memory/) (available after deployment).
+
+`pi-session-memory` gives Pi controlled access to local Pi, Claude Code, and Codex conversation history.
+It indexes complete user turns in SQLite, retrieves historical evidence only for explicit look-back requests, and saves evidence-based conclusions as portable Markdown knowledge.
+
+The plugin is local-first. Literal retrieval and storage remain local unless you explicitly enable a remote System One relevance service.
 
 ## Install
 
@@ -10,277 +15,488 @@
 pi install npm:pi-session-memory
 ```
 
-Local-first cross-session & cross-agent dialogue search based on sqlite with optional local or remote System One semantic relevance filtering, or direct session migration from Claude Code and Codex to Pi, and optional Obsidian export, compatible in Chinese and English.
+After installation, ask Pi to set up the plugin. The agent uses `setup_memory`, explains one option at a time, and saves nothing without your final approval.
 
-## What it does
+## Version 1.0 at a glance
 
-- Indexes local Pi, Claude Code, and Codex JSONL transcript turns in local SQLite.
-- Provides `recall_memory` as one automatic sequential operation: unconditional global literal search across every indexed turn, followed by entity-discovered project-session search with the same entities and complete question. Its public interface has no CWD, project, source, session, or time filters.
-- The project stage matches supplied entities against stored session CWD final-directory names, then searches only matching sessions. After optional Jev review, it removes turns whose exact `turn_id` was already returned by the global stage. Ranking, limits, directory matching, and Jev logic are unchanged; removed results are not refilled.
-- Shows **Global recall** and **Project recall** separately in tool progress and compact results. Expand the result to read the complete original turns. The separate `recall_project_memory` agent tool is no longer registered; manual global/project menu searches remain independent and unchanged.
-- Provides `fetch_session` for read-only expansion of the smallest useful transcript range.
-- Synchronizes changed history at Pi session start; the `/pi-session-memory` menu provides explicit full history import.
-- Migrates current-project Claude Code or Codex sessions into separate native Pi sessions.
-- Matches equivalent Windows project CWDs during migration, including `\\` versus `/`, drive-letter case, and trailing separators.
+Version 1.0 turns the earlier search extension into a complete historical-review workflow.
 
-Search results are derived from stored source transcripts only and are never automatically injected into model context. Put project rules and preferences in `AGENTS.md`.
+- Imports Pi, Claude Code, and Codex transcript turns into local SQLite.
+- Checks saved Open Knowledge Format (OKF) descriptions before searching transcripts.
+- Runs one explicit recall workflow across global history and entity-discovered project sessions.
+- Optionally filters literal candidates with a local or remote System One model.
+- Optionally consults selected historical Pi sessions through isolated in-memory agents.
+- Expands exact recalled turns without guessing session positions.
+- Saves transcript or consultation conclusions as draft OKF Markdown bundles.
+- Keeps package-tool traffic out of the searchable memory index.
+- Provides validated, approval-based setup through agent tools.
+- Provides explicit statistics, import, cleanup, and native Pi migration tools.
+- Keeps the `/pi-session-memory` menu focused on setup, history import, project-session migration, and indexed-tool-turn cleanup.
+
+## What changed from the published npm version
+
+The npm `latest` release before 1.0 is **0.7.23**. This comparison uses the published `pi-session-memory@0.7.23` package, not only local release notes.
+
+| Area | Published 0.7.23 | Version 1.0.0 |
+| --- | --- | --- |
+| Agent tools | 6 tools | 15 tools |
+| Historical workflow | Transcript retrieval | Saved knowledge first, then transcript retrieval or optional Discussion |
+| Saved conclusions | No complete OKF conclusion workflow | Separate transcript and consultation finish tools save draft OKF bundles |
+| Knowledge reuse | No saved-meeting inspection route | Metadata-first description inspection and exact document reuse |
+| Consultation | Not available | User-confirmed historical Pi sessions run as private in-memory participants |
+| Follow-up | Not available | Private per-session follow-up during an active consultation |
+| Evidence expansion | Session-oriented fetch behavior | Exact `turn_id` with explicit `before` and `after` windows |
+| Setup | Configuration documented for manual editing | Sequential `setup_memory` guide and validated `configure_memory` save after approval |
+| Index hygiene | Search index and normal synchronization | Package-tool turns are excluded; explicit cleanup creates and verifies a backup |
+| Obsidian | Optional raw search export | Optional single OKF storage root |
+| Command menu | Broad manual operation menu and help | Setup, history import, project-session migration, and indexed-tool-turn cleanup only |
+| Release notes | Many version sections in README | One current README and one 1.0 CHANGELOG entry |
+| Package language | Bilingual package description and README material | English package documentation; agents can conduct setup in the user's language |
+
+The published 0.7.23 package registered these six tools:
+
+- `migrate_project_sessions`
+- `recall_memory`
+- `review_jev_filtered`
+- `fetch_session`
+- `get_memory_stats`
+- `backfill_memory`
+
+Version 1.0 retains those capabilities and adds nine tools:
+
+- `setup_memory`
+- `configure_memory`
+- `inspect_memory_knowledge`
+- `read_memory_knowledge`
+- `follow_up_session`
+- `finish_session_consultation`
+- `cancel_session_consultation`
+- `finish_memory_recall`
+- `clean_memory_tool_turns`
+
+Some retained tools also have stricter 1.0 contracts. For example, `recall_memory` now enforces explicit historical intent and knowledge-first review. `fetch_session` expands an exact returned turn ID. Migration can select Claude Code, Codex, or both.
+
+## Core workflow
+
+```text
+Explicit request to review earlier work
+└── inspect_memory_knowledge
+    ├── Clear description match
+    │   └── read_memory_knowledge
+    │       └── Return the existing OKF document unchanged
+    └── No clear description match
+        └── recall_memory
+            ├── Global literal retrieval
+            ├── Entity-discovered project retrieval
+            ├── Optional System One filtering
+            └── Request-scoped evidence route
+                ├── Transcript route: return ranked excerpts
+                └── Consultation route: return private participant answers
+
+Independent main-agent source check
+└── fetch_session: expand one exact returned turn when context is missing
+```
+
+The plugin does not start this workflow for an ordinary question. The user must explicitly ask to look back at earlier work or historical conversations.
+
+## Architecture decision: independent evidence routing
+
+Version 1.0 keeps Discussion and source verification separate. This separation is a primary architecture feature, not an implementation detail.
+
+Discussion changes the evidence returned by one `recall_memory` request. It does not create a session-wide mode. It does not change the main agent's role, active tools, or permissions.
+
+When Discussion is disabled, `recall_memory` returns ranked transcript excerpts. The main agent compares them and uses `finish_memory_recall` to save the conclusion.
+
+When Discussion is enabled, the user confirms up to three native Pi sessions. Those sessions answer privately and sequentially. The main agent uses `follow_up_session` for private clarification. It then uses `finish_session_consultation` or `cancel_session_consultation`.
+
+`fetch_session` remains available to the main agent during either route. It reads the smallest useful persisted context around an exact returned `turn_id`. This independent check lets the main agent compare what a participant reports with what the source transcript contains.
+
+The routes do not change silently:
+
+- Discussion never calls `fetch_session` automatically.
+- `fetch_session` never replaces participant answers.
+- A failed or cancelled Discussion never falls back to transcript retrieval automatically.
+- Historical participants have no tools and cannot fetch context themselves.
+- Source JSONL files remain unchanged.
+- Participant agreement remains evidence of agreement, not verification.
+
+See [ADR 0001: Keep source verification independent from Discussion](docs/adr/0001-independent-source-verification.md) for the context, rejected alternatives, consequences, and implementation evidence.
+
+## Retrieval model
+
+### Turn indexing
+
+The plugin stores one searchable turn for each user message with searchable text.
+
+- Pi branch ownership follows `id` and `parentId` relationships.
+- Replies belong to their nearest user ancestor, not the last user in file order.
+- Multiple replies to one user turn are aggregated in file order.
+- Interrupted and tool-only responses remain indexable.
+- Image-only user entries occupy their original turn position but are not searchable turns.
+- Claude Code and Codex sessions keep stable source-specific turn identities.
+- Parser-version changes trigger reindexing of unchanged source files.
+- Invalid Pi parent graphs raise import issues and preserve the prior index state.
+
+Source JSONL files remain unchanged during indexing, retrieval, consultation, and cleanup.
+
+### Combined recall
+
+`recall_memory` accepts:
+
+- Two to eight literal topic entities.
+- One `primary_entity` copied verbatim from the user's question.
+- The complete user question.
+
+One call performs two stages:
+
+1. Search all indexed Pi, Claude Code, and Codex turns.
+2. Match the same entities against stored session working-directory names, then search turns in matched sessions.
+
+A case-insensitive complete `primary_entity` match adds 10 ranking points once per turn. Each other unique entity match adds one point. Each stage applies `recallLimit` independently. Project results returned globally are removed after both stages; removed items are not refilled.
+
+Global and project results remain separate in progress and final output. The tool does not infer scope from the active session, current directory, source, date, or project.
+
+### Exact context expansion
+
+`fetch_session` reads persisted context around a returned `turn_id`.
+
+```json
+{
+  "turn_id": "<exact ID from recall>",
+  "before": 2,
+  "after": 2
+}
+```
+
+Use the smallest useful range. The tool does not parse an index from the ID or modify source history.
+
+## Optional System One filtering
+
+`jevEnable` adds semantic relevance review after literal retrieval. Literal retrieval remains the candidate source.
+
+- A local managed Ollama service can run a configured System One model.
+- An unmanaged local or remote HTTP(S) service can provide the same API.
+- The plugin sends candidate transcript fragments to the configured service.
+- A remote endpoint therefore moves those fragments outside the local machine.
+- `review_jev_filtered` can audit turns excluded by the model during an explicit historical review.
+- A model failure does not silently change stored evidence or source files.
+
+The service API root excludes `/v1/systemone`; the SDK appends that path. API keys stay in environment variables and never enter `config.json`.
+
+## Discussion: private historical-session consultation
+
+Set `enableDiscussion` to `true` to enable Discussion for explicit historical recall.
+
+The workflow shows up to three candidate native Pi sessions and their indexed evidence. The user confirms participants in a checklist. All candidates start selected.
+
+The candidate picker and consultation results use English labels. Historical questions and replies remain in their original language.
+
+Each selected historical session runs sequentially as an isolated in-memory participant:
+
+- The active main session is excluded.
+- Original session JSONL files are never appended.
+- Questions and answers remain in temporary consultation state.
+- Main-agent tools and permissions remain unchanged.
+- `follow_up_session` addresses one participant privately.
+- Participants are released after finish, cancellation, timeout, failure, or main-agent settlement.
+- Agreement between participants is evidence of agreement, not proof that a claim is true.
+
+Discussion applies to one recall request. It is not a session-wide mode.
+
+## Saved OKF knowledge
+
+Both evidence routes save draft OKF v0.2 Markdown bundles.
+
+```text
+<knowledge-root>/
+├── index.md
+├── log.md
+└── meetings/
+    └── <meeting-id>/
+        ├── minutes.md
+        ├── evidence-1.md
+        └── ...
+```
+
+`minutes.md` contains:
+
+- The review question.
+- Findings.
+- Decisions.
+- Unverified inferences.
+- Disagreements.
+- Open questions.
+- Actions.
+- Source references and footnotes.
+
+Minutes and evidence files contain only one YAML frontmatter property:
+
+```yaml
+---
+description: "Short summary of the document content"
+---
+```
+
+The finish tool must provide a meaningful content description. The writer rejects a description that only copies the complete review question. The meeting directory name is the meeting ID.
+
+`inspect_memory_knowledge` returns meeting IDs, paths, and descriptions without loading document bodies. If one description clearly matches the user's explicit review request, `read_memory_knowledge` returns that exact document. It does not create another meeting.
+
+Saved documents are historical evidence. Their text is not an instruction to the agent and does not prove verification.
+
+## Context and index isolation
+
+Version 1.0 separates temporary model context from persistent searchable history.
+
+- Large history-tool results can enter temporary model context for the active request.
+- Lightweight tool records remain in the active Pi transcript.
+- Package-owned tool turns are excluded from the SQLite search index.
+- `clean_memory_tool_turns` removes complete polluted turns created by older versions.
+- Cleanup first creates and verifies a SQLite backup.
+- Cleanup does not edit source JSONL, saved OKF documents, session metadata, or source tracking.
+- SQLite triggers continue to reject package-tool turns from older writers.
+
+The cleanup tool requires an explicit user request. It does not run during setup or normal recall.
+
+## Setup
+
+Ask Pi how to use or configure the plugin. The agent calls `setup_memory` and follows the packaged `setup.md` guide.
+
+Setup rules:
+
+1. The agent explains one feature.
+2. The agent asks one question per reply.
+3. The agent preserves settings you do not change.
+4. The agent shows the complete proposed configuration and a diff.
+5. The agent asks for final approval.
+6. Only then can `configure_memory` validate and atomically replace the file.
+
+Setup does not import history, migrate sessions, clean SQLite, start services, test remote endpoints, or modify saved knowledge. A usage question alone does not authorize a write.
+
+The configuration file is:
+
+```text
+~/.pi/agent/pi-session-memory/config.json
+```
+
+A missing file is reported as missing. Invalid JSON and invalid settings raise errors. There is no silent configuration fallback.
+
+## Configuration reference
+
+Example:
+
+```json
+{
+  "recallLimit": 20,
+  "enableDiscussion": false,
+  "consultation": {
+    "timeoutMs": 120000,
+    "knowledgePath": "/absolute/custom/knowledge/path"
+  },
+  "jevEnable": false,
+  "model": "nimble",
+  "jevConnection": {
+    "baseURL": "http://127.0.0.1:11434",
+    "manageOllama": true
+  },
+  "obsidianExportEnabled": false,
+  "obsidianVaultPath": "/absolute/path/to/vault"
+}
+```
+
+### Required setting
+
+- `recallLimit`: Positive integer. Caps each global and project retrieval stage.
+
+### Discussion settings
+
+- `enableDiscussion`: Enables private historical Pi consultation when `true`.
+- `consultation.timeoutMs`: Positive request timeout. Required when Discussion is enabled and whenever a `consultation` object is present.
+- `consultation.knowledgePath`: Optional absolute OKF root used only when Obsidian storage is disabled.
+
+### Relevance settings
+
+- `jevEnable`: Enables System One relevance filtering.
+- `model`: Non-empty System One model name. Examples include `nimble`, `tev1:4b`, and `tev1:0.8b`.
+- `jevConnection.baseURL`: HTTP(S) API root without credentials, query, fragment, or full System One endpoint.
+- `jevConnection.manageOllama`: Allows local Ollama startup, model pull, and inspection when `true`.
+- `jevConnection.apiKeyEnv`: Environment variable name containing the API key. Required for unmanaged connections.
+- `jevConnection.contextWindow`: Positive input-token budget. Required for unmanaged connections.
+
+Managed Ollama requires a loopback HTTP root. Unmanaged connections require an explicit model, API-key environment variable, and context window.
+
+### Storage settings
+
+- `obsidianExportEnabled`: Uses an existing Obsidian vault as the single OKF storage root.
+- `obsidianVaultPath`: Existing absolute directory required when Obsidian storage is enabled.
+
+When Obsidian is disabled, OKF defaults to:
+
+```text
+~/.pi/agent/pi-session-memory/knowledge/
+```
+
+There is no duplicate storage copy and no fallback to another root after a storage error.
+
+### Environment-only settings
+
+These values do not belong in `config.json`:
+
+- `MEMORY_DB_PATH`: Overrides the SQLite database path. The default is `~/.pi/agent/memory.db`.
+- `OLLAMA_HOST`: Not used for unmanaged endpoints. Managed Ollama overrides its child process with `baseURL`.
+- The variable named by `apiKeyEnv`: Supplies the runtime secret.
+
+The plugin never displays credential values in its configuration summary.
+
+## Obsidian behavior
+
+Obsidian integration selects storage; it does not implement document authorization.
+
+- Agent finish routes write OKF bundles under `<vault>/meetings/`.
+- Knowledge inspection reads from that same root.
+- Agent recall does not automatically export raw search results.
+- Invalid vault paths raise errors.
+
+Use filesystem, repository, sync-service, or separate-vault boundaries when you need access control.
+
+## Command menu
+
+The plugin registers one slash command:
+
+```text
+/pi-session-memory
+```
+
+It accepts no arguments and shows four direct operations:
+
+```text
+Setup
+Clean indexed tool turns
+Import historical sessions
+Migrate project sessions
+```
+
+`Setup` sends a setup request to the Agent. The Agent reads the guide, asks one question at a time, and requests approval before writing.
+
+`Clean indexed tool turns` creates and verifies a SQLite backup. It then removes complete package-tool turns from the local index.
+
+`Import historical sessions` directly rescans Pi, Claude Code, and Codex history. It reports import issues in the user interface.
+
+`Migrate project sessions` directly converts current-project Claude Code and Codex sessions into native Pi sessions available through `/resume`.
+
+Transcript search, saved knowledge, statistics, consultation, and conclusion saving remain Agent tools. They do not appear in the menu.
+
+## Agent tools
+
+| Tool | Invocation condition |
+| --- | --- |
+| `setup_memory` | The user asks how the plugin works, how to use it, or requests setup. Reads the guide and current raw configuration without writing. |
+| `configure_memory` | The user approves the final complete setup proposal. Validates and atomically saves supported settings. |
+| `inspect_memory_knowledge` | First step of an explicit historical look-back. Reads saved meeting descriptions without document bodies. |
+| `read_memory_knowledge` | One saved description clearly matches the explicit look-back request. Returns the exact saved document. |
+| `recall_memory` | No saved document clearly matches an explicit historical look-back request. Runs global then project retrieval. |
+| `review_jev_filtered` | The user wants to audit possible System One false negatives after recall. |
+| `fetch_session` | A recalled excerpt lacks context. Reads the smallest useful range around an exact returned turn ID. |
+| `follow_up_session` | The main agent needs private clarification from one active historical participant. |
+| `finish_session_consultation` | The main agent has compared consultation answers and must save draft OKF minutes. |
+| `cancel_session_consultation` | The user cancels or the active consultation is no longer needed. |
+| `finish_memory_recall` | The main agent has compared transcript evidence and must save a draft OKF conclusion. |
+| `get_memory_stats` | The user asks how much Pi, Claude Code, or Codex history is indexed. |
+| `backfill_memory` | The user explicitly requests history import, backfill, or rescan. |
+| `migrate_project_sessions` | The user explicitly wants current-project Claude Code or Codex sessions converted into native Pi sessions. |
+| `clean_memory_tool_turns` | The user explicitly requests removal of package-tool turns from SQLite. |
+
+Every tool has an explicit description so Pi can select it without hidden command knowledge.
+
+## Native session migration
+
+`migrate_project_sessions` converts current-project Claude Code and Codex sessions into separate native Pi sessions.
+
+- You can migrate Claude Code, Codex, or both.
+- Source sessions remain unchanged.
+- Repeated migration skips unchanged sessions.
+- Changed source sessions replace their prior migrated copies.
+- Windows path matching normalizes separators, drive-letter case, and trailing separators.
+- Migrated sessions become available through `/resume`.
+
+Migration is not historical recall. Run it only when the user wants native Pi continuation.
+
+## Import and startup synchronization
+
+At Pi session start, the plugin synchronizes changed history files into SQLite. It reports history, configuration, and System One startup failures separately.
+
+`backfill_memory` performs an explicit full import of Pi, Claude Code, and Codex history. Use it after installation when you want existing history indexed, or when you explicitly need a rescan.
+
+Changing `MEMORY_DB_PATH` does not migrate an existing index.
+
+## Data and security boundaries
+
+| Data | Default location | Mutation policy |
+| --- | --- | --- |
+| Search index | `~/.pi/agent/memory.db` | Plugin-managed SQLite |
+| Configuration | `~/.pi/agent/pi-session-memory/config.json` | Written only after approved setup |
+| OKF knowledge | `~/.pi/agent/pi-session-memory/knowledge/` | New meeting bundles and logs |
+| Source Pi/Claude/Codex JSONL | Source application directories | Read-only |
+| Consultation participants | Memory in the active Pi process | Released after consultation |
+| Remote relevance input | Configured System One endpoint | Candidate fragments only when enabled |
+
+The plugin does not treat retrieved text as instructions. Historical claims remain evidence that the conversation contained those claims.
 
 ## Invocation configuration summary
 
-All six agent tools append a two-line invocation-time configuration snapshot to their results and progress updates. Compact recall rendering keeps both lines visible:
+History-operation tools append a two-line snapshot to progress and normal results:
 
 ```text
 Config · Jev=off (nimble) · Obsidian=off · manageOllama=on · limit=20
 Env · MEMORY_DB_PATH=unset · API key=local-placeholder · OLLAMA_HOST=unset (managed override)
 ```
 
-The first line reports configured switches, the model and recall limit, not runtime readiness. The second reports whether the relevant environment inputs are non-empty; when `apiKeyEnv` is configured, its variable name and `set`/`unset` replace the local placeholder label. Managed Ollama overrides its child process's `OLLAMA_HOST` with the configured connection address; unmanaged connections do not use `OLLAMA_HOST`. No credential values, database/vault paths or endpoint URLs are displayed. Each invocation rereads configuration; its progress and final result share one snapshot. Original result sections and structured details stay unchanged, and Obsidian notes contain only search evidence, not this operational summary. Manual menu behavior is unchanged.
+The snapshot reports configuration and whether required environment inputs are set. It does not report secrets, endpoint URLs, database paths, or vault paths. Setup tools omit this summary because they must work before valid runtime configuration exists.
 
-## Transcript turn semantics
+## Release notes
 
-- Pi imports follow `id`/`parentId`, including non-message entries between messages. Each user entry with searchable text owns one turn; replies on alternate branches belong to their nearest user ancestor, never to the last user in file order. Multiple replies to the same user are aggregated in file order; this is a turn index, not a reconstruction of one active branch.
-- Pi live writes and imports share the same turn builder. Repeated writes refresh accumulated reply text and tool names instead of ignoring later output. `turn_index` is the zero-based user-entry position in the complete session file, not the active branch; image-only users occupy a position but are not searchable turns.
-- User turns without a text reply remain indexed, including interrupted requests and tool-only responses. Pi and Claude tool-only assistant messages retain their tool names.
-- Parser-version changes automatically reindex unchanged Pi, Claude Code and Codex files at the next session start. This corrects old pairings and indices without editing source transcripts. Old cached index ranges may change once during this upgrade; use ranges from fresh recall results. Invalid Pi IDs or parent links produce an import issue and leave the file's previous index intact rather than treating it as linear history.
+[CHANGELOG.md](CHANGELOG.md) contains the 1.0 release baseline. Older per-version narratives were removed intentionally.
 
-## Obsidian export
+Pi 1.5.0 and later can display unread package entries through **Extension Updates** after a fresh launch. Restart Pi after updating; `/reload` does not trigger that notice. `/changelog` shows Pi's own release notes, not this package's notes.
 
-Obsidian export is optional and disabled by default: omit both `obsidianExportEnabled` and `obsidianVaultPath` to keep it disabled. To enable it, set `obsidianExportEnabled` to `true` and `obsidianVaultPath` to an existing vault directory. Every completed history search then writes its complete search evidence (excluding the invocation configuration summary) as one new root-level Markdown note, including searches with no matches. No result selection or Vault-path prompt is required. Each note receives a timestamp and UUID filename, so it never overwrites an existing note.
+## GitHub Pages website
 
-Obsidian export has no separate agent tool and adds no vault configuration to agent context. The combined recall tool exports both stages together as one complete note, using the same deduplicated project results as its text and structured details; menu searches continue to export independently.
-
-## What's new in 0.7.23
-
-- **Two-line configuration snapshot:** every agent tool result and progress update reports Jev/model, Obsidian, local Ollama management, recall limit and relevant environment-variable `set`/`unset` states. Compact recall keeps both lines visible.
-- **Safe, isolated diagnostics:** no key values, paths or endpoint URLs are exposed; original evidence, structured details, retrieval and Obsidian exports are unchanged. Configuration status does not imply runtime readiness.
-- **Regression coverage:** adds isolated summary/decorator tests and E2E checks for progress, compact rendering, redaction and exports. Run `/reload` to load the updated local extension.
-
-## What's new in 0.7.22
-
-- **Ollama startup safety:** missing CLI startup errors reject normally and surface through existing runtime diagnostics instead of crashing Pi with an unhandled child-process error.
-- **Correct Pi branch ownership:** replies follow `parentId`; imports and live writes share a stable, complete-history user-turn index.
-- **Complete turn preservation:** live writes refresh appended replies and tool names; imports preserve unanswered user requests and tool-only responses. Parser versions trigger automatic index repair on the next session start.
-- **Jev request validation:** every fully serialized single-segment request must fit the existing byte-based budget, including segments that begin a new batch. Oversized requests raise an explicit error before any batches are sent; no new fallback or automatic backend switching is added.
-- **Regression coverage:** adds isolated tests for all five fixes. Run `/reload` to load the updated extension.
-
-## What's new in 0.7.21
-
-- **Theme-aware recall text:** compact results, expanded originals, progress and errors use Pi's `toolOutput` foreground color on every line instead of the terminal's default text color. Tool-panel backgrounds and global theme settings are not changed.
-- **Packaging:** includes the linked Chinese README in the npm package.
-- **Display-only fix:** retrieval, Jev filtering, deduplication, structured results and exports remain unchanged. Run `/reload` to load the updated local extension.
-
-## What's new in 0.7.20
-
-- **One protocol/client:** Ollama, official Jev and Qwen Decision API share the existing System One request and `.noul` response processing; no OpenAI adapter is included.
-- **Configurable connection:** `jevConnection` provides `baseURL`, `apiKeyEnv`, `contextWindow` and explicit `manageOllama`. Model names are no longer restricted to the three local examples.
-- **Independent local management:** only managed local connections start Ollama, pull models or inspect `/api/show`; legacy configurations retain the original local behavior.
-- **Explicit remote setup:** unmanaged connections require a model, API key environment variable and input budget. Missing credentials raise errors; there is no provider detection or backend switching.
-- **Algorithm unchanged:** retrieval, segmentation, batching, probability aggregation and the `0.5` relevance threshold remain unchanged. Remote filtering sends candidate original fragments and the complete question to the configured service.
-
-## What's new in 0.7.19
-
-- **One automatic call:** `recall_memory` runs global recall first, then project recall; the model no longer has to invoke two tools in order.
-- **Final-output deduplication:** project results remove only exact `turn_id` values returned globally, after both stages' optional Jev review. No pre-query exclusions or refill are added.
-- **Separate terminal stages:** progress and compact rendering keep Global recall and Project recall distinguishable; expanded text, structured results, and the single Obsidian note agree.
-- **Retrieval unchanged:** SQL, ranking, `recallLimit`, directory matching, and Jev behavior remain intact. Manual menu searches and `review_jev_filtered` retain their existing behavior.
-
-## What's new in 0.7.18
-
-- Continues the bilingual Chinese and English README presentation.
-
-## What's new in 0.7.17
-
-- Adds bilingual Chinese and English npm metadata and README documentation.
-
-## What's new in 0.7.16
-
-- **Gallery extension discovery:** adds the `pi-extension` npm keyword, so this package is included when visitors filter the Pi package gallery by **extension**.
-
-## What's new in 0.7.15
-
-- **Entity-driven project discovery:** `recall_project_memory` no longer accepts `project`; it uses the same entities as global recall to match stored session CWD directory names.
-- **Two-stage project search:** any entity matching a stored project/session directory discovers those sessions, then the same entities search only their turns.
-- **Always paired:** every prior-history question calls both global turn recall and entity-driven project-session recall, without current runtime context.
-
-## What's new in 0.7.14
-
-- **Exact recall semantics:** `recall_memory` always searches every indexed transcript turn globally, with no current Pi session, project, or CWD context.
-- **Stored-session-name discovery:** `recall_project_memory` runs only for a project-name keyword explicitly supplied by the user; it first matches stored session CWD directory names, then searches turns only in matched sessions.
-- **No runtime inference:** project lookup never derives a project from the current Pi session, current directory, or runtime context.
-
-## What's new in 0.7.13
-
-- **Complementary recall responsibilities:** `recall_memory` searches all transcript content globally, while `recall_project_memory` searches sessions belonging to the named project.
-- **Mandatory paired invocation:** prior-work questions involving the current project or any named project, repository, application, agent, service, or codebase must call both tools with identical entities and question.
-- **No current-directory fallback:** project resolution uses only the explicit `project` argument and stored session CWD directory names.
-
-## What's new in 0.7.11
-
-- **Uninterrupted project recall:** `recall_project_memory` no longer accepts source or time filters; it always searches every turn in sessions resolved from `project`.
-- **Minimal project interface:** project recall now accepts only `project`, `entities`, and `question`.
-
-## What's new in 0.7.10
-
-- **Every-turn global recall:** `recall_memory` now has no CWD, project, source, session, or time scope; it always searches all indexed SQLite turns.
-- **Unscopeable interface:** only `entities` and `question` remain in its public parameters, preventing agents from silently narrowing global searches.
-
-## What's new in 0.7.9
-
-- **Quiet disabled Jev:** when `jevEnable` is `false`, global and project recall show only recall results without the redundant Jev status section.
-- **Diagnostics preserved:** Jev status remains visible when filtering is enabled, unavailable, or fails.
-
-## What's new in 0.7.8
-
-- **Guaranteed global recall:** `recall_memory` no longer exposes a CWD parameter and always searches every indexed project.
-- **Dedicated project scope:** only `recall_project_memory` performs named-project discovery by matching stored CWD directory names; use it only when the user supplies a project-name keyword. It is independent of global transcript search.
-- **Consistent Jev review:** global `review_jev_filtered` audits cannot be accidentally restricted by the current CWD either.
-
-## What's new in 0.7.7
-
-- **Optional Obsidian configuration:** `obsidianExportEnabled` and `obsidianVaultPath` can both be omitted; export remains disabled by default. Configure a vault path only when explicitly enabling export.
-
-## What's new in 0.7.6
-
-- **Automatic per-search Obsidian notes:** with `obsidianExportEnabled`, every completed history search writes its complete result to one new Markdown note in `obsidianVaultPath` without selection.
-- **No agent exposure:** Obsidian export is not registered as an agent tool and is not added to agent context.
-
-## What's new in 0.7.5
-
-- **Configuration-controlled Obsidian export:** configure its vault location with `obsidianExportEnabled` and `obsidianVaultPath`.
-- **No agent exposure:** Obsidian export is not registered as an agent tool and is not added to agent context.
-
-## What's new in 0.7.4
-
-- **Explicit Obsidian export:** selectively write displayed recall results to new Markdown notes in an existing vault.
-- **Safe writes:** exports require exact source turn IDs and refuse missing vaults, invalid selections, and existing target files.
-
-## What's new in 0.7.3
-
-- **Startup notifications:** history synchronization remains enabled, while the automatic sync summary is no longer displayed when a Pi session starts.
-- **Operational notices:** synchronization errors and Jev availability status notifications remain visible.
-
-## What's new in 0.7.2
-
-- **Codex history compatibility:** import legacy transcripts with missing message IDs and distinguish child threads from their root session. Repeated turn metadata no longer causes duplicate turn keys.
-- **Shared migration identities:** native-session migration uses the same deterministic message identity rules as indexing, preserving repeated messages.
-- **Automatic index upgrade:** unchanged Codex files are reparsed once after the parser upgrade. Existing records are replaced transactionally without resetting the database. Back up the index if exact pre-upgrade restoration is required; record-based IDs are stable under append, but not earlier record insertions or removals.
-
-## What's new in 0.7.0
-
-- **One command only:** use the `/pi-session-memory` folded menu for help, release notes, storage status, global/project recall, history import, and session migration. The former standalone slash commands are removed.
-- **Optional Jev filtering:** enable local Jev semantic review after literal ranking to filter keyword-only false positives; review failures keep literal recall active.
-- **Expanded agent tools:** project-scoped recall, unified Claude Code/Codex migration, and `review_jev_filtered` are available through the Pi tool interface.
-- **Package version:** updated to `0.7.0`.
-
-Run `/pi-session-memory` in Pi to open the menu and access every user-facing capability.
-
-## Commands
-
-| Command | Description |
-| --- | --- |
-| `/pi-session-memory` | Open the selectable menu for help, release notes, status, recall, import, and migration. All user-facing actions are accessed from this menu. |
-
-## Agent tools
-
-| Tool | Use when |
-| --- | --- |
-| `recall_memory` | For every prior-conversation or prior-work question, call once with 2–8 literal entities and the complete question. It automatically runs global recall, then entity-discovered project recall, and removes final project turns already returned globally by exact `turn_id`. No current session, project, or CWD context is used. |
-| `fetch_session` | A recall excerpt lacks needed context. Fetch the smallest useful range. It is read-only. |
-| `get_memory_stats` | The user asks how much local history is indexed. |
-| `backfill_memory` | The user explicitly asks to import, backfill, or rescan history. |
-| `migrate_project_sessions` | The user wants to continue current-project Claude Code or Codex work through `/resume`; omit `sources` to migrate both. |
-| `review_jev_filtered` | Inspect possible Jev false negatives after recall, using the original bilingual entities and complete question. |
-
-## Flow
+The static project website lives in `site/`. It uses separate HTML, CSS, JavaScript, and SVG files, with no build step or runtime dependencies.
 
 ```text
-session_start -> syncChangedHistory() -> SQLite raw transcript index
-one recall_memory(entities, question) call:
-  global = existing global literal recall -> optional Jev
-  project = existing entity-driven project recall -> optional Jev
-  project_unique = project turns whose turn_id is not in global final results
-  return separate global and project_unique sections -> fetch_session (optional, read-only)
-manual global/project menu searches -> existing independent literal searches (no Jev)
-enabled export -> every completed history search -> one complete result Markdown note in the configured existing Obsidian vault
-project migration command/tool -> native Pi session JSONL -> /resume
+site/
+├── index.html
+├── styles.css
+├── main.js
+└── assets/
+    ├── favicon.svg
+    └── memory-map.svg
 ```
 
-## JSON configuration
+The content sections use [CodeGraph's website](https://colbymchenry.github.io/codegraph/) as a reference for what a project website should explain. The visual design is original: a dark memory ledger, amber highlights, rounded feature cards, and a review timeline.
 
-The extension reads its optional global configuration from:
+### Preview locally
 
-```text
-~/.pi/agent/pi-session-memory/config.json
+1. Run `python3 -m http.server 8000 --directory site` from the repository root.
+2. Open `http://localhost:8000`.
+3. Stop the server with Ctrl+C when you finish.
+
+### Publish the website
+
+1. Push the website and `.github/workflows/pages.yml` to `main`.
+2. In the GitHub repository, open **Settings → Pages**.
+3. Set **Source** to **GitHub Actions**.
+4. Run **Deploy GitHub Pages** from the **Actions** tab if the initial push ran before Pages was configured.
+5. Check the deployment at `https://shengxiao20.github.io/pi-session-memory/`.
+
+The workflow uploads only `site/`, not transcripts, local databases, or the rest of the repository. Later changes to `site/` on `main` trigger deployment automatically. Website deployment does not publish an npm release. The package version remains `1.0.0`.
+
+## Development verification
+
+```bash
+npm test
+npm run test:e2e
+npm run test:all
+npm pack --dry-run
 ```
 
-Create or edit that JSON file to configure recall volume and optional Jev relevance filtering. Obsidian fields are not required:
-
-```json
-{
-  "recallLimit": 20,
-  "jevEnable": false,
-  "model": "nimble"
-}
-```
-
-To explicitly enable automatic Obsidian export, add both fields:
-
-```json
-{
-  "obsidianExportEnabled": true,
-  "obsidianVaultPath": "/absolute/path/to/existing/Obsidian Vault"
-}
-```
-
-Configuration fields:
-
-- `recallLimit`: required positive integer. Each recall stage retrieves at most this many ranked candidates independently. Project deduplication runs only afterward and never refills removed turns, so a combined call can return up to twice this limit before cross-stage duplicates are removed. Per-stage Jev statistics describe review before deduplication; `project.duplicatesRemoved` separately reports removed final turns.
-- `obsidianExportEnabled`: optional boolean; defaults to `false`. When `true`, every completed history search automatically writes one complete result note.
-- `obsidianVaultPath`: required non-empty path when `obsidianExportEnabled` is `true`. It must identify an existing vault directory when a search is exported.
-- `jevEnable`: optional boolean, default `false`. Set it to `true` to review already-ranked turns against the complete user question and filter keyword-only false positives through System One.
-- `model`: non-empty decision model name. Omitted local configuration defaults to `nimble`; other local examples include `tev1:4b` and `tev1:0.8b`. Unmanaged connections must provide an explicit model.
-- `jevConnection`: optional connection object. Omit it to retain managed local Ollama at `http://127.0.0.1:11434`. If provided, `baseURL` and `manageOllama` are required:
-  - `baseURL`: HTTP(S) API root with no embedded credentials, query or fragment. The SDK appends `/v1/systemone`; do **not** use the full endpoint or include `/v1` as the suffix for the services below. Qwen's API root ends in `/compatible-mode`.
-  - `manageOllama`: explicit boolean, not inferred from URL or model. `true` requires a local HTTP root URL (`127.0.0.1`, `localhost`, or `[::1]`) and manages Ollama startup, version validation, model pull, and `num_ctx` inspection at that address. CLI calls use the same address via `OLLAMA_HOST`. `false` performs none of these operations, including for an independently managed Ollama endpoint.
-  - `apiKeyEnv`: name of the environment variable containing the API key, required when `manageOllama` is `false`. Missing or empty values raise an error before any decision request. Managed Ollama uses the existing `ollama` placeholder unless an explicit environment variable is configured. Keys are not stored in configuration or added to tool output.
-  - `contextWindow`: positive integer effective input budget, required when `manageOllama` is `false`; set it within your model's actual limits. No remote model discovery is attempted. For managed Ollama, this optional budget caps the detected `num_ctx` and cannot increase it.
-
-### Switching System One endpoints
-
-All three use the same TypeSafe SDK and the existing filtering code. They differ only in connection/model settings, not request/response adapters:
-
-| Service | `baseURL` | `model` example | `apiKeyEnv` | `manageOllama` |
-| --- | --- | --- | --- | --- |
-| Managed local Ollama | `http://127.0.0.1:11434` | `nimble` | Omit for the `ollama` placeholder | `true` |
-| Official Jev | `https://api.typesafe.ai` | `jev-latest` | `TYPESAFE_API_KEY` | `false` |
-| Qwen Decision API (Singapore) | `https://<WorkspaceId>.ap-southeast-1.maas.aliyuncs.com/compatible-mode` | `decision-model-preview` | `DASHSCOPE_API_KEY` | `false` |
-
-Official Jev example (the `4096` budget is an example, not a claim about the model's maximum):
-
-```json
-{
-  "recallLimit": 20,
-  "jevEnable": true,
-  "model": "jev-latest",
-  "jevConnection": {
-    "baseURL": "https://api.typesafe.ai",
-    "apiKeyEnv": "TYPESAFE_API_KEY",
-    "contextWindow": 4096,
-    "manageOllama": false
-  }
-}
-```
-
-Set `TYPESAFE_API_KEY` in the environment of the Pi process. To use Qwen, replace the URL with your workspace's `/compatible-mode` API root, set `model` to `decision-model-preview` and `apiKeyEnv` to `DASHSCOPE_API_KEY`, and supply that region/workspace's key. Use [TypeSafe's System One documentation](https://docs.typesafe.ai/api/system-one) and [Alibaba Cloud's Decision API documentation](https://www.alibabacloud.com/help/en/model-studio/decision-model-api) for access, regions and current model limits. This is the Decision/System One API, **not** the ordinary Qwen chat-completions API.
-
-Reload the extension after changing model or connection settings; switching a live runtime's connection is rejected. A remote connection becomes ready after local configuration and credential resolution; readiness does not imply its endpoint or key has been verified by a network request. Authentication, connection and other request failures retain the existing Jev-unavailable/literal-recall behavior for that session. Local Ollama setup failures keep their existing behavior too; neither case switches to another backend. Missing/invalid configuration or missing configured API-key credentials raises an error instead of choosing a fallback.
-
-**Privacy:** the SQLite index and source files stay local, but enabling a remote System One endpoint sends the complete user question and candidate transcript fragments to that service. Remote filtering is opt-in; legacy configurations remain local.
-
-Project-scoped topic search still examines every session whose stored CWD directory matches a supplied entity; `recallLimit` is applied after ranking, so older matching sessions remain searchable. The combined tool includes only sessions attached to its final unique project turns. Manual project menu search keeps its existing behavior, including up to `recallLimit` recent project-session candidates when no project-scoped turn matches.
-
-The SQLite index remains on the local machine, by default in `~/.pi/agent/memory.db`. Deleting that database removes only the index; restarting Pi rebuilds it from local source JSONL files.
-
-## Migration compatibility
-
-Migration selects sessions whose recorded project CWD is equivalent to the current Pi project CWD. On Windows, `C:\\Work\\app\\`, `C:/Work/app`, and differences only in path letter case are treated as the same project. Migrated sessions are written using the current Pi project CWD, so they appear under that project in `/resume`.
+The test suite covers the static website, clipboard success and failure, Pages workflow configuration, source parsing, branch ownership, exact context expansion, retrieval ranking, System One filtering, setup validation, Discussion lifecycle, OKF persistence, knowledge reuse, context isolation, index exclusion, cleanup backup behavior, migration, configuration summaries, and end-to-end tool registration.

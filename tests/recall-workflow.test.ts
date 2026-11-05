@@ -18,7 +18,7 @@ const { getDb, getSession, insertTurn, upsertSession } = await import("../src/db
 const { recallTurns } = await import("../src/retriever.ts");
 const { recallProjectMemory } = await import("../src/project-retriever.ts");
 const { recallSequentially } = await import("../src/recall-workflow.ts");
-const options = { entities: ["target app", "needle"], question: "What did we decide about the target app needle?" };
+const options = { entities: ["target app", "needle"], primary_entity: "target app", question: "What did we decide about the target app needle?" };
 
 function addSession(session_id: string, source: "pi" | "claude" | "codex", cwd: string): void {
   upsertSession({ session_id, source, cwd, started_at: 1, model_id: null, jsonl_path: join(home, `${source}.jsonl`) });
@@ -47,7 +47,7 @@ try {
   const uniqueId = addTurn("claude:target", "unique", 90, "needle identical transcript");
   const belowLimitId = addTurn("claude:target", "below-limit", 80, "needle older candidate");
   const storedBefore = getSession("claude:target");
-  const literalGlobal = recallTurns(options.entities);
+  const literalGlobal = recallTurns(options);
   const literalProject = recallProjectMemory(options);
   assert.deepEqual(ids(literalGlobal), [otherId, sharedId]);
   assert.deepEqual(ids(literalProject.results), [sharedId, uniqueId]);
@@ -91,7 +91,7 @@ try {
   assert.deepEqual(ids(rejectedInProject.project.filteredOut.map((entry) => entry.turn)), [sharedId], "existing Jev audit evidence must not be changed");
   assert.deepEqual(getSession("claude:target"), storedBefore, "workflow must not alter indexed originals");
 
-  const noProject = await recallSequentially({ ...options, entities: ["missing directory", "needle"] }, keepAll, () => {});
+  const noProject = await recallSequentially({ ...options, entities: ["missing directory", "needle"], primary_entity: "needle" }, keepAll, () => {});
   assert.deepEqual(ids(noProject.global.results), [otherId, sharedId], "global search must remain unconditional when no project matches");
   assert.deepEqual(noProject.project.results, []);
   assert.equal(noProject.project.duplicatesRemoved, 0);

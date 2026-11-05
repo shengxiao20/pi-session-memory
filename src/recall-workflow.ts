@@ -1,8 +1,9 @@
+import { validateRecallQuery, type RecallQuery } from "./recall-query.ts";
 import { recallTurns } from "./retriever.ts";
-import { recallProjectMemory, type ProjectRecallOptions, type ProjectRecallResult } from "./project-retriever.ts";
+import { recallProjectMemory, type ProjectRecallResult } from "./project-retriever.ts";
 import type { JevFilterResult } from "./jev-filter.ts";
 
-export interface RecallWorkflowOptions extends ProjectRecallOptions { question: string; }
+export interface RecallWorkflowOptions extends RecallQuery {}
 export interface RecallWorkflowProgress {
   stage: "global" | "project";
   message: string;
@@ -23,11 +24,12 @@ export async function recallSequentially(
   review: RecallReviewer,
   progress: (update: RecallWorkflowProgress) => void,
 ): Promise<RecallWorkflowResult> {
+  validateRecallQuery(options);
   const globalProgress = (message: string) => progress({
     stage: "global", message: `Global recall: ${message}\nProject recall: waiting for global recall.`,
   });
   globalProgress("searching all indexed turns…");
-  const global = await review(options.question, recallTurns(options.entities), globalProgress);
+  const global = await review(options.question, recallTurns({ entities: options.entities, primary_entity: options.primary_entity }), globalProgress);
 
   const projectProgress = (message: string) => progress({
     stage: "project", message: `Global recall: complete — ${global.results.length} turns returned.\nProject recall: ${message}`,

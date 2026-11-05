@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 480" fill="none">
+  <title>The memory ledger</title>
+  <desc>Three local transcript sources feed a SQLite index. A review timeline retrieves evidence, optionally consults Pi sessions, and writes cited Markdown knowledge.</desc>
+  <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace">
+    <g fill="#223133" stroke="#3c514d">
+      <rect x="30" y="25" width="146" height="46" rx="8"/>
+      <rect x="226" y="25" width="146" height="46" rx="8"/>
+      <rect x="422" y="25" width="146" height="46" rx="8"/>
+    </g>
+    <g fill="#c2d0c8" font-size="13" text-anchor="middle">
+      <text x="103" y="53">Pi</text><text x="299" y="53">Claude Code</text><text x="495" y="53">Codex</text>
+    </g>
+    <path d="M103 71v18h392V71M299 71v36" stroke="#5b7368" stroke-width="1.2"/>
+    <circle cx="299" cy="89" r="3" fill="#efbc71"/>
+    <text x="300" y="126" text-anchor="middle" fill="#98c8b3" font-size="12">local SQLite · complete user turns</text>
+    <path d="M56 172v246" stroke="#4b6259" stroke-width="1.5" stroke-dasharray="3 6"/>
+    <g fill="#192628" stroke="#435b51">
+      <rect x="86" y="154" width="482" height="76" rx="10"/>
+      <rect x="86" y="246" width="482" height="76" rx="10"/>
+      <rect x="86" y="338" width="482" height="102" rx="10" fill="#24352b" stroke="#81966b"/>
+    </g>
+    <g fill="#101719" stroke="#efbc71" stroke-width="1.2">
+      <circle cx="56" cy="192" r="13"/><circle cx="56" cy="284" r="13"/><circle cx="56" cy="389" r="13"/>
+    </g>
+    <g fill="#efbc71" font-size="10" text-anchor="middle"><text x="56" y="196">01</text><text x="56" y="288">02</text><text x="56" y="393">03</text></g>
+    <g fill="#edf0e8" font-size="15">
+      <text x="108" y="184">Explicit review request</text>
+      <text x="108" y="276">Historical evidence</text>
+      <text x="108" y="368" fill="#f2d39e">Draft OKF Markdown</text>
+    </g>
+    <g fill="#adbab6" font-size="11">
+      <text x="108" y="209">saved knowledge first · recall when needed</text>
+      <text x="108" y="301">global + project turns · exact context</text>
+      <text x="108" y="392">findings / decisions / uncertainty / actions</text>
+    </g>
+    <rect x="108" y="408" width="177" height="20" rx="4" fill="#98c8b31a"/>
+    <text x="120" y="422" fill="#b8d6bd" font-size="10">minutes + cited evidence</text>
+    <rect x="385" y="349" width="169" height="21" rx="4" fill="#efbc711a"/>
+    <text x="395" y="363" fill="#efbc71" font-size="9">optional Pi consultation</text>
+    <text x="30" y="468" fill="#82978c" font-size="10">REVIEW → RETRIEVE → SAVE</text>
+  </g>
+</svg>
