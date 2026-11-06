@@ -14,7 +14,6 @@ const { fetchTurnContext } = await import("../src/fetch-turn-context.ts");
 const { formatRecallResults, recallTurns } = await import("../src/retriever.ts");
 const { formatProjectRecallResults, recallProjectMemory } = await import("../src/project-retriever.ts");
 const { backfillAll, syncChangedHistory } = await import("../src/backfill.ts");
-const { migrateClaudeProjectSessions, migrateCodexProjectSessions } = await import("../src/session-migration.ts");
 const { getSessionMemoryConfig, JEV_MODELS, DEFAULT_JEV_CONNECTION } = await import("../src/config.ts");
 
 function cleanup(): void { for (const suffix of ["", "-wal", "-shm"]) rmSync(`${dbPath}${suffix}`, { force: true }); rmSync(historyHome, { recursive: true, force: true }); }
@@ -27,7 +26,7 @@ const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
 const changelog = readFileSync(join(process.cwd(), "CHANGELOG.md"), "utf8");
 const packageManifest = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
 const lockManifest = JSON.parse(readFileSync(join(process.cwd(), "package-lock.json"), "utf8"));
-assert.equal(packageManifest.version, "1.0.1");
+assert.equal(packageManifest.version, "1.1.0");
 assert.equal(lockManifest.version, packageManifest.version);
 assert.equal(lockManifest.packages[""].version, packageManifest.version);
 assert.ok(readme.includes(`Current version: ${packageManifest.version}`));
@@ -42,7 +41,7 @@ for (const keyword of ["pi-package", "pi-extension", "sqlite", "multi-agent", "c
 }
 assert.equal(new Set(packageManifest.keywords).size, packageManifest.keywords.length, "npm keywords are unique");
 assert.match(readme, /not typo-tolerant fuzzy search or vector similarity/);
-assert.match(readme, /Version 1\.0 retains those capabilities and adds nine tools/);
+assert.match(readme, /Version 1\.0 added nine tools/);
 assert.match(readme, /The npm `latest` release before 1\.0 is \*\*0\.7\.23\*\*/);
 assert.match(readme, /Context and index isolation/);
 assert.match(extensionSource, /registerSetupTools/);
@@ -59,7 +58,7 @@ assert.doesNotMatch(`${readme}\n${changelog}\n${packageManifest.description}`, /
 assert.doesNotMatch(extensionSource, /whatsNew|getWhatsNew|showWhatsNewIfUpdated|whats-new|packageJson/);
 const releaseEntries = changelog.split(/^## \[(\d+\.\d+\.\d+)\]\s*$/m);
 const releaseVersions = releaseEntries.filter((_entry, index) => index % 2 === 1);
-assert.deepEqual(releaseVersions, [packageManifest.version, "1.0.0"], "native changelog contains current release notes and the 1.0 baseline");
+assert.deepEqual(releaseVersions, [packageManifest.version, "1.0.1", "1.0.0"], "native changelog contains current release notes and the 1.0 baseline");
 for (let index = 1; index < releaseEntries.length; index += 2) {
   assert.match(releaseEntries[index + 1]!, /^\s*(?:Version|[#-])/, `release ${releaseEntries[index]} must contain notes`);
 }
@@ -91,14 +90,13 @@ writeFileSync(configPath, JSON.stringify({ recallLimit: 2, obsidianExportEnabled
 assert.deepEqual(getSessionMemoryConfig(), { recallLimit: 2, jevEnable: false, model: "nimble", jevConnection: DEFAULT_JEV_CONNECTION, obsidianExportEnabled: true, obsidianVaultPath: "/vault" });
 writeFileSync(configPath, JSON.stringify({ recallLimit: 2 }));
 
-for (const toolName of ["recall_memory", "fetch_session", "get_memory_stats", "backfill_memory", "migrate_project_sessions"]) assert.match(extensionSource, new RegExp(`name: "${toolName}"`));
+for (const toolName of ["recall_memory", "fetch_session", "get_memory_stats", "backfill_memory"]) assert.match(extensionSource, new RegExp(`name: "${toolName}"`));
 assert.doesNotMatch(extensionSource, /name: "recall_project_memory"/);
 assert.doesNotMatch(extensionSource, /name: "export_recall_to_obsidian"/);
-assert.doesNotMatch(extensionSource, /name: "migrate_(claude|codex)_project_sessions"/);
+assert.doesNotMatch(extensionSource, /name: "migrate_project_sessions"/);
 assert.match(extensionSource, /Setup — explain optional features/);
 assert.match(extensionSource, /Clean indexed tool turns — back up SQLite and remove complete package-tool turns/);
-assert.match(extensionSource, /Import historical sessions — rescan Pi, Claude Code, and Codex history/);
-assert.match(extensionSource, /Migrate project sessions — make Claude Code and Codex sessions available in \/resume/);
+assert.match(extensionSource, /Import historical sessions — rescan Pi history/);
 assert.doesNotMatch(extensionSource, /Search (?:project )?history —/);
 assert.doesNotMatch(extensionSource, /"memory-project-search"/);
 assert.match(extensionSource, /One call with 2-8 literal topic entities/);
@@ -106,38 +104,38 @@ assert.match(extensionSource, /then uses those same entities to discover stored 
 assert.match(extensionSource, /No current Pi session, project, CWD, source, session, or time context is used/);
 assert.match(extensionSource, /This is read-only and never creates a memory/);
 
-upsertSession({ session_id: "claude:project-a", source: "claude", cwd: "/workspace/project-a", started_at: 1, model_id: null, jsonl_path: "/tmp/project-a.jsonl" });
+upsertSession({ session_id: "pi:project-a", source: "pi", cwd: "/workspace/project-a", started_at: 1, model_id: null, jsonl_path: "/tmp/project-a.jsonl" });
 for (const [index, text] of ["deploy memory testing", "deploy memory release", "literal %_\\ marker"] .entries()) {
-  assert.equal(insertTurn({ turn_id: `claude:project-a:user-${index + 1}`, session_id: "claude:project-a", turn_index: index, ts: index + 1, user_text: text, reply_text: "confirmed", tool_names: null, user_message_id: `user-${index + 1}` }), true);
+  assert.equal(insertTurn({ turn_id: `pi:project-a:user-${index + 1}`, session_id: "pi:project-a", turn_index: index, ts: index + 1, user_text: text, reply_text: "confirmed", tool_names: null, user_message_id: `user-${index + 1}` }), true);
 }
-assert.deepEqual(recallTurns({ entities: ["deploy"] }).map((turn) => turn.turn_id), ["claude:project-a:user-2", "claude:project-a:user-1"]);
-assert.deepEqual(recallTurns({ entities: ["%_\\"] }).map((turn) => turn.turn_id), ["claude:project-a:user-3"]);
+assert.deepEqual(recallTurns({ entities: ["deploy"] }).map((turn) => turn.turn_id), ["pi:project-a:user-2", "pi:project-a:user-1"]);
+assert.deepEqual(recallTurns({ entities: ["%_\\"] }).map((turn) => turn.turn_id), ["pi:project-a:user-3"]);
 assert.deepEqual(recallTurns({ entities: ["deploy"], cwd: "/wrong" }), []);
 assert.deepEqual(recallTurns({ entities: ["deploy"], sessionIds: ["pi:missing"] }), []);
 const deployResults = recallTurns({ entities: ["deploy"] });
 assert.equal(deployResults.length, 2);
-assert.match(formatRecallResults(deployResults, { entities: ["deploy"] }), /\*\*Results:\*\* 2[\s\S]*Matching raw conversation history[\s\S]*\*\*Fetch turn ID:\*\* `claude:project-a:user-2`[\s\S]*fetch_session.turn_id/);
+assert.match(formatRecallResults(deployResults, { entities: ["deploy"] }), /\*\*Results:\*\* 2[\s\S]*Matching raw conversation history[\s\S]*\*\*Fetch turn ID:\*\* `pi:project-a:user-2`[\s\S]*fetch_session.turn_id/);
 for (let index = 0; index < 6; index++) {
-  assert.equal(insertTurn({ turn_id: `claude:project-a:extra-${index}`, session_id: "claude:project-a", turn_index: index + 3, ts: index + 4, user_text: "complete result set", reply_text: "", tool_names: null, user_message_id: `extra-${index}` }), true);
+  assert.equal(insertTurn({ turn_id: `pi:project-a:extra-${index}`, session_id: "pi:project-a", turn_index: index + 3, ts: index + 4, user_text: "complete result set", reply_text: "", tool_names: null, user_message_id: `extra-${index}` }), true);
 }
 assert.equal(recallTurns({ entities: ["complete"] }).length, 2, "recall must use the single configured result limit");
-upsertSession({ session_id: "codex:memory-project", source: "codex", cwd: "C:\\work\\pi-session-memory\\", started_at: 11, model_id: null, jsonl_path: "/tmp/pi-session-memory.jsonl" });
-assert.equal(insertTurn({ turn_id: "codex:memory-project:user-1", session_id: "codex:memory-project", turn_index: 0, ts: 11, user_text: "设计数据库 schema", reply_text: "SQLite tables", tool_names: null, user_message_id: "memory-user-1" }), true);
+upsertSession({ session_id: "pi:memory-project", source: "pi", cwd: "C:\\work\\pi-session-memory\\", started_at: 11, model_id: null, jsonl_path: "/tmp/pi-session-memory.jsonl" });
+assert.equal(insertTurn({ turn_id: "pi:memory-project:user-1", session_id: "pi:memory-project", turn_index: 0, ts: 11, user_text: "设计数据库 schema", reply_text: "SQLite tables", tool_names: null, user_message_id: "memory-user-1" }), true);
 const bilingualTopicEntities = ["数据库", "database"];
-assert.deepEqual(recallTurns({ entities: bilingualTopicEntities }).map((turn) => turn.turn_id), ["codex:memory-project:user-1"], "global content recall matches transcript entities independently");
+assert.deepEqual(recallTurns({ entities: bilingualTopicEntities }).map((turn) => turn.turn_id), ["pi:memory-project:user-1"], "global content recall matches transcript entities independently");
 const projectEntities = ["pi session memory", "数据库", "database"];
 const projectRecall = recallProjectMemory({ entities: projectEntities });
-assert.deepEqual(projectRecall.results.map((turn) => turn.turn_id), ["codex:memory-project:user-1"], "an entity discovers the stored CWD directory before the same entities search that session's transcript content");
+assert.deepEqual(projectRecall.results.map((turn) => turn.turn_id), ["pi:memory-project:user-1"], "an entity discovers the stored CWD directory before the same entities search that session's transcript content");
 assert.equal(recallTurns({ entities: ["pi-session-memory"] }).length, 0, "target project name may be absent from its own transcript");
 const missingProjectEntities = ["pi session memory", "不存在主题", "nonexistent topic"];
 const noTopicProjectRecall = recallProjectMemory({ entities: missingProjectEntities });
 assert.deepEqual(noTopicProjectRecall.results, []);
-assert.deepEqual(noTopicProjectRecall.sessions.map((session) => session.session_id), ["codex:memory-project"]);
-assert.match(formatProjectRecallResults(noTopicProjectRecall, { entities: missingProjectEntities }), /Session-name match:[\s\S]*Project session candidates[\s\S]*codex:memory-project/);
+assert.deepEqual(noTopicProjectRecall.sessions.map((session) => session.session_id), ["pi:memory-project"]);
+assert.match(formatProjectRecallResults(noTopicProjectRecall, { entities: missingProjectEntities }), /Session-name match:[\s\S]*Project session candidates[\s\S]*pi:memory-project/);
 assert.doesNotMatch(formatProjectRecallResults(noTopicProjectRecall, { entities: missingProjectEntities }), /Fetch turn ID|Fetch session ID|fetch_session\.session_id/);
-assert.match(formatProjectRecallResults(projectRecall, { entities: projectEntities }), /Fetch turn ID[\s\S]*codex:memory-project:user-1[\s\S]*fetch_session\.turn_id/);
+assert.match(formatProjectRecallResults(projectRecall, { entities: projectEntities }), /Fetch turn ID[\s\S]*pi:memory-project:user-1[\s\S]*fetch_session\.turn_id/);
 assert.deepEqual(recallProjectMemory({ entities: ["pi-session-memory-fork", ...bilingualTopicEntities] }).sessions, [], "an unmatched directory entity must not discover a session when no other entity matches its directory name");
-assert.deepEqual(recallProjectMemory({ entities: ["pi session", ...bilingualTopicEntities] }).sessions.map((session) => session.session_id), ["codex:memory-project"], "space-separated entity tokens must match a hyphenated final CWD directory name");
+assert.deepEqual(recallProjectMemory({ entities: ["pi session", ...bilingualTopicEntities] }).sessions.map((session) => session.session_id), ["pi:memory-project"], "space-separated entity tokens must match a hyphenated final CWD directory name");
 for (let index = 0; index < 3; index++) {
   upsertSession({ session_id: `pi:project-candidate-${index}`, source: "pi", cwd: "/workspace/pi-session-memory", started_at: 20 + index, model_id: null, jsonl_path: `/tmp/project-candidate-${index}.jsonl` });
   assert.equal(insertTurn({ turn_id: `pi:project-candidate-${index}:user-1`, session_id: `pi:project-candidate-${index}`, turn_index: 0, ts: 20 + index, user_text: "unrelated candidate", reply_text: "", tool_names: null, user_message_id: `candidate-${index}` }), true);
@@ -145,13 +143,13 @@ for (let index = 0; index < 3; index++) {
 const limitedProjectCandidates = recallProjectMemory({ entities: missingProjectEntities });
 assert.deepEqual(limitedProjectCandidates.sessions.map((session) => session.session_id), ["pi:project-candidate-2", "pi:project-candidate-1"], "project candidates without topic matches must use recallLimit");
 const olderProjectMatch = recallProjectMemory({ entities: projectEntities });
-assert.deepEqual(olderProjectMatch.results.map((turn) => turn.turn_id), ["codex:memory-project:user-1"], "topic search must include project sessions older than the candidate display limit");
-assert.deepEqual(olderProjectMatch.sessions.map((session) => session.session_id), ["codex:memory-project"], "successful recall must return metadata only for sessions represented in ranked results");
+assert.deepEqual(olderProjectMatch.results.map((turn) => turn.turn_id), ["pi:memory-project:user-1"], "topic search must include project sessions older than the candidate display limit");
+assert.deepEqual(olderProjectMatch.sessions.map((session) => session.session_id), ["pi:memory-project"], "successful recall must return metadata only for sessions represented in ranked results");
 upsertSession({ session_id: "pi:native-app", source: "pi", cwd: "/workspace/pi-native-app", started_at: 12, model_id: null, jsonl_path: "/tmp/pi-native-app.jsonl" });
 assert.equal(insertTurn({ turn_id: "pi:native-app:user-1", session_id: "pi:native-app", turn_index: 0, ts: 12, user_text: "数据库 design", reply_text: "SQLite", tool_names: null, user_message_id: "native-app-user-1" }), true);
 assert.deepEqual(recallProjectMemory({ entities: ["pi native app", ...bilingualTopicEntities] }).sessions.map((session) => session.session_id), ["pi:native-app"], "an entity token sequence may discover a matching final CWD directory name");
-const fetched = fetchTurnContext("claude:project-a:user-2", 0, 0);
-assert.deepEqual(fetched.stored.turns.map((turn) => turn.turn_id), ["claude:project-a:user-2"]);
+const fetched = fetchTurnContext("pi:project-a:user-2", 0, 0);
+assert.deepEqual(fetched.stored.turns.map((turn) => turn.turn_id), ["pi:project-a:user-2"]);
 upsertSession({ session_id: "pi:session-uuid", source: "pi", cwd: "/workspace/project-a", started_at: 10, model_id: null, jsonl_path: "/tmp/session.jsonl" });
 assert.equal(insertTurn({ turn_id: "pi:session-uuid:user-1", session_id: "pi:session-uuid", turn_index: 0, ts: 10, user_text: "Pi source-prefix test", reply_text: "confirmed", tool_names: null, user_message_id: "user-1" }), true);
 const piResults = recallTurns({ entities: ["source-prefix"] });
@@ -164,9 +162,7 @@ assert.equal(initialStats.turns, 15);
 assert.equal(initialStats.oldestTs, 1);
 assert.equal(initialStats.newestTs, 22);
 assert.deepEqual(initialStats.sources.map((source) => ({ ...source })), [
-  { source: "claude", sessions: 1, turns: 9 },
-  { source: "codex", sessions: 1, turns: 1 },
-  { source: "pi", sessions: 5, turns: 5 },
+  { source: "pi", sessions: 7, turns: 15 },
 ]);
 
 mkdirSync(join(historyHome, ".pi", "agent", "sessions"), { recursive: true });
@@ -191,25 +187,6 @@ const replacedImported = getSession("pi:imported");
 assert.equal(replacedImported.session.cwd, "/reindexed");
 assert.equal(replacedImported.session.model_id, "updated-model");
 assert.deepEqual(replacedImported.turns.map((turn) => [turn.user_message_id, turn.user_text, turn.reply_text]), [["u-updated", "replacement user", "replacement reply"]], "replacement must delete source turns that no longer exist");
-
-const projectCwd = join(historyHome, "project");
-mkdirSync(projectCwd, { recursive: true });
-assert.equal(migrateClaudeProjectSessions(projectCwd).migratedSessions, 0);
-assert.equal(migrateCodexProjectSessions(projectCwd).migratedSessions, 0);
-
-const windowsProjectCwd = "C:/Users/Michael/project";
-const claudeProjectRoot = join(historyHome, ".claude", "projects", "project");
-mkdirSync(claudeProjectRoot, { recursive: true });
-writeFileSync(join(claudeProjectRoot, "windows-paths.jsonl"), [
-  JSON.stringify({ type: "user", uuid: "windows-user", sessionId: "windows-session", cwd: "c:\\Users\\MICHAEL\\project\\", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: "migrate Windows paths" } }),
-  JSON.stringify({ type: "assistant", uuid: "windows-assistant", sessionId: "windows-session", cwd: "c:\\Users\\MICHAEL\\project\\", timestamp: "2026-01-01T00:00:01.000Z", message: { role: "assistant", content: [{ type: "text", text: "Windows session migrated" }] } }),
-].join("\n"));
-const windowsMigration = migrateClaudeProjectSessions(windowsProjectCwd);
-assert.equal(windowsMigration.scannedFiles, 1);
-assert.deepEqual(windowsMigration.issues, []);
-assert.equal(windowsMigration.migratedSessions, 1, "equivalent Windows CWD spellings must migrate");
-assert.equal(windowsMigration.migratedMessages, 2);
-assert.ok(existsSync(join(historyHome, ".pi", "agent", "sessions", "--C--Users-Michael-project--")));
 
 getDb().close();
 cleanup();

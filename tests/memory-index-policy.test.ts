@@ -40,11 +40,11 @@ try {
   legacy.prepare("UPDATE turns SET tool_names = ? WHERE turn_id = ?").run('["recall_memory"]', "ordinary");
   assert.equal(getSession("pi:legacy").turns.length, 0, "an old UPDATE removes an ordinary partial row once it calls a package tool");
   assert.throws(() => rawInsert.run("invalid", "pi:legacy", 0, 0, "user", "reply", "malformed", "invalid-user"), /malformed JSON/);
-  replaceSourceFile({ jsonl_path: "replacement.jsonl", source: "claude", size: 1, mtime_ms: 1, sha256: "hash" }, {
-    session: { session_id: "claude:replacement", source: "claude", cwd: home, started_at: 1, model_id: null, jsonl_path: "replacement.jsonl" },
-    turns: [{ ...row, turn_id: "allowed-replacement", session_id: "claude:replacement", turn_index: 0 }, { ...row, turn_id: "excluded-replacement", session_id: "claude:replacement", turn_index: 1, tool_names: '["recall_project_memory"]' }],
+  replaceSourceFile({ jsonl_path: "replacement.jsonl", source: "pi", size: 1, mtime_ms: 1, sha256: "hash" }, {
+    session: { session_id: "pi:replacement", source: "pi", cwd: home, started_at: 1, model_id: null, jsonl_path: "replacement.jsonl" },
+    turns: [{ ...row, turn_id: "allowed-replacement", session_id: "pi:replacement", turn_index: 0 }, { ...row, turn_id: "excluded-replacement", session_id: "pi:replacement", turn_index: 1, tool_names: '["recall_project_memory"]' }],
   });
-  assert.deepEqual(getSession("claude:replacement").turns.map(turn => turn.turn_index), [0]);
+  assert.deepEqual(getSession("pi:replacement").turns.map(turn => turn.turn_index), [0]);
   // Import and live writes see the same full tree, including sibling assistant replies.
   const sourceRoot = join(home, ".pi", "agent", "sessions", "policy"); mkdirSync(sourceRoot, { recursive: true });
   const path = join(sourceRoot, "native.jsonl");

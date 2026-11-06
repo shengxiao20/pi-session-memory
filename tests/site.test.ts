@@ -22,7 +22,8 @@ assert.ok(html.includes(`<meta name="description" content="${manifest.descriptio
 assert.ok(html.includes(`<meta property="og:description" content="${manifest.description}">`), "social description matches npm");
 assert.match(html, /Find scattered history\./);
 assert.match(html, /SQLite search\. Multi-agent analysis\./);
-assert.match(html, /Pi, Claude Code, and Codex/);
+assert.match(html, /One local index\.[\s\S]*Pi/);
+assert.doesNotMatch(html, /Claude Code|Codex/);
 assert.match(html, /Multi-agent Discussion/);
 assert.match(html, /One main agent/);
 assert.match(html, /Up to 3/);

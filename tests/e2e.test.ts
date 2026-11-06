@@ -54,7 +54,7 @@ extension({
 assert.deepEqual(events.map(({ event }) => event), ["context", "message_end", "session_start", "agent_settled", "session_shutdown", "session_before_switch"]);
 assert.equal(commands.length, 1);
 assert.deepEqual(commands.map(({ name }) => name), ["pi-session-memory"]);
-assert.equal(tools.length, 15);
+assert.equal(tools.length, 14);
 const { SESSION_MEMORY_TOOL_NAMES } = await import("../src/memory-index-policy.ts");
 assert.ok(tools.every(tool => (SESSION_MEMORY_TOOL_NAMES as readonly string[]).includes(tool.name)), "every registered package tool must be covered by SQLite turn exclusion");
 assert.ok(!tools.some((tool) => tool.name === "recall_project_memory"), "the agent must have only one sequential recall entry point");
@@ -94,8 +94,7 @@ assert.match(sentUserMessages[0]!, /Run pi-session-memory setup/);
 assert.deepEqual(menuOptions[0], [
   "Setup — explain optional features and save approved configuration",
   "Clean indexed tool turns — back up SQLite and remove complete package-tool turns",
-  "Import historical sessions — rescan Pi, Claude Code, and Codex history",
-  "Migrate project sessions — make Claude Code and Codex sessions available in /resume",
+  "Import historical sessions — rescan Pi history",
 ]);
 assert.ok(menuOptions[0]!.every((option) => !/[\u4e00-\u9fff]/.test(option)), "menu descriptions must be English only");
 assert.ok(menuOptions[0]!.every((option) => !/search|help|status|knowledge|consultation|conclusion/i.test(option)), "Agent-handled review actions must not appear in the direct-operation menu");
@@ -104,12 +103,9 @@ selections.push("Clean indexed tool turns — back up SQLite and remove complete
 await menu.options.handler("", ctx);
 assert.match(notices.at(-1)!.message, /SQLite cleanup removed 0 package-tool turns/);
 assert.match(notices.at(-1)!.message, /Backup:/);
-selections.push("Import historical sessions — rescan Pi, Claude Code, and Codex history");
+selections.push("Import historical sessions — rescan Pi history");
 await menu.options.handler("", ctx);
 assert.match(notices.at(-1)!.message, /\[session-memory\] imported/);
-selections.push("Migrate project sessions — make Claude Code and Codex sessions available in \/resume");
-await menu.options.handler("", ctx);
-assert.match(notices.at(-1)!.message, /project session migration complete/);
 notices.length = 0;
 await assert.rejects(menu.options.handler("setup", ctx), /accepts no arguments/);
 await assert.rejects(menu.options.handler("unexpected", ctx), /accepts no arguments/);
@@ -156,10 +152,7 @@ const invalidSetup = await setupTool.execute("setup-invalid", {});
 assert.equal(invalidSetup.details.configuration.recallLimit, 0, "setup can read semantically invalid configuration for explicit repair");
 writeFileSync(setupConfigPath, beforeSetup);
 
-const migration = tools.find((tool) => tool.name === "migrate_project_sessions");
-assert.ok(migration);
-assert.match(migration.description, /Claude Code and Codex/);
-assert.equal(tools.filter((tool) => /^migrate_(claude|codex)_project_sessions$/.test(tool.name)).length, 0);
+assert.equal(tools.some((tool) => tool.name === "migrate_project_sessions"), false);
 
 const stats = tools.find((tool) => tool.name === "get_memory_stats");
 assert.ok(stats);
@@ -213,26 +206,26 @@ assert.equal(exportedNotes.length, 0, "agent recall must not export raw results 
 
 const db = await import("../src/db.ts");
 for (const [session_id, source, cwd] of [
-  ["claude:project", "claude", "/work/jev"],
-  ["codex:outside", "codex", "/work/outside"],
+  ["pi:project", "pi", "/work/jev"],
+  ["pi:outside", "pi", "/work/outside"],
 ] as const) {
   db.upsertSession({ session_id, source, cwd, started_at: 1, model_id: null, jsonl_path: join(historyHome, `${source}.jsonl`) });
 }
 for (const [session_id, id, ts, text] of [
-  ["codex:outside", "global", 30, "jev filter outside the project"],
-  ["claude:project", "shared", 20, "jev filter shared result"],
-  ["claude:project", "unique", 10, "jev filter additional result"],
-  ["claude:project", "below-limit", 5, "jev filter excluded by original limit"],
+  ["pi:outside", "global", 30, "jev filter outside the project"],
+  ["pi:project", "shared", 20, "jev filter shared result"],
+  ["pi:project", "unique", 10, "jev filter additional result"],
+  ["pi:project", "below-limit", 5, "jev filter excluded by original limit"],
 ] as const) {
   db.insertTurn({ turn_id: `${session_id}:${id}`, session_id, turn_index: ts, ts, user_text: text, reply_text: "original assistant text", tool_names: null, user_message_id: id });
 }
 const nonEmpty = await recall.execute("non-empty", options, undefined, () => {});
-assert.deepEqual(nonEmpty.details.global.results.map((turn: any) => turn.turn_id), ["codex:outside:global", "claude:project:shared"]);
-assert.deepEqual(nonEmpty.details.project.results.map((turn: any) => turn.turn_id), ["claude:project:unique"]);
+assert.deepEqual(nonEmpty.details.global.results.map((turn: any) => turn.turn_id), ["pi:outside:global", "pi:project:shared"]);
+assert.deepEqual(nonEmpty.details.project.results.map((turn: any) => turn.turn_id), ["pi:project:unique"]);
 assert.equal(nonEmpty.details.project.duplicatesRemoved, 1);
 assert.equal(nonEmpty.details.project.jev.retained, 2, "pre-deduplication Jev statistics must remain unchanged");
 assert.equal(nonEmpty.details.returnedResults, 3);
-assert.match(nonEmpty.content[1]!.text, /claude:project:unique/);
+assert.match(nonEmpty.content[1]!.text, /pi:project:unique/);
 const fetch = tools.find((tool) => tool.name === "fetch_session");
 assert.ok(fetch);
 const fetchSchema = fetch.parameters as any;
@@ -255,27 +248,27 @@ for (const turn of [...nonEmpty.details.global.results, ...nonEmpty.details.proj
   assert.match(fetched.content[0]!.text, /Target turn ID:[\s\S]*Storage action:\*\* none/);
   assert.match(fetched.content[1]!.text, /^Config · [^\n]+\nEnv · [^\n]+$/);
 }
-const windowFetch = await fetch.execute("window", { turn_id: "claude:project:shared", before: 10, after: 100 });
-assert.deepEqual(windowFetch.details.fetchedTurnIds, ["claude:project:unique", "claude:project:shared"]);
-await assert.rejects(() => fetch.execute("old", { session_id: "claude:project", from_turn_index: 20, to_turn_index: 20 }), /turn_id must be/);
-await assert.rejects(() => fetch.execute("missing", { turn_id: "claude:project:shared", after: 0 }), /before must be/);
+const windowFetch = await fetch.execute("window", { turn_id: "pi:project:shared", before: 10, after: 100 });
+assert.deepEqual(windowFetch.details.fetchedTurnIds, ["pi:project:unique", "pi:project:shared"]);
+await assert.rejects(() => fetch.execute("old", { session_id: "pi:project", from_turn_index: 20, to_turn_index: 20 }), /turn_id must be/);
+await assert.rejects(() => fetch.execute("missing", { turn_id: "pi:project:shared", after: 0 }), /before must be/);
 await assert.rejects(() => fetch.execute("unknown", { turn_id: "pi:missing:2599a0a9", before: 0, after: 0 }), /History turn not found/);
 assert.deepEqual(db.getHistoryStats(), fetchStatsBefore);
 assert.equal(readdirSync(obsidianVault).length, notesBeforeFetch, "fetch must not export or create evidence");
-assert.doesNotMatch(nonEmpty.content[1]!.text, /claude:project:shared|claude:project:below-limit/, "project text must use only the same unique results as details, with no refill");
+assert.doesNotMatch(nonEmpty.content[1]!.text, /pi:project:shared|pi:project:below-limit/, "project text must use only the same unique results as details, with no refill");
 const expanded = recall.renderResult(nonEmpty, { expanded: true, isPartial: false }, renderTheme, { isError: false }).render(160).join("\n");
-assert.match(expanded, /Global recall[\s\S]*codex:outside:global[\s\S]*Project recall[\s\S]*claude:project:unique/);
+assert.match(expanded, /Global recall[\s\S]*pi:outside:global[\s\S]*Project recall[\s\S]*pi:project:unique/);
 const nonEmptyText = nonEmpty.content.map((block) => block.text).join("\n\n");
 const allNotes = readdirSync(obsidianVault).map((file) => readFileSync(join(obsidianVault, file), "utf8"));
 assert.equal(allNotes.length, 0, "raw transcript evidence remains unsaved until finish_memory_recall");
 
-db.getDb().prepare("DELETE FROM turns WHERE turn_id = ?").run("codex:outside:global");
+db.getDb().prepare("DELETE FROM turns WHERE turn_id = ?").run("pi:outside:global");
 const duplicateOnly = await recall.execute("duplicate-only", options, undefined, () => {});
 assert.deepEqual(duplicateOnly.details.project.results, []);
 assert.deepEqual(duplicateOnly.details.project.sessions, []);
 assert.equal(duplicateOnly.details.project.duplicatesRemoved, 2);
 assert.match(duplicateOnly.content[1]!.text, /No additional project turns returned/);
-assert.doesNotMatch(duplicateOnly.content[1]!.text.split("Only after retrieving transcripts")[0], /No stored session CWD.*matches|claude:project:/, "fully duplicate results must not falsely claim directory discovery failed or re-emit turns");
+assert.doesNotMatch(duplicateOnly.content[1]!.text.split("Only after retrieving transcripts")[0], /No stored session CWD.*matches|pi:project:/, "fully duplicate results must not falsely claim directory discovery failed or re-emit turns");
 assert.equal(readdirSync(obsidianVault).length, 0);
 
 const { SessionManager } = await import("@earendil-works/pi-coding-agent");
@@ -399,13 +392,13 @@ try {
   const filtered = await recall.execute("jev-enabled", options, undefined, (update: any) => filteredUpdates.push(update));
   assert.equal(jevRequests.length, 2, "the unchanged Jev filter must run once per stage for these small candidates");
   assert.ok(jevRequests.every((request) => request.state.userQuestion === options.question));
-  assert.deepEqual(filtered.details.global.results.map((turn: any) => turn.turn_id), ["claude:project:unique"]);
-  assert.deepEqual(filtered.details.project.results.map((turn: any) => turn.turn_id), ["claude:project:shared"], "project must retain a global Jev rejection while removing the global final retained turn");
+  assert.deepEqual(filtered.details.global.results.map((turn: any) => turn.turn_id), ["pi:project:unique"]);
+  assert.deepEqual(filtered.details.project.results.map((turn: any) => turn.turn_id), ["pi:project:shared"], "project must retain a global Jev rejection while removing the global final retained turn");
   assert.equal(filtered.details.project.duplicatesRemoved, 1);
   assert.equal(filtered.details.global.jev.filtered, 1);
   assert.equal(filtered.details.project.jev.retained, 2);
   assert.deepEqual(filteredUpdates.map((update) => update.details.stage), ["global", "global", "global", "project", "project", "project"]);
-  assert.doesNotMatch(filtered.content[1]!.text, /claude:project:unique/);
+  assert.doesNotMatch(filtered.content[1]!.text, /pi:project:unique/);
   const filteredCompact = recall.renderResult(filtered, { expanded: false, isPartial: false }, renderTheme, { isError: false }).render(160).join("\n");
   assert.match(filteredCompact, /Global recall.*Jev: filtered[\s\S]*Project recall.*Jev: filtered/);
 

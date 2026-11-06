@@ -28,7 +28,8 @@ try {
     [{ ...query, entities: ["joule engagement layer"] }, /2-8 non-empty/],
     [{ ...query, question: " " }, /question must be a non-empty/],
   ] as const) assert.throws(() => validateRecallQuery(input as any), message);
-  for (const source of ["pi", "claude", "codex"] as const) {
+  const source = "pi" as const;
+  {
     const session_id = `${source}:primary`;
     upsertSession({ session_id, source, cwd: "/work/joule-engagement-layer", started_at: 1, model_id: null, jsonl_path: join(home, `${source}.jsonl`) });
     const add = (id: string, ts: number, user_text: string, reply_text = "") => insertTurn({ turn_id: `${session_id}:${id}`, session_id, turn_index: ts, ts, user_text, reply_text, user_message_id: id, tool_names: null });
@@ -59,7 +60,7 @@ try {
   let reviewed = false;
   await assert.rejects(recallSequentially({ ...query, primary_entity: "unknown" }, async () => { reviewed = true; throw new Error("should not run"); }, () => {}), /included in entities/);
   assert.equal(reviewed, false, "invalid input fails before search review");
-  console.log("primary-entity.test.ts: validation, +10 once, deduplication, three sources, ranking before LIMIT and both stages passed");
+  console.log("primary-entity.test.ts: validation, +10 once, deduplication, Pi source, ranking before LIMIT and both stages passed");
 } finally {
   getDb().close();
   rmSync(home, { recursive: true, force: true });

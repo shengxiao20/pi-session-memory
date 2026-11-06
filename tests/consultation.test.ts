@@ -74,7 +74,7 @@ const provider: any = {
 };
 const modelRuntime = await ModelRuntime.create({ refreshOnCreate: false }); modelRuntime.registerNativeProvider(provider);
 const ctx: any = { model, modelRegistry: new ModelRegistry(modelRuntime), sessionManager: main, thinkingLevel: "off" };
-assert.deepEqual(selectConsultationSessions([...turns, turns[3], { ...turns[0], source: "claude" }], turns[2].session_id).map(group => group[0].session_id), [turns[3].session_id, turns[1].session_id, turns[0].session_id]);
+assert.deepEqual(selectConsultationSessions([...turns, turns[3], { ...turns[0], source: "pi" }], turns[2].session_id).map(group => group[0].session_id), [turns[3].session_id, turns[1].session_id, turns[0].session_id]);
 
 // Real SDK restoration in memory, with an in-process deterministic provider. No remote request.
 const originalBytes = readFileSync(managers[0].getSessionFile(), "utf8");

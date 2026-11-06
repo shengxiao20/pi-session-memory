@@ -11,7 +11,7 @@ const { getDb, getHistoryStats, insertTurn, upsertSession } = await import("../s
 const { fetchTurnContext } = await import("../src/fetch-turn-context.ts");
 
 try {
-  for (const source of ["pi", "claude", "codex"] as const) {
+  for (const source of ["pi"] as const) {
     const sessionId = `${source}:session`;
     upsertSession({ session_id: sessionId, source, cwd: home, started_at: 1, model_id: null, jsonl_path: join(home, `${source}.jsonl`) });
     for (const [index, suffix] of [[0, "first"], [6, "preceding"], [7, "2599a0a9"], [8, "following"], [10, "last"]] as const) {

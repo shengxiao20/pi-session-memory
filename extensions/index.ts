@@ -14,7 +14,6 @@ import { registerSetupTools } from "../src/setup-tools.ts";
 import { SETUP_REQUEST } from "../src/setup.ts";
 import { recallSequentially } from "../src/recall-workflow.ts";
 import { backfillAll, syncChangedHistory, type BackfillStats } from "../src/backfill.ts";
-import { migrateClaudeProjectSessions, migrateCodexProjectSessions, type ProjectSessionMigrationStats } from "../src/session-migration.ts";
 import { notifyMemoryToolCleanup, registerMemoryCleanupTools } from "../src/memory-index-cleanup-tools.ts";
 import { formatProjectRecallResults, recallProjectMemory } from "../src/project-retriever.ts";
 import { validateRecallQuery } from "../src/recall-query.ts";
@@ -27,7 +26,7 @@ import { CONFIG_SUMMARY_PREFIX, withConfigSummary } from "../src/tool-config-sum
 import { JevRuntime } from "../src/jev-runtime.ts";
 import { filterRecallWithJev, type JevFilterStats } from "../src/jev-filter.ts";
 
-/** Register local cross-session transcript retrieval and source-session migration features. */
+/** Register local Pi cross-session transcript retrieval features. */
 export default function (pi: ExtensionAPI) {
   const output = new MemoryOutput();
   const memory = new MemoryContext();
@@ -73,7 +72,7 @@ export default function (pi: ExtensionAPI) {
   registerMemoryKnowledgeTools(registerTool, output);
 
   pi.registerCommand("pi-session-memory", {
-    description: "Open setup, history import, project-session migration, or indexed-tool-turn cleanup. Transcript search is handled by Agent tools.",
+    description: "Open setup, Pi history import, or indexed-tool-turn cleanup. Transcript search is handled by Agent tools.",
     handler: async (args, ctx) => {
       if (args.trim()) throw new Error("/pi-session-memory accepts no arguments");
       await _openSessionMemoryMenu(pi, ctx);
@@ -81,20 +80,8 @@ export default function (pi: ExtensionAPI) {
   });
 
   registerTool({
-    name: "migrate_project_sessions", label: "Migrate Project Sessions",
-    description: "Convert current-project Claude Code and Codex sessions into separate native Pi sessions selectable with /resume. Use only when the user explicitly wants native Pi continuation; omit sources to migrate both, or select only the requested source.",
-    promptSnippet: "Use only when the user explicitly requests native Pi continuation of prior Claude Code or Codex work. Omit sources to migrate both.",
-    parameters: Type.Object({
-      sources: Type.Optional(Type.Array(Type.Union([Type.Literal("claude"), Type.Literal("codex")]), { minItems: 1, uniqueItems: true, description: "Sources to migrate; omit to migrate both Claude Code and Codex." })),
-    }),
-    async execute(_id, { sources }, _signal, _update, ctx) {
-      const migrations = _migrateProjectSources(ctx.sessionManager.getCwd(), sources);
-      return { content: [{ type: "text" as const, text: _projectMigrationSummary(migrations) }], details: migrations };
-    },
-  });
-  registerTool({
     name: "recall_memory", label: "Recall History · Global → Project", executionMode: "sequential",
-    description: "Use only when the user explicitly asks to look back at earlier work or historical conversations, and inspect_memory_knowledge found no clearly matching saved document. Do not call for ordinary questions or merely because a topic appeared before. One call with 2-8 literal topic entities, a required primary_entity and the complete question automatically searches all indexed Pi, Claude Code, and Codex turns globally, then uses those same entities to discover stored session CWD final-directory names and search only matched sessions. Each stage adds +10 once per turn for a case-insensitive literal match of primary_entity before ranking and limiting results. Retain a complete core phrase verbatim from the user question as primary_entity and include it in entities; do not split, translate or paraphrase it. Other unique entity matches add +1 each. Each stage keeps its existing limit and optional Jev filtering. After both stages finish, project results are deduplicated by the turn_id values actually returned globally; removed results are not refilled. Global and project results are displayed separately. No current Pi session, project, CWD, source, session, or time context is used to scope retrieval; no separate project recall call is needed. When enableDiscussion is true in configuration, show up to three native Pi candidate sessions and their indexed evidence in a TUI checklist. Resume only user-confirmed sessions for sequential private consultation, excluding the active main session. Return consultation answers instead of raw recall sections for this request only. Consultation uses in-memory copies of original sessions and never appends questions or answers to their JSONL files. Intermediate results reach the main model through temporary context; only lightweight tool records and final OKF text are persisted. Compare answers, optionally follow up privately, then save OKF minutes or cancel within this run. Remaining participants are released when the main agent settles. Do not automatically replace consultation with transcript fetching.",
+    description: "Use only when the user explicitly asks to look back at earlier work or historical conversations, and inspect_memory_knowledge found no clearly matching saved document. Do not call for ordinary questions or merely because a topic appeared before. One call with 2-8 literal topic entities, a required primary_entity and the complete question automatically searches all indexed Pi turns globally, then uses those same entities to discover stored session CWD final-directory names and search only matched sessions. Each stage adds +10 once per turn for a case-insensitive literal match of primary_entity before ranking and limiting results. Retain a complete core phrase verbatim from the user question as primary_entity and include it in entities; do not split, translate or paraphrase it. Other unique entity matches add +1 each. Each stage keeps its existing limit and optional Jev filtering. After both stages finish, project results are deduplicated by the turn_id values actually returned globally; removed results are not refilled. Global and project results are displayed separately. No current Pi session, project, CWD, source, session, or time context is used to scope retrieval; no separate project recall call is needed. When enableDiscussion is true in configuration, show up to three native Pi candidate sessions and their indexed evidence in a TUI checklist. Resume only user-confirmed sessions for sequential private consultation, excluding the active main session. Return consultation answers instead of raw recall sections for this request only. Consultation uses in-memory copies of original sessions and never appends questions or answers to their JSONL files. Intermediate results reach the main model through temporary context; only lightweight tool records and final OKF text are persisted. Compare answers, optionally follow up privately, then save OKF minutes or cancel within this run. Remaining participants are released when the main agent settles. Do not automatically replace consultation with transcript fetching.",
     promptSnippet: "For explicit user look-back requests only, after saved OKF descriptions show no clear match. Call once with literal entities, primary_entity and the complete question. Keep the complete core phrase verbatim. Global recall runs before entity-discovered project recall; never infer scope from the current session or CWD. Discussion uses user-confirmed sessions, not transcript fallback.",
     promptGuidelines: [KNOWLEDGE_FIRST_NOTICE, OKF_OUTPUT_NOTICE],
     parameters: Type.Object({
@@ -192,13 +179,13 @@ export default function (pi: ExtensionAPI) {
   });
   registerTool({
     name: "get_memory_stats", label: "Get History Storage Statistics",
-    description: "Report locally indexed cross-session transcript storage totals. Use when the user asks how much Pi, Claude Code, or Codex history is stored.",
+    description: "Report locally indexed Pi transcript storage totals. Use when the user asks how much Pi history is stored.",
     promptSnippet: "Use when the user asks for locally indexed history totals.", parameters: Type.Object({}),
     async execute() { const stats = getHistoryStats(); return { content: [{ type: "text" as const, text: _historyStatsSummary(stats) }], details: stats }; },
   });
   registerTool({
     name: "backfill_memory", label: "Import Historical Sessions",
-    description: "Import all historical Pi, Claude Code, and Codex transcript sessions into the local index. Use only when the user explicitly asks to import, backfill, or rescan history.",
+    description: "Import all historical Pi transcript sessions into the local index. Use only when the user explicitly asks to import, backfill, or rescan history.",
     promptSnippet: "Use only for an explicit request to import, backfill, or rescan historical conversation data.", parameters: Type.Object({}),
     async execute() { const stats = backfillAll(); return { content: [{ type: "text" as const, text: _backfillSummary(stats, "imported") }], details: stats }; },
   });
@@ -207,8 +194,7 @@ export default function (pi: ExtensionAPI) {
 const SESSION_MEMORY_ACTIONS = {
   setup: "Setup — explain optional features and save approved configuration",
   clean: "Clean indexed tool turns — back up SQLite and remove complete package-tool turns",
-  backfill: "Import historical sessions — rescan Pi, Claude Code, and Codex history",
-  migrate: "Migrate project sessions — make Claude Code and Codex sessions available in /resume",
+  backfill: "Import historical sessions — rescan Pi history",
 } as const;
 
 /** Open the operations that users can start directly from the command menu. */
@@ -223,33 +209,12 @@ async function _openSessionMemoryMenu(pi: ExtensionAPI, ctx: ExtensionCommandCon
     _notifyBackfill(ctx, backfillAll(), "imported");
     return;
   }
-  if (selection === SESSION_MEMORY_ACTIONS.migrate) {
-    _notifyProjectMigration(ctx, _migrateProjectSources(ctx.sessionManager.getCwd()));
-    return;
-  }
   notifyMemoryToolCleanup(ctx);
 }
 
 function _historyStatsSummary(stats: ReturnType<typeof getHistoryStats>): string { const sources = stats.sources.length ? stats.sources.map((source) => `${source.source}: ${source.turns} turns / ${source.sessions} sessions`).join(", ") : "no imported sources"; const newest = stats.newestTs ? new Date(stats.newestTs).toLocaleString() : "n/a"; return `[session-memory] ${stats.turns} turns across ${stats.sessions} sessions; ${sources}; newest: ${newest}`; }
-function _backfillSummary(stats: BackfillStats, action: string): string { return `[session-memory] ${action} ${stats.turns} turns from ${stats.scannedFiles} files: ${stats.pi} Pi, ${stats.claude} Claude, ${stats.codex} Codex sessions`; }
+function _backfillSummary(stats: BackfillStats, action: string): string { return `[session-memory] ${action} ${stats.turns} turns from ${stats.scannedFiles} files: ${stats.pi} Pi sessions`; }
 function _notifyBackfill(ctx: ExtensionContext, stats: BackfillStats, action: string): void { ctx.ui.notify(_backfillSummary(stats, action), "info"); for (const issue of stats.issues) ctx.ui.notify(`[session-memory] ${issue.error}`, "error"); }
-type ProjectMigrationSource = "claude" | "codex";
-type ProjectMigrationResults = Record<ProjectMigrationSource, ProjectSessionMigrationStats>;
-
-function _migrateProjectSources(cwd: string, sources: ProjectMigrationSource[] = ["claude", "codex"]): Partial<ProjectMigrationResults> {
-  return Object.fromEntries(sources.map((source) => [source, source === "claude" ? migrateClaudeProjectSessions(cwd) : migrateCodexProjectSessions(cwd)])) as Partial<ProjectMigrationResults>;
-}
-function _projectMigrationSummary(migrations: Partial<ProjectMigrationResults>): string {
-  const summaries = Object.entries(migrations).map(([source, stats]) => {
-    const label = source === "claude" ? "Claude Code" : "Codex";
-    return `${label}: ${stats.migratedSessions} migrated, ${stats.skippedSessions} skipped, ${stats.migratedMessages} messages from ${stats.scannedFiles} files`;
-  });
-  return `[session-memory] project session migration complete — ${summaries.join("; ")}. Use /resume to select a migrated Pi session.`;
-}
-function _notifyProjectMigration(ctx: ExtensionContext, migrations: Partial<ProjectMigrationResults>): void {
-  ctx.ui.notify(_projectMigrationSummary(migrations), "info");
-  for (const [source, stats] of Object.entries(migrations)) for (const issue of stats.issues) ctx.ui.notify(`[session-memory] ${source} migration failed (${issue.path}): ${issue.error}`, "error");
-}
 
 async function _reviewWithJev(runtime: JevRuntime, question: string, results: import("../src/retriever.ts").RecallTurnResult[], progress: (message: string) => void): Promise<{ results: import("../src/retriever.ts").RecallTurnResult[]; filteredOut: import("../src/jev-filter.ts").JevFilteredOutTurn[]; stats: JevFilterStats }> {
   const config = getSessionMemoryConfig();

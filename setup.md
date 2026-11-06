@@ -3,12 +3,12 @@
 ## When to use this guide
 
 Use `setup_memory` when the user asks how this plugin works, how to use it, or asks to run setup.
-The agent starts this guide with `setup_memory`. The `/pi-session-memory` command provides direct setup, history import, project-session migration, and indexed-tool-turn cleanup actions.
+The agent starts this guide with `setup_memory`. The `/pi-session-memory` command provides direct setup, Pi history import, and indexed-tool-turn cleanup actions.
 This guide is for configuration, not historical review. Do not call inspect, recall, consultation, migration, import or cleanup tools during setup.
 
 ## Interaction rules
 
-1. Explain the plugin briefly: it indexes local Pi, Claude Code and Codex history. Explicit historical review checks saved OKF descriptions first. No clear match starts transcript search, with optional relevance filtering or private historical-session consultation.
+1. Explain the plugin briefly: it indexes local Pi history. Explicit historical review checks saved OKF descriptions first. No clear match starts transcript search, with optional relevance filtering or private historical-session consultation.
 2. Read the current configuration returned by `setup_memory`. Show its path. If it is missing, explain that setup can create it after approval. Never create it merely because this guide was opened.
 3. Ask **one question per assistant reply**, in the numbered order below. Wait for each answer. Use the user's language. Do not present a questionnaire or ask several subquestions together.
 4. Explain each feature before asking whether to enable it. Show the existing setting when available. Preserve settings the user does not change.
@@ -23,7 +23,7 @@ This guide is for configuration, not historical review. Do not call inspect, rec
 
 ### 1. Start configuration
 
-Explain the Agent tools for saved OKF reading, storage statistics, full import, native Claude Code/Codex migration, backed-up SQLite cleanup, transcript conclusion saving, and consultation control. The command menu directly exposes setup, import, migration, and cleanup. Transcript review remains an Agent workflow. Each destructive or state-changing operation requires a separate explicit request.
+Explain the Agent tools for saved OKF reading, storage statistics, full Pi import, backed-up SQLite cleanup, transcript conclusion saving, and consultation control. The command menu directly exposes setup, import, and cleanup. Transcript review remains an Agent workflow. Each destructive or state-changing operation requires a separate explicit request.
 Ask: **Would you like to configure the plugin now?** If no, answer usage questions without writing configuration.
 
 ### 2. Retrieval limit

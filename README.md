@@ -1,12 +1,12 @@
 # pi-session-memory
 
-**Current version: 1.0.1**
+**Current version: 1.1.0**
 
 Project website: [GitHub Pages](https://shengxiao20.github.io/pi-session-memory/) (available after deployment).
 
 **Find scattered history. Analyze it with multiple agents. Save reusable knowledge.**
 
-`pi-session-memory` brings your Pi, Claude Code, and Codex conversation history into one local SQLite index.
+`pi-session-memory` brings your Pi conversation history into one local SQLite index.
 Search across sessions to recover past decisions and context. Enable multi-agent Discussion to examine evidence with historical Pi agents.
 Save cited findings as portable Markdown knowledge for future work.
 
@@ -14,7 +14,7 @@ Save cited findings as portable Markdown knowledge for future work.
 Summaries can omit details. The plugin indexes original user and assistant text and lets you inspect persisted turn context.
 It complements Pi's context compaction; it does not replace compaction or guarantee that every historical detail reaches the model.
 
-- **Find the missing context:** Search indexed conversations across all three sources with SQLite-backed keyword and phrase matching.
+- **Find the missing context:** Search indexed Pi conversations with SQLite-backed keyword and phrase matching.
 - **Analyze beyond a search result:** Consult up to three user-selected historical Pi agents, compare their answers, and ask private follow-up questions.
 - **Keep knowledge you can reuse:** Save findings, decisions, uncertainties, and actions with source citations. Optionally store them in Obsidian.
 
@@ -40,7 +40,7 @@ After installation, ask Pi to set up the plugin. The agent uses `setup_memory`, 
 
 Version 1.0 turns the earlier search extension into a complete historical-review workflow.
 
-- Imports Pi, Claude Code, and Codex transcript turns into local SQLite.
+- Imports native Pi transcript turns into local SQLite.
 - Checks saved Open Knowledge Format (OKF) descriptions before searching transcripts.
 - Runs one explicit recall workflow across global history and entity-discovered project sessions.
 - Optionally filters literal candidates with a local or remote System One model.
@@ -49,8 +49,8 @@ Version 1.0 turns the earlier search extension into a complete historical-review
 - Saves transcript or consultation conclusions as draft OKF Markdown bundles.
 - Keeps package-tool traffic out of the searchable memory index.
 - Provides validated, approval-based setup through agent tools.
-- Provides explicit statistics, import, cleanup, and native Pi migration tools.
-- Keeps the `/pi-session-memory` menu focused on setup, history import, project-session migration, and indexed-tool-turn cleanup.
+- Provides explicit statistics, Pi history import, and cleanup tools.
+- Keeps the `/pi-session-memory` menu focused on setup, Pi history import, and indexed-tool-turn cleanup.
 
 ## What changed from the published npm version
 
@@ -68,11 +68,11 @@ The npm `latest` release before 1.0 is **0.7.23**. This comparison uses the publ
 | Setup | Configuration documented for manual editing | Sequential `setup_memory` guide and validated `configure_memory` save after approval |
 | Index hygiene | Search index and normal synchronization | Package-tool turns are excluded; explicit cleanup creates and verifies a backup |
 | Obsidian | Optional raw search export | Optional single OKF storage root |
-| Command menu | Broad manual operation menu and help | Setup, history import, project-session migration, and indexed-tool-turn cleanup only |
+| Command menu | Broad manual operation menu and help | Setup, Pi history import, and indexed-tool-turn cleanup only |
 | Release notes | Many version sections in README | One current README and one 1.0 CHANGELOG entry |
 | Package language | Bilingual package description and README material | English package documentation; agents can conduct setup in the user's language |
 
-The published 0.7.23 package registered these six tools:
+The published 0.7.23 package registered these six tools, including the now-removed `migrate_project_sessions`:
 
 - `migrate_project_sessions`
 - `recall_memory`
@@ -81,7 +81,7 @@ The published 0.7.23 package registered these six tools:
 - `get_memory_stats`
 - `backfill_memory`
 
-Version 1.0 retains those capabilities and adds nine tools:
+Version 1.0 added nine tools:
 
 - `setup_memory`
 - `configure_memory`
@@ -93,7 +93,7 @@ Version 1.0 retains those capabilities and adds nine tools:
 - `finish_memory_recall`
 - `clean_memory_tool_turns`
 
-Some retained tools also have stricter 1.0 contracts. For example, `recall_memory` now enforces explicit historical intent and knowledge-first review. `fetch_session` expands an exact returned turn ID. Migration can select Claude Code, Codex, or both.
+Some retained tools also have stricter 1.0 contracts. For example, `recall_memory` enforces explicit historical intent and knowledge-first review. `fetch_session` expands an exact returned turn ID.
 
 ## Core workflow
 
@@ -152,7 +152,7 @@ The plugin stores one searchable turn for each user message with searchable text
 - Multiple replies to one user turn are aggregated in file order.
 - Interrupted and tool-only responses remain indexable.
 - Image-only user entries occupy their original turn position but are not searchable turns.
-- Claude Code and Codex sessions keep stable source-specific turn identities.
+- Pi sessions keep stable source turn identities.
 - Parser-version changes trigger reindexing of unchanged source files.
 - Invalid Pi parent graphs raise import issues and preserve the prior index state.
 
@@ -168,7 +168,7 @@ Source JSONL files remain unchanged during indexing, retrieval, consultation, an
 
 One call performs two stages:
 
-1. Search all indexed Pi, Claude Code, and Codex turns.
+1. Search all indexed Pi turns.
 2. Match the same entities against stored session working-directory names, then search turns in matched sessions.
 
 A case-insensitive complete `primary_entity` match adds 10 ranking points once per turn. Each other unique entity match adds one point. Each stage applies `recallLimit` independently. Project results returned globally are removed after both stages; removed items are not refilled.
@@ -391,16 +391,13 @@ It accepts no arguments and shows four direct operations:
 Setup
 Clean indexed tool turns
 Import historical sessions
-Migrate project sessions
 ```
 
 `Setup` sends a setup request to the Agent. The Agent reads the guide, asks one question at a time, and requests approval before writing.
 
 `Clean indexed tool turns` creates and verifies a SQLite backup. It then removes complete package-tool turns from the local index.
 
-`Import historical sessions` directly rescans Pi, Claude Code, and Codex history. It reports import issues in the user interface.
-
-`Migrate project sessions` directly converts current-project Claude Code and Codex sessions into native Pi sessions available through `/resume`.
+`Import historical sessions` directly rescans Pi history. It reports import issues in the user interface.
 
 Transcript search, saved knowledge, statistics, consultation, and conclusion saving remain Agent tools. They do not appear in the menu.
 
@@ -419,31 +416,17 @@ Transcript search, saved knowledge, statistics, consultation, and conclusion sav
 | `finish_session_consultation` | The main agent has compared consultation answers and must save draft OKF minutes. |
 | `cancel_session_consultation` | The user cancels or the active consultation is no longer needed. |
 | `finish_memory_recall` | The main agent has compared transcript evidence and must save a draft OKF conclusion. |
-| `get_memory_stats` | The user asks how much Pi, Claude Code, or Codex history is indexed. |
-| `backfill_memory` | The user explicitly requests history import, backfill, or rescan. |
-| `migrate_project_sessions` | The user explicitly wants current-project Claude Code or Codex sessions converted into native Pi sessions. |
+| `get_memory_stats` | The user asks how much Pi history is indexed. |
+| `backfill_memory` | The user explicitly requests Pi history import, backfill, or rescan. |
 | `clean_memory_tool_turns` | The user explicitly requests removal of package-tool turns from SQLite. |
 
 Every tool has an explicit description so Pi can select it without hidden command knowledge.
-
-## Native session migration
-
-`migrate_project_sessions` converts current-project Claude Code and Codex sessions into separate native Pi sessions.
-
-- You can migrate Claude Code, Codex, or both.
-- Source sessions remain unchanged.
-- Repeated migration skips unchanged sessions.
-- Changed source sessions replace their prior migrated copies.
-- Windows path matching normalizes separators, drive-letter case, and trailing separators.
-- Migrated sessions become available through `/resume`.
-
-Migration is not historical recall. Run it only when the user wants native Pi continuation.
 
 ## Import and startup synchronization
 
 At Pi session start, the plugin synchronizes changed history files into SQLite. It reports history, configuration, and System One startup failures separately.
 
-`backfill_memory` performs an explicit full import of Pi, Claude Code, and Codex history. Use it after installation when you want existing history indexed, or when you explicitly need a rescan.
+`backfill_memory` performs an explicit full import of Pi history. Use it after installation or when you explicitly need a rescan.
 
 Changing `MEMORY_DB_PATH` does not migrate an existing index.
 
@@ -454,7 +437,7 @@ Changing `MEMORY_DB_PATH` does not migrate an existing index.
 | Search index | `~/.pi/agent/memory.db` | Plugin-managed SQLite |
 | Configuration | `~/.pi/agent/pi-session-memory/config.json` | Written only after approved setup |
 | OKF knowledge | `~/.pi/agent/pi-session-memory/knowledge/` | New meeting bundles and logs |
-| Source Pi/Claude/Codex JSONL | Source application directories | Read-only |
+| Source Pi JSONL | `~/.pi/agent/sessions` | Read-only |
 | Consultation participants | Memory in the active Pi process | Released after consultation |
 | Remote relevance input | Configured System One endpoint | Candidate fragments only when enabled |
 
@@ -507,7 +490,7 @@ The content sections use [CodeGraph's website](https://colbymchenry.github.io/co
 4. Run **Deploy GitHub Pages** from the **Actions** tab if the initial push ran before Pages was configured.
 5. Check the deployment at `https://shengxiao20.github.io/pi-session-memory/`.
 
-The workflow uploads only `site/`, not transcripts, local databases, or the rest of the repository. Later changes to `site/` on `main` trigger deployment automatically. Website deployment does not publish an npm release. The current package version is `1.0.1`.
+The workflow uploads only `site/`, not transcripts, local databases, or the rest of the repository. Later changes to `site/` on `main` trigger deployment automatically. Website deployment does not publish an npm release. The current package version is `1.1.0`.
 
 ## Development verification
 
@@ -518,4 +501,4 @@ npm run test:all
 npm pack --dry-run
 ```
 
-The test suite covers the static website, clipboard success and failure, Pages workflow configuration, source parsing, branch ownership, exact context expansion, retrieval ranking, System One filtering, setup validation, Discussion lifecycle, OKF persistence, knowledge reuse, context isolation, index exclusion, cleanup backup behavior, migration, configuration summaries, and end-to-end tool registration.
+The test suite covers the static website, clipboard behavior, Pages workflow configuration, Pi source parsing, branch ownership, exact context expansion, retrieval ranking, System One filtering, setup validation, Discussion lifecycle, OKF persistence, knowledge reuse, context isolation, index exclusion, cleanup backup behavior, configuration summaries, and end-to-end tool registration.

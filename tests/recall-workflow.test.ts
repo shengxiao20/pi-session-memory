@@ -20,7 +20,7 @@ const { recallProjectMemory } = await import("../src/project-retriever.ts");
 const { recallSequentially } = await import("../src/recall-workflow.ts");
 const options = { entities: ["target app", "needle"], primary_entity: "target app", question: "What did we decide about the target app needle?" };
 
-function addSession(session_id: string, source: "pi" | "claude" | "codex", cwd: string): void {
+function addSession(session_id: string, source: "pi", cwd: string): void {
   upsertSession({ session_id, source, cwd, started_at: 1, model_id: null, jsonl_path: join(home, `${source}.jsonl`) });
 }
 function addTurn(session_id: string, id: string, ts: number, text: string): string {
@@ -40,13 +40,13 @@ function ids(turns: RecallTurnResult[]): string[] { return turns.map((turn) => t
 const keepAll = async (_question: string, turns: RecallTurnResult[]) => reviewResult(turns);
 
 try {
-  addSession("claude:target", "claude", "C:\\work\\target-app\\");
-  addSession("codex:other", "codex", "/work/other-project");
-  const otherId = addTurn("codex:other", "global", 200, "needle outside the named project");
-  const sharedId = addTurn("claude:target", "shared", 100, "needle identical transcript");
-  const uniqueId = addTurn("claude:target", "unique", 90, "needle identical transcript");
-  const belowLimitId = addTurn("claude:target", "below-limit", 80, "needle older candidate");
-  const storedBefore = getSession("claude:target");
+  addSession("pi:target", "pi", "C:\\work\\target-app\\");
+  addSession("pi:other", "pi", "/work/other-project");
+  const otherId = addTurn("pi:other", "global", 200, "needle outside the named project");
+  const sharedId = addTurn("pi:target", "shared", 100, "needle identical transcript");
+  const uniqueId = addTurn("pi:target", "unique", 90, "needle identical transcript");
+  const belowLimitId = addTurn("pi:target", "below-limit", 80, "needle older candidate");
+  const storedBefore = getSession("pi:target");
   const literalGlobal = recallTurns(options);
   const literalProject = recallProjectMemory(options);
   assert.deepEqual(ids(literalGlobal), [otherId, sharedId]);
@@ -89,7 +89,7 @@ try {
   assert.deepEqual(ids(rejectedInProject.project.results), [uniqueId]);
   assert.equal(rejectedInProject.project.duplicatesRemoved, 0, "deduplication must happen after project Jev filtering");
   assert.deepEqual(ids(rejectedInProject.project.filteredOut.map((entry) => entry.turn)), [sharedId], "existing Jev audit evidence must not be changed");
-  assert.deepEqual(getSession("claude:target"), storedBefore, "workflow must not alter indexed originals");
+  assert.deepEqual(getSession("pi:target"), storedBefore, "workflow must not alter indexed originals");
 
   const noProject = await recallSequentially({ ...options, entities: ["missing directory", "needle"], primary_entity: "needle" }, keepAll, () => {});
   assert.deepEqual(ids(noProject.global.results), [otherId, sharedId], "global search must remain unconditional when no project matches");
@@ -116,7 +116,7 @@ try {
   await Promise.resolve();
   assert.equal(orderedInputs.length, 1, "project review must not start while global review is pending");
   assert.deepEqual(orderedProgress.map((update) => update.stage), ["global"]);
-  const insertedAfterGlobalSearch = addTurn("claude:target", "inserted", 95, "needle added while global review waits");
+  const insertedAfterGlobalSearch = addTurn("pi:target", "inserted", 95, "needle added while global review waits");
   releaseGlobal();
   const ordered = await pending;
   assert.deepEqual(ids(orderedInputs[1]!), [sharedId, insertedAfterGlobalSearch], "project retrieval itself must start only after global review completes");

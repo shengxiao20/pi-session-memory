@@ -11,7 +11,7 @@ export interface ProjectRecallOptions {
 
 export interface ProjectSessionCandidate {
   session_id: string;
-  source: "pi" | "claude" | "codex";
+  source: "pi";
   cwd: string;
   started_at: number;
   turn_count: number;

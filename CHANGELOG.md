@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0]
+
+### Pi-only history
+
+- Removes Claude Code and Codex JSONL parsers and SQLite imports.
+- Removes Claude Code and Codex project-session migration and its Agent tool and command-menu action.
+- Aligns maintained history with Discussion, which currently activates participants from native Pi sessions.
+- Avoids maintaining external session formats that Discussion cannot activate directly.
+- Restricts session, source-file, retrieval, and project metadata types to native Pi history.
+- Deletes existing non-Pi rows when an older SQLite index opens.
+- Updates tests, setup guidance, package metadata, and website content for Pi-only support.
+
 ## [1.0.1]
 
 ### Package presentation

@@ -62,16 +62,19 @@ function _migrate(db: DatabaseSync): void {
   if (!sourceColumns.some(column => column.name === "parser_version")) {
     db.exec("ALTER TABLE source_files ADD COLUMN parser_version TEXT NOT NULL DEFAULT ''");
   }
+  db.exec("DELETE FROM turns WHERE session_id IN (SELECT session_id FROM sessions WHERE source <> 'pi')");
+  db.exec("DELETE FROM sessions WHERE source <> 'pi'");
+  db.exec("DELETE FROM source_files WHERE source <> 'pi'");
   db.exec("DROP TABLE IF EXISTS memory_sources");
   db.exec("DROP TABLE IF EXISTS cache_migration_audit");
   db.exec("DROP TABLE IF EXISTS memories");
 }
 
-export interface SessionRow { session_id: string; source: "pi" | "claude" | "codex"; cwd: string; started_at: number; model_id: string | null; jsonl_path: string; }
+export interface SessionRow { session_id: string; source: "pi"; cwd: string; started_at: number; model_id: string | null; jsonl_path: string; }
 export interface TurnRow { turn_id: string; session_id: string; turn_index: number; ts: number; user_text: string; reply_text: string; tool_names: string | null; user_message_id: string; }
 export interface StoredSession { session: SessionRow; turns: TurnRow[]; }
-export interface SourceFileRow { jsonl_path: string; source: "pi" | "claude" | "codex"; size: number; mtime_ms: number; sha256: string; parser_version?: string; }
-export interface HistoryStats { sessions: number; turns: number; oldestTs: number | null; newestTs: number | null; sources: Array<{ source: "pi" | "claude" | "codex"; sessions: number; turns: number }>; }
+export interface SourceFileRow { jsonl_path: string; source: "pi"; size: number; mtime_ms: number; sha256: string; parser_version?: string; }
+export interface HistoryStats { sessions: number; turns: number; oldestTs: number | null; newestTs: number | null; sources: Array<{ source: "pi"; sessions: number; turns: number }>; }
 
 export function getSourceFile(jsonlPath: string): SourceFileRow | undefined { return getDb().prepare("SELECT jsonl_path, source, size, mtime_ms, sha256, parser_version FROM source_files WHERE jsonl_path = ?").get(jsonlPath) as SourceFileRow | undefined; }
 export function upsertSourceFile(row: SourceFileRow): void { getDb().prepare(`INSERT INTO source_files (jsonl_path, source, size, mtime_ms, sha256, parser_version) VALUES (?, ?, ?, ?, ?, ?)

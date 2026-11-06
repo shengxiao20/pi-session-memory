@@ -89,34 +89,6 @@ try {
   assert.throws(() => buildPiTurns("pi:tree", [entries[0], entries[0]]), /unique non-empty string/);
   save(path, [header, ...entries]);
 
-  const claudeRoot = join(home, ".claude", "projects");
-  const codexRoot = join(home, ".codex", "sessions");
-  mkdirSync(claudeRoot, { recursive: true });
-  mkdirSync(codexRoot, { recursive: true });
-  save(join(claudeRoot, "incomplete.jsonl"), [
-    { type: "user", uuid: "c1", sessionId: "incomplete", cwd: "/work", timestamp, message: { role: "user", content: "Interrupted Claude" } },
-    { type: "user", uuid: "c2", sessionId: "incomplete", cwd: "/work", timestamp, message: { role: "user", content: "Claude tool request" } },
-    { type: "assistant", uuid: "ca2", sessionId: "incomplete", timestamp, message: { role: "assistant", content: [{ type: "tool_use", name: "Read" }] } },
-    { type: "user", uuid: "c3", sessionId: "incomplete", cwd: "/work", timestamp, message: { role: "user", content: "Final incomplete Claude" } },
-  ]);
-  save(join(codexRoot, "incomplete.jsonl"), [
-    { type: "session_meta", payload: { id: "incomplete", cwd: "/work", timestamp } },
-    ...[["d1", "user", "Interrupted Codex"], ["d2", "user", "Next Codex"], ["da2", "assistant", "Codex reply"], ["d3", "user", "Final incomplete Codex"]].map(([id, role, text]) => ({
-      type: "response_item", timestamp, payload: { type: "message", id, role, content: [{ type: role === "user" ? "input_text" : "output_text", text }] },
-    })),
-  ]);
-  assert.deepEqual(syncChangedHistory().issues, []);
-  const claude = getSession("claude:incomplete");
-  const codex = getSession("codex:incomplete");
-  assert.deepEqual(claude.turns.map((turn) => [turn.turn_index, turn.reply_text, turn.tool_names]), [[0, "", null], [1, "", '["Read"]'], [2, "", null]]);
-  assert.deepEqual(codex.turns.map((turn) => [turn.turn_index, turn.reply_text]), [[0, ""], [1, "Codex reply"], [2, ""]]);
-  getDb().exec("UPDATE source_files SET parser_version = ''; DELETE FROM turns WHERE reply_text = ''");
-  const refreshed = syncChangedHistory();
-  assert.deepEqual(refreshed.issues, []);
-  assert.deepEqual([refreshed.pi, refreshed.claude, refreshed.codex], [1, 1, 1]);
-  assert.deepEqual(getSession("pi:tree"), beforeSync);
-  assert.deepEqual(getSession("claude:incomplete"), claude);
-  assert.deepEqual(getSession("codex:incomplete"), codex);
   assert.deepEqual(backfillAll().issues, []);
   console.log("history-turns.test.ts: branch ownership, live refresh, incomplete turns, stable indices, parser upgrade passed");
 } finally {
