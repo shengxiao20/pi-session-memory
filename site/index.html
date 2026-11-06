@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Review local Pi, Claude Code, and Codex history with explicit recall, multi-agent Discussion, independent source verification, and evidence-based Markdown knowledge.">
+    <meta name="description" content="Find scattered Pi, Claude Code, and Codex history with SQLite-backed search instead of relying on lossy summaries. Use multi-agent discussion for deeper analysis and save reusable, evidence-based knowledge.">
     <meta name="theme-color" content="#101719">
-    <meta property="og:title" content="pi-session-memory — Reuse what you learned">
-    <meta property="og:description" content="Turn past conversations into reusable knowledge. A local-first historical-review extension for Pi.">
+    <meta property="og:title" content="pi-session-memory — Find scattered history. Analyze it together.">
+    <meta property="og:description" content="Find scattered Pi, Claude Code, and Codex history with SQLite-backed search instead of relying on lossy summaries. Use multi-agent discussion for deeper analysis and save reusable, evidence-based knowledge.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://shengxiao20.github.io/pi-session-memory/">
-    <title>pi-session-memory — Reuse what you learned</title>
+    <title>pi-session-memory — Find scattered history. Analyze it together.</title>
     <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./styles.css">
     <script src="./main.js" defer></script>
@@ -32,9 +32,9 @@
       <main id="main">
         <section class="hero" aria-labelledby="hero-title">
           <div class="hero-copy">
-            <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> History in. Knowledge out.</p>
-            <h1 id="hero-title">Keep what you learned.<br><span>Use it next session.</span></h1>
-            <p class="lede">Review your Pi, Claude Code, and Codex history. Route evidence through direct recall or multi-agent Discussion, verify the source, and save what you learned.</p>
+            <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> SQLite search. Multi-agent analysis.</p>
+            <h1 id="hero-title">Find scattered history.<br><span>Analyze it together.</span></h1>
+            <p class="lede">Search your Pi, Claude Code, and Codex history in one local SQLite index instead of relying on lossy summaries. Enable multi-agent Discussion for deeper analysis. Save cited findings as reusable knowledge.</p>
             <div class="actions">
               <a class="button button-primary" href="https://www.npmjs.com/package/pi-session-memory">Install from npm <span aria-hidden="true">→</span></a>
               <a class="button" href="https://github.com/shengxiao20/pi-session-memory#readme">Read the docs</a>
@@ -46,7 +46,7 @@
               </button>
             </div>
             <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
-            <p class="release-note">Version 1.0.0 · Install from npm.</p>
+            <p class="release-note">Version 1.0.1 · Install from npm.</p>
           </div>
           <div class="hero-visual">
             <div class="ledger-heading"><span class="ledger-indicator" aria-hidden="true"></span><p class="diagram-label">Multi-agent evidence routing</p><span class="ledger-tag">1 MAIN + 3 HISTORY</span></div>
@@ -58,8 +58,8 @@
         <section class="features" aria-label="Core capabilities">
           <article class="feature">
             <span class="feature-number" aria-hidden="true">01 /</span>
-            <h2>Explicit recall</h2>
-            <p>Ask to review earlier work. Pi checks saved knowledge first, then searches indexed turns across all three sources.</p>
+            <h2>Find scattered context</h2>
+            <p>Ask to review earlier work. Pi checks saved knowledge first, then searches all three sources with SQLite-backed keyword and phrase matching.</p>
             <a href="https://github.com/shengxiao20/pi-session-memory#core-workflow">Explore retrieval <span aria-hidden="true">↗</span></a>
           </article>
           <article class="feature">

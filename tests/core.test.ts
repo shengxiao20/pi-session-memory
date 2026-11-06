@@ -27,10 +27,21 @@ const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
 const changelog = readFileSync(join(process.cwd(), "CHANGELOG.md"), "utf8");
 const packageManifest = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
 const lockManifest = JSON.parse(readFileSync(join(process.cwd(), "package-lock.json"), "utf8"));
-assert.equal(packageManifest.version, "1.0.0");
+assert.equal(packageManifest.version, "1.0.1");
 assert.equal(lockManifest.version, packageManifest.version);
 assert.equal(lockManifest.packages[""].version, packageManifest.version);
-assert.match(readme, /Current version: 1\.0\.0/);
+assert.ok(readme.includes(`Current version: ${packageManifest.version}`));
+assert.match(packageManifest.description, /SQLite-backed search/);
+assert.match(packageManifest.description, /instead of relying on lossy summaries/);
+assert.match(readme, /Retrieve source evidence instead of relying on lossy summaries/);
+assert.match(readme, /does not replace compaction/);
+assert.match(packageManifest.description, /multi-agent discussion/);
+assert.match(packageManifest.description, /reusable, evidence-based knowledge/);
+for (const keyword of ["pi-package", "pi-extension", "sqlite", "multi-agent", "conversation-history"]) {
+  assert.ok(packageManifest.keywords.includes(keyword), `npm keywords include ${keyword}`);
+}
+assert.equal(new Set(packageManifest.keywords).size, packageManifest.keywords.length, "npm keywords are unique");
+assert.match(readme, /not typo-tolerant fuzzy search or vector similarity/);
 assert.match(readme, /Version 1\.0 retains those capabilities and adds nine tools/);
 assert.match(readme, /The npm `latest` release before 1\.0 is \*\*0\.7\.23\*\*/);
 assert.match(readme, /Context and index isolation/);
@@ -48,7 +59,7 @@ assert.doesNotMatch(`${readme}\n${changelog}\n${packageManifest.description}`, /
 assert.doesNotMatch(extensionSource, /whatsNew|getWhatsNew|showWhatsNewIfUpdated|whats-new|packageJson/);
 const releaseEntries = changelog.split(/^## \[(\d+\.\d+\.\d+)\]\s*$/m);
 const releaseVersions = releaseEntries.filter((_entry, index) => index % 2 === 1);
-assert.deepEqual(releaseVersions, ["1.0.0"], "native changelog contains only the 1.0 product baseline");
+assert.deepEqual(releaseVersions, [packageManifest.version, "1.0.0"], "native changelog contains current release notes and the 1.0 baseline");
 for (let index = 1; index < releaseEntries.length; index += 2) {
   assert.match(releaseEntries[index + 1]!, /^\s*(?:Version|[#-])/, `release ${releaseEntries[index]} must contain notes`);
 }

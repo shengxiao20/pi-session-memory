@@ -1,13 +1,26 @@
 # pi-session-memory
 
-**Current version: 1.0.0**
+**Current version: 1.0.1**
 
 Project website: [GitHub Pages](https://shengxiao20.github.io/pi-session-memory/) (available after deployment).
 
-`pi-session-memory` gives Pi controlled access to local Pi, Claude Code, and Codex conversation history.
-It indexes complete user turns in SQLite, retrieves historical evidence only for explicit look-back requests, and saves evidence-based conclusions as portable Markdown knowledge.
+**Find scattered history. Analyze it with multiple agents. Save reusable knowledge.**
 
-The plugin is local-first. Literal retrieval and storage remain local unless you explicitly enable a remote System One relevance service.
+`pi-session-memory` brings your Pi, Claude Code, and Codex conversation history into one local SQLite index.
+Search across sessions to recover past decisions and context. Enable multi-agent Discussion to examine evidence with historical Pi agents.
+Save cited findings as portable Markdown knowledge for future work.
+
+**Retrieve source evidence instead of relying on lossy summaries.**
+Summaries can omit details. The plugin indexes original user and assistant text and lets you inspect persisted turn context.
+It complements Pi's context compaction; it does not replace compaction or guarantee that every historical detail reaches the model.
+
+- **Find the missing context:** Search indexed conversations across all three sources with SQLite-backed keyword and phrase matching.
+- **Analyze beyond a search result:** Consult up to three user-selected historical Pi agents, compare their answers, and ask private follow-up questions.
+- **Keep knowledge you can reuse:** Save findings, decisions, uncertainties, and actions with source citations. Optionally store them in Obsidian.
+
+Retrieval uses case-insensitive literal substring matching, not typo-tolerant fuzzy search or vector similarity.
+History retrieval requires an explicit request to review earlier work. Discussion is optional; participant agreement is not verification.
+SQLite search and storage remain local. Optional relevance filtering and Discussion use your configured services and Pi model.
 
 ## Download history
 
@@ -460,7 +473,7 @@ The snapshot reports configuration and whether required environment inputs are s
 
 ## Release notes
 
-[CHANGELOG.md](CHANGELOG.md) contains the 1.0 release baseline. Older per-version narratives were removed intentionally.
+[CHANGELOG.md](CHANGELOG.md) contains current release notes and the 1.0 release baseline. Older per-version narratives were removed intentionally.
 
 Pi 1.5.0 and later can display unread package entries through **Extension Updates** after a fresh launch. Restart Pi after updating; `/reload` does not trigger that notice. `/changelog` shows Pi's own release notes, not this package's notes.
 
@@ -494,7 +507,7 @@ The content sections use [CodeGraph's website](https://colbymchenry.github.io/co
 4. Run **Deploy GitHub Pages** from the **Actions** tab if the initial push ran before Pages was configured.
 5. Check the deployment at `https://shengxiao20.github.io/pi-session-memory/`.
 
-The workflow uploads only `site/`, not transcripts, local databases, or the rest of the repository. Later changes to `site/` on `main` trigger deployment automatically. Website deployment does not publish an npm release. The package version remains `1.0.0`.
+The workflow uploads only `site/`, not transcripts, local databases, or the rest of the repository. Later changes to `site/` on `main` trigger deployment automatically. Website deployment does not publish an npm release. The current package version is `1.0.1`.
 
 ## Development verification
 

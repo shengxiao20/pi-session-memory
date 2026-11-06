@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.1]
+
+### Package presentation
+
+- Highlights SQLite-backed search across scattered Pi, Claude Code, and Codex history, optional multi-agent analysis, and reusable evidence-based knowledge.
+- Adds npm keywords for session memory, cross-session history, multi-agent discussion, SQLite, and knowledge management.
+- Aligns the README introduction, website headline, and search and social descriptions with the package message.
+- Clarifies that retrieval uses literal substring matching, not typo-tolerant fuzzy search or vector similarity.
+- Emphasizes retrieving source evidence instead of relying on lossy summaries, while clarifying that the plugin complements rather than replaces Pi's context compaction.
+- Keeps retrieval, Discussion, and storage behavior unchanged.
+
 ## [1.0.0]
 
 Version 1.0 establishes the current product baseline. The previously published npm `latest` version was `0.7.23`.

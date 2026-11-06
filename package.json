@@ -1,10 +1,22 @@
 {
   "name": "pi-session-memory",
-  "version": "1.0.0",
-  "description": "Local-first historical review for Pi, Claude Code and Codex: OKF-first recall, optional System One filtering, private session consultation, evidence-based Markdown knowledge, validated setup, migration and index-safe cleanup.",
+  "version": "1.0.1",
+  "description": "Find scattered Pi, Claude Code, and Codex history with SQLite-backed search instead of relying on lossy summaries. Use multi-agent discussion for deeper analysis and save reusable, evidence-based knowledge.",
   "keywords": [
     "pi-package",
-    "pi-extension"
+    "pi-extension",
+    "sqlite",
+    "local-first",
+    "session-memory",
+    "conversation-history",
+    "cross-session",
+    "multi-agent",
+    "agent-discussion",
+    "knowledge-management",
+    "claude-code",
+    "codex",
+    "markdown",
+    "obsidian"
   ],
   "repository": {
     "type": "git",
