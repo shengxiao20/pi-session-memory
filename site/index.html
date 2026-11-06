@@ -34,7 +34,7 @@
           <div class="hero-copy">
             <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> SQLite search. Multi-agent analysis.</p>
             <h1 id="hero-title">Find scattered history.<br><span>Analyze it together.</span></h1>
-            <p class="lede">Search your Pi conversation history in one local SQLite index instead of relying on lossy summaries. Enable multi-agent Discussion for deeper analysis. Save cited findings as reusable knowledge.</p>
+            <p class="lede">Search native Pi conversation history in one local SQLite index instead of relying on lossy summaries. Discussion activates historical Pi sessions as private participants. Save cited findings as reusable knowledge.</p>
             <div class="actions">
               <a class="button button-primary" href="https://www.npmjs.com/package/pi-session-memory">Install from npm <span aria-hidden="true">→</span></a>
               <a class="button" href="https://github.com/shengxiao20/pi-session-memory#readme">Read the docs</a>
@@ -54,18 +54,18 @@
             <div class="diagram-caption"><span aria-hidden="true">✓</span> Discussion changes one recall result, not the main agent. Source transcripts remain unchanged.</div>
           </div>
         </section>
-        <div class="source-strip" aria-label="Supported transcript source"><span class="source-intro">One local index.</span><span>Pi</span><span class="source-detail">SQLite storage · Markdown output</span></div>
+        <div class="source-strip" aria-label="Supported transcript source"><span class="source-intro">Pi-native by design.</span><span>One history format</span><span class="source-detail">SQLite retrieval · Discussion-ready sessions · Markdown output</span></div>
         <section class="features" aria-label="Core capabilities">
           <article class="feature">
             <span class="feature-number" aria-hidden="true">01 /</span>
             <h2>Find scattered context</h2>
-            <p>Ask to review earlier work. Pi checks saved knowledge first, then searches native Pi history with SQLite-backed keyword and phrase matching.</p>
+            <p>Ask to review earlier work. Pi searches native session history with SQLite-backed keyword and phrase matching. One session format keeps retrieval aligned with Discussion.</p>
             <a href="https://github.com/shengxiao20/pi-session-memory#core-workflow">Explore retrieval <span aria-hidden="true">↗</span></a>
           </article>
           <article class="feature">
             <span class="feature-number" aria-hidden="true">02 /</span>
             <h2>Multi-agent Discussion</h2>
-            <p>Orchestrate one main agent with up to three user-confirmed historical Pi agents. They answer privately and sequentially without changing source history.</p>
+            <p>Activate up to three user-confirmed native Pi sessions as historical agents. They answer privately and sequentially without changing source history.</p>
             <a href="https://github.com/shengxiao20/pi-session-memory#discussion-private-historical-session-consultation">Explore Discussion <span aria-hidden="true">↗</span></a>
           </article>
           <article class="feature">
@@ -79,7 +79,7 @@
           <div class="architecture-intro">
             <p class="eyebrow">The 1.0 multi-agent architecture</p>
             <h2 id="architecture-title">One main agent.<br><span>Multiple historical perspectives.</span></h2>
-            <p>Discussion routes one recall request through user-confirmed historical agents. The current main agent keeps its tools and independently checks persisted source evidence.</p>
+            <p>Discussion routes one recall request through user-confirmed native Pi sessions. Pi-only history avoids external formats that Discussion cannot activate directly. The main agent keeps its tools and independently checks persisted evidence.</p>
             <a class="text-link" href="https://github.com/shengxiao20/pi-session-memory/blob/main/docs/adr/0001-independent-source-verification.md">Read ADR 0001 <span aria-hidden="true">↗</span></a>
           </div>
           <dl class="architecture-facts" aria-label="Multi-agent architecture facts">
@@ -129,7 +129,7 @@
           <ol class="workflow-steps">
             <li><span class="step-number" aria-hidden="true">01</span><div><h3>Check saved knowledge</h3><p>Inspect meeting descriptions. Reuse an existing OKF document when its description clearly matches.</p></div></li>
             <li><span class="step-number" aria-hidden="true">02</span><div><h3>Retrieve historical evidence</h3><p>Search global history and entity-matched project sessions. Expand exact turns when more context is needed.</p></div></li>
-            <li><span class="step-number" aria-hidden="true">03</span><div><h3>Review or consult</h3><p>Compare the retrieved evidence directly, or confirm historical Pi participants for optional private Discussion.</p></div></li>
+            <li><span class="step-number" aria-hidden="true">03</span><div><h3>Review or consult</h3><p>Compare retrieved evidence directly, or activate user-confirmed native Pi sessions for optional private Discussion.</p></div></li>
             <li><span class="step-number" aria-hidden="true">04</span><div><h3>Save a cited conclusion</h3><p>Write draft minutes and portable evidence. Keep uncertainty explicit. Participant agreement is not verification.</p></div></li>
           </ol>
         </section>
@@ -142,7 +142,7 @@
           <div class="section-intro">
             <p class="eyebrow">Get started</p>
             <h2 id="get-started-title">Bring your history<br>into the next session.</h2>
-            <p>You need Pi and your local session files.</p>
+            <p>You need Pi and native Pi session files. This shared format supports both transcript retrieval and Discussion activation.</p>
             <a class="text-link" href="https://github.com/shengxiao20/pi-session-memory/blob/main/setup.md">Read the setup guide <span aria-hidden="true">↗</span></a>
           </div>
           <ol class="setup-steps">

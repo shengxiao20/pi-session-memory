@@ -22,7 +22,10 @@ assert.ok(html.includes(`<meta name="description" content="${manifest.descriptio
 assert.ok(html.includes(`<meta property="og:description" content="${manifest.description}">`), "social description matches npm");
 assert.match(html, /Find scattered history\./);
 assert.match(html, /SQLite search\. Multi-agent analysis\./);
-assert.match(html, /One local index\.[\s\S]*Pi/);
+assert.match(html, /Pi-native by design\.[\s\S]*One history format/);
+assert.match(html, /Discussion activates historical Pi sessions as private participants/);
+assert.match(html, /Pi-only history avoids external formats that Discussion cannot activate directly/);
+assert.match(html, /shared format supports both transcript retrieval and Discussion activation/);
 assert.doesNotMatch(html, /Claude Code|Codex/);
 assert.match(html, /Multi-agent Discussion/);
 assert.match(html, /One main agent/);
