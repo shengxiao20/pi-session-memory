@@ -1,6 +1,6 @@
 {
   "name": "pi-session-memory",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "description": "Find Pi conversation history with SQLite-backed search instead of relying on lossy summaries. Use multi-agent discussion for deeper analysis and save reusable, evidence-based knowledge.",
   "keywords": [
     "pi-package",
@@ -30,11 +30,14 @@
     "extensions/",
     "src/",
     "docs/adr/",
+    "docs/architecture.md",
+    "site/assets/codegraph-map.svg",
+    "site/assets/codegraph-map.json",
     "CHANGELOG.md",
     "setup.md"
   ],
   "scripts": {
-    "test": "tsx tests/history-turns.test.ts && tsx tests/core.test.ts && tsx tests/fetch-turn-context.test.ts && tsx tests/memory-output.test.ts && tsx tests/memory-knowledge.test.ts && tsx tests/memory-context.test.ts && tsx tests/memory-index-policy.test.ts && tsx tests/memory-index-cleanup.test.ts && tsx tests/setup.test.ts && tsx tests/jev-filter.test.ts && tsx tests/jev-runtime.test.ts && tsx tests/primary-entity.test.ts && tsx tests/recall-workflow.test.ts && tsx tests/consultation.test.ts && tsx tests/tool-config-summary.test.ts && tsx tests/download-chart.test.ts && tsx tests/site.test.ts",
+    "test": "tsx tests/architecture.test.ts && tsx tests/history-turns.test.ts && tsx tests/core.test.ts && tsx tests/fetch-turn-context.test.ts && tsx tests/memory-output.test.ts && tsx tests/memory-knowledge.test.ts && tsx tests/memory-context.test.ts && tsx tests/memory-index-policy.test.ts && tsx tests/memory-index-cleanup.test.ts && tsx tests/setup.test.ts && tsx tests/jev-filter.test.ts && tsx tests/jev-runtime.test.ts && tsx tests/primary-entity.test.ts && tsx tests/recall-workflow.test.ts && tsx tests/consultation.test.ts && tsx tests/tool-config-summary.test.ts && tsx tests/download-chart.test.ts && tsx tests/site.test.ts",
     "test:e2e": "tsx tests/e2e.test.ts",
     "test:all": "npm test && npm run test:e2e",
     "downloads:chart": "node scripts/generate-download-chart.mjs"

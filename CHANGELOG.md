@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.1.2]
+
+### CodeGraph architecture documentation
+
+- Adds a shared CodeGraph Map illustration to the README and GitHub Pages, covering nine source module groups and 35 TypeScript files.
+- Saves a sanitized Map snapshot with declared relationships and a separately verified dynamic history import.
+- Separates source dependencies from historical-review participation and routing.
+- Documents module responsibilities, type-only dependencies, foundation boundaries, and explicit map refresh steps.
+- Adds source-to-snapshot and snapshot-to-SVG consistency checks, plus website map accessibility and navigation checks.
+- Packages the architecture SVG and evidence snapshot with the existing source architecture guide.
+- Preserves public tools, commands, configuration, and runtime behavior. Publishing and website deployment remain separate actions.
+
+## [1.1.1]
+
+### Domain organization
+
+- Groups source modules by history, settings, relevance, recall, knowledge, presentation, consultation, and setup responsibilities.
+- Extracts shared transcript and consultation record types into `src/contracts/` to remove reverse implementation dependencies.
+- Keeps `extensions/index.ts` as the Pi entry point and preserves existing tools, commands, and review behavior.
+- Updates internal imports, tests, and the packaged setup-guide path for the new directories.
+- Adds an architecture test for domain boundaries, import targets, and dependency cycles.
+- Documents module responsibilities and invocation relationships in the README and source architecture guide.
+- Excludes `.github/`, `scripts/`, `site/`, and `sites/` from the repository's CodeGraph index while retaining tests.
+- Leaves Git tracking, npm packaging, and SQLite transcript indexing unchanged.
+
 ## [1.1.0]
 
 ### Pi-only history

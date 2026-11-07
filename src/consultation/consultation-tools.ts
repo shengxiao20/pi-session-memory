@@ -3,11 +3,11 @@ import { Value } from "typebox/value";
 import type { ExtensionAPI, ExtensionCommandContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
-import { ConsultationPresentation } from "./consultation-presentation.ts";
+import { ConsultationPresentation } from "../presentation/consultation-presentation.ts";
 import { ConsultationRuntime } from "./consultation-runtime.ts";
-import { meetingConclusionSchema } from "./meeting-conclusion-schema.ts";
-import { MemoryOutput, OKF_OUTPUT_NOTICE } from "./memory-output.ts";
-import { MAIN_AGENT_NOTICE, CONSULTATION_CLOSED_NOTICE } from "./consultation-guidance.ts";
+import { meetingConclusionSchema } from "../knowledge/meeting-conclusion-schema.ts";
+import { MemoryOutput, OKF_OUTPUT_NOTICE } from "../presentation/memory-output.ts";
+import { MAIN_AGENT_NOTICE, CONSULTATION_CLOSED_NOTICE } from "../presentation/consultation-guidance.ts";
 
 /** Register manual and agent access to private follow-ups and draft minutes. */
 export function registerConsultationTools(registerTool: ExtensionAPI["registerTool"], runtime: ConsultationRuntime, presentation: ConsultationPresentation, output: MemoryOutput) {

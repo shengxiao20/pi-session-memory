@@ -1,10 +1,10 @@
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { inspectMemoryKnowledge, readMemoryKnowledge, KNOWLEDGE_FIRST_NOTICE } from "./memory-knowledge.ts";
-import type { MemoryOutput } from "./memory-output.ts";
+interface SavedKnowledgeOutput { reuse(markdown: string): void; }
 
 /** Expose the OKF-first route without changing transcript tools or starting a consultation. */
-export function registerMemoryKnowledgeTools(registerTool: ExtensionAPI["registerTool"], output: MemoryOutput): void {
+export function registerMemoryKnowledgeTools(registerTool: ExtensionAPI["registerTool"], output: SavedKnowledgeOutput): void {
   registerTool({
     name: "inspect_memory_knowledge", label: "Inspect Saved OKF Frontmatter", executionMode: "sequential",
     description: "Use first when the user explicitly asks to look back at earlier work or historical conversations, such as 'review our earlier work' or 'look at past conversations'. Do not use for ordinary questions or infer a recall request from a topic name. Read each saved meeting's required description from the selected knowledge root. No document body, transcript search or consultation is returned. Compare the descriptions with the user's request; if a document clearly matches, read it with read_memory_knowledge. Only if none clearly matches, use recall_memory. Missing meetings returns an empty catalogue; invalid metadata or storage raises an error.",

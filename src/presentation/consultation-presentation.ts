@@ -2,7 +2,7 @@ import type { AgentToolResult, Theme, ToolRenderResultOptions } from "@earendil-
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
-import type { ConsultationAnswer } from "./consultation-agent.ts";
+import type { ConsultationAnswer } from "../contracts/consultation.ts";
 import { CONFIG_SUMMARY_PREFIX } from "./tool-config-summary.ts";
 
 interface InitialConsultation {

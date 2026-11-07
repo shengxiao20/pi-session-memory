@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { getSessionMemoryConfig, type SessionMemoryConfig } from "./config.ts";
+import { getSessionMemoryConfig, type SessionMemoryConfig } from "../settings/config.ts";
 
 /** Select one knowledge root for both OKF routes. Never fall back from an invalid vault. */
 export function resolveKnowledgePath(config: SessionMemoryConfig = getSessionMemoryConfig()): string {

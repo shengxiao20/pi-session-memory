@@ -1,6 +1,6 @@
 # pi-session-memory
 
-**Current version: 1.1.0**
+**Current version: 1.1.2**
 
 Project website: [GitHub Pages](https://shengxiao20.github.io/pi-session-memory/) (available after deployment).
 
@@ -21,6 +21,8 @@ It complements Pi's context compaction; it does not replace compaction or guaran
 Retrieval uses case-insensitive literal substring matching, not typo-tolerant fuzzy search or vector similarity.
 History retrieval requires an explicit request to review earlier work. Discussion is optional; participant agreement is not verification.
 SQLite search and storage remain local. Optional relevance filtering and Discussion use your configured services and Pi model.
+
+**Architecture:** [Source module map](#source-architecture) · [Historical-review routing](#architecture-decision-independent-evidence-routing).
 
 ## Download history
 
@@ -490,7 +492,57 @@ The content sections use [CodeGraph's website](https://colbymchenry.github.io/co
 4. Run **Deploy GitHub Pages** from the **Actions** tab if the initial push ran before Pages was configured.
 5. Check the deployment at `https://shengxiao20.github.io/pi-session-memory/`.
 
-The workflow uploads only `site/`, not transcripts, local databases, or the rest of the repository. Later changes to `site/` on `main` trigger deployment automatically. Website deployment does not publish an npm release. The current package version is `1.1.0`.
+The workflow uploads only `site/`, not transcripts, local databases, or the rest of the repository. Later changes to `site/` on `main` trigger deployment automatically. Website deployment does not publish an npm release. The current package version is `1.1.2`.
+
+## Source architecture
+
+`extensions/index.ts` connects **9 source module groups and 35 TypeScript files**. The CodeGraph Map below shows implementation dependencies.
+The [historical-review routing diagram](#architecture-decision-independent-evidence-routing) shows agent participation instead. These are separate views.
+
+[![CodeGraph Map of the Pi entry point and nine source module groups. Cards list cross-domain imports; selected arrows distinguish declared, type-only, and source-verified dynamic dependencies.](site/assets/codegraph-map.svg)](site/assets/codegraph-map.svg)
+
+Read the map in three steps:
+
+1. Start with `extensions/index.ts`. This composition root registers Pi tools and connects every source domain.
+2. Follow the selected arrows between review, output, and service modules. Each card lists all cross-domain imports.
+3. Check the foundations. `history`, `contracts`, and `settings` import no other source domain.
+
+| Responsibility | Module groups | Boundary |
+| --- | --- | --- |
+| Review and setup | `consultation`, `recall`, `setup` | Private participants, sequential retrieval, and approval-based configuration |
+| Output and services | `presentation`, `relevance`, `knowledge` | Temporary context, optional filtering, and saved OKF documents |
+| Foundations | `history`, `contracts`, `settings` | Transcript storage, shared types, and configuration validation |
+
+**Evidence and limits:** The [Map snapshot](site/assets/codegraph-map.json) records declared relationships from `/api/map?root=&depth=2`.
+Tests are omitted from this view, not from the index. Static counts are not runtime call frequencies.
+The `recall → relevance` relationship is type-only; the entry point supplies the reviewer callback.
+`consultation → history` is a source-verified dynamic import in `src/consultation/consultation-agent.ts`, not a declared Map edge.
+Unresolved Map guesses are excluded. The map does not show permissions, runtime order, or every internal call.
+
+`extensions/index.ts` remains the Pi entry point. It connects domain modules without changing the public tools or commands.
+
+```text
+src/
+├── contracts/       Shared transcript and consultation types
+├── history/         SQLite, transcript parsing, import, writes, and cleanup
+├── settings/        Runtime configuration and validation
+├── relevance/       System One filtering and optional Ollama management
+├── recall/          Literal search, project discovery, and sequential retrieval
+├── knowledge/       Saved OKF inspection, storage, and conclusion schemas
+├── presentation/    Temporary context, final output, guidance, and rendering
+├── consultation/    Historical participants, selection, and private discussion
+└── setup/           Approval-based setup guide and configuration tools
+```
+
+Shared types live in `contracts/`, not in runtime implementations. Knowledge storage does not import the consultation runtime or presentation classes.
+[Source architecture](docs/architecture.md) lists the modules, dependency boundaries, and invocation relationships.
+
+### CodeGraph index scope
+
+Repository-level `codegraph.json` excludes `.github/`, `scripts/`, `site/`, and `sites/` from CodeGraph, including tracked files.
+The website directory is `site/`; `sites/` also covers the requested plural name. Tests remain indexed.
+This configuration does not change Git tracking, npm packaging, or the plugin's SQLite transcript index.
+Run an explicit CodeGraph sync after changing the configuration. Opening the browser UI does not perform that sync.
 
 ## Development verification
 

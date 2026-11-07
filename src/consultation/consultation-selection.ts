@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text, matchesKey, Key } from "@earendil-works/pi-tui";
-import { cleanDisplayText } from "./consultation-presentation.ts";
-import type { RecallTurnResult } from "./retriever.ts";
+import { cleanDisplayText } from "../presentation/consultation-presentation.ts";
+import type { RecallTurnResult } from "../contracts/recall.ts";
 
 /** Confirm historical participants in a TUI before loading their sessions into memory. */
 export async function selectConsultationParticipants(groups: RecallTurnResult[][], context: ExtensionContext, signal?: AbortSignal): Promise<RecallTurnResult[][]> {

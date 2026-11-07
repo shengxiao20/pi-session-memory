@@ -64,6 +64,19 @@ h1 span { color: var(--accent); }
 .feature a, .text-link { color: var(--accent); font-size: 13px; font-weight: 550; text-decoration: none; }
 .feature a { margin-top: auto; }
 .feature a:hover, .text-link:hover { text-decoration: underline; }
+.source-architecture { margin-bottom: 72px; }
+.source-architecture .section-intro { max-width: 760px; }
+.source-map-figure { margin: 28px 0; border: 1px solid #51645b; border-radius: 16px; background: #111a1d; overflow: hidden; }
+.source-map-scroll { overflow-x: auto; }
+.source-map-scroll:focus-visible { outline: 3px solid var(--accent); outline-offset: -4px; }
+.source-map { display: block; width: 100%; min-width: 960px; height: auto; }
+.source-map-figure figcaption { padding: 18px 24px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.75; }
+.source-map-guide { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin: 0 0 24px; padding-left: 24px; }
+.source-map-guide li { padding-left: 4px; }
+.source-map-guide li::marker { color: var(--mint); font-family: var(--mono); }
+.source-map-guide p, .source-map-note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.8; }
+.source-map-guide code { font: .9em var(--mono); overflow-wrap: anywhere; }
+.source-map-links { display: flex; flex-wrap: wrap; gap: 12px 28px; margin-bottom: 18px; }
 .architecture { display: grid; grid-template-columns: 1fr 1fr; gap: 36px 64px; margin-bottom: 100px; padding: 48px; border: 1px solid #4e4535; border-radius: 18px; background: linear-gradient(135deg, #201f1a, #172124 68%); }
 .architecture > * { min-width: 0; }
 .architecture-intro h2 { margin: 0 0 22px; font-size: clamp(34px, 4vw, 52px); font-weight: 550; line-height: 1.08; letter-spacing: -1.9px; }
@@ -157,6 +170,8 @@ q { font-style: italic; }
   .features { grid-template-columns: 1fr; gap: 16px; margin-bottom: 64px; }
   .feature { padding: 28px; }
   .feature-number { margin-bottom: 22px; }
+  .source-architecture { margin-bottom: 64px; }
+  .source-map-guide { grid-template-columns: 1fr; gap: 18px; }
   .architecture { grid-template-columns: 1fr; margin-bottom: 64px; }
   .routing-figure figcaption { flex-direction: column; gap: 6px; }
   .routing-split { grid-template-columns: 1fr; padding-top: 0; }

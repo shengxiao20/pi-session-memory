@@ -7,10 +7,10 @@ import type { SessionEntry, ExtensionContext } from "@earendil-works/pi-coding-a
 const home = mkdtempSync(join(tmpdir(), "pi-history-turns-"));
 process.env.HOME = process.env.USERPROFILE = home;
 process.env.MEMORY_DB_PATH = join(home, "history.db");
-const { getDb, getSession, getSourceFile } = await import("../src/db.ts");
-const { syncChangedHistory, backfillAll } = await import("../src/backfill.ts");
-const { buildPiTurns } = await import("../src/pi-turns.ts");
-const { writeTurn } = await import("../src/writer.ts");
+const { getDb, getSession, getSourceFile } = await import("../src/history/db.ts");
+const { syncChangedHistory, backfillAll } = await import("../src/history/backfill.ts");
+const { buildPiTurns } = await import("../src/history/pi-turns.ts");
+const { writeTurn } = await import("../src/history/writer.ts");
 const timestamp = "2026-06-06T12:00:00Z";
 const header = { type: "session", version: 3, id: "tree", timestamp, cwd: "/work/tree" };
 const message = (id: string, parentId: string | null, role: string, text: string, extra: unknown[] = []): SessionEntry => ({

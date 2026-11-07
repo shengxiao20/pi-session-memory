@@ -14,7 +14,7 @@ const knowledgePath = join(root, "knowledge");
 function configure(consultation?: unknown) { writeFileSync(configPath, JSON.stringify({ recallLimit: 20, ...(consultation === undefined ? {} : { enableDiscussion: true, consultation }) })); }
 const enabled = { knowledgePath, timeoutMs: 2000 };
 configure();
-const { getEnabledConsultation, getSessionMemoryConfig } = await import("../src/config.ts");
+const { getEnabledConsultation, getSessionMemoryConfig } = await import("../src/settings/config.ts");
 assert.equal(getEnabledConsultation(), undefined);
 configure(enabled);
 assert.deepEqual(getEnabledConsultation(), enabled);
@@ -35,9 +35,9 @@ configure(enabled);
 const { SessionManager, ModelRuntime, ModelRegistry, createAgentSession, createExtensionRuntime, SettingsManager } = await import("@earendil-works/pi-coding-agent");
 const aiPath = new URL("../node_modules/@earendil-works/pi-ai/dist/index.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href;
 const { createAssistantMessageEventStream } = await import(aiPath);
-const { upsertSession, upsertTurn } = await import("../src/db.ts");
-const { ConsultationRuntime, selectConsultationSessions } = await import("../src/consultation-runtime.ts");
-const { createHistoricalAgent } = await import("../src/consultation-agent.ts");
+const { upsertSession, upsertTurn } = await import("../src/history/db.ts");
+const { ConsultationRuntime, selectConsultationSessions } = await import("../src/consultation/consultation-runtime.ts");
+const { createHistoricalAgent } = await import("../src/consultation/consultation-agent.ts");
 const model: any = { id: "test", name: "Test", provider: "consult-test", api: "openai-completions", baseUrl: "http://unused", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 4096 };
 const assistant = (text: string) => ({ role: "assistant" as const, content: [{ type: "text" as const, text }], api: model.api, provider: model.provider, model: model.id, stopReason: "stop" as const, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, timestamp: Date.now() });
 const managers: any[] = [];
@@ -127,7 +127,7 @@ const factory: any = async (group: any[]) => ({
     } finally { active--; }
   }, async abort() {}, dispose() { disposed++; },
 });
-const { selectConsultationParticipants } = await import("../src/consultation-selection.ts");
+const { selectConsultationParticipants } = await import("../src/consultation/consultation-selection.ts");
 const { KeybindingsManager, TUI_KEYBINDINGS, visibleWidth } = await import("@earendil-works/pi-tui");
 const candidates = selectConsultationSessions(turns, main.getSessionId());
 const simulateSelection = (inputs: string[]) => ({ ...ctx, mode: "tui", ui: {
@@ -264,13 +264,13 @@ await assert.rejects(() => startupResult, /cancelled/);
 assert.equal(startupDisposed, 1);
 assert.ok(!existsSync(join(configDirectory, "consultation-locks")));
 
-const { registerConsultationTools } = await import("../src/consultation-tools.ts");
+const { registerConsultationTools } = await import("../src/consultation/consultation-tools.ts");
 let command: any;
 const registered: any[] = [];
-const { ConsultationPresentation, cleanDisplayText } = await import("../src/consultation-presentation.ts");
+const { ConsultationPresentation, cleanDisplayText } = await import("../src/presentation/consultation-presentation.ts");
 assert.equal(cleanDisplayText("\u001b[31m安全文本\u001b[0m\u0007"), "安全文本");
 const presentation = new ConsultationPresentation();
-const { MemoryOutput } = await import("../src/memory-output.ts");
+const { MemoryOutput } = await import("../src/presentation/memory-output.ts");
 command = { handler: registerConsultationTools((tool: any) => { registered.push(tool); }, runtime, presentation, new MemoryOutput()) };
 assert.equal(registered.length, 3);
 const { initTheme } = await import("@earendil-works/pi-coding-agent");
@@ -435,7 +435,7 @@ const cleanupMeeting = await cleanupRuntime.start(turns, "cleanup errors", ctx);
 await assert.rejects(() => cleanupRuntime.cancel(cleanupMeeting.consultation_id!, ctx), /Consultation cleanup failed/);
 assert.ok(!existsSync(join(configDirectory, "consultation-locks")));
 
-const { writeMeetingMinutes } = await import("../src/meeting-minutes.ts");
+const { writeMeetingMinutes } = await import("../src/knowledge/meeting-minutes.ts");
 assert.throws(() => writeMeetingMinutes({} as any, {} as any), /description must be non-empty/);
 rmSync(root, { recursive: true, force: true });
 console.log("consultation tests passed (real SDK, deterministic provider; no live sessions modified)");

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { filterRecallWithJev } from "../src/jev-filter.ts";
-import type { RecallTurnResult } from "../src/retriever.ts";
+import { filterRecallWithJev } from "../src/relevance/jev-filter.ts";
+import type { RecallTurnResult } from "../src/contracts/recall.ts";
 
 interface CapturedRequest {
   state: { userQuestion: string };

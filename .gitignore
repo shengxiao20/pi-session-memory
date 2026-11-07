@@ -3,4 +3,8 @@ node_modules/
 *.tgz
 coverage/
 quick-notes/
-docs/
+docs/*
+!docs/architecture.md
+!docs/adr/
+docs/adr/*
+!docs/adr/0001-independent-source-verification.md

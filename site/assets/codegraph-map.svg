@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1010" viewBox="0 0 1200 1010" role="img" aria-labelledby="title description">
+  <title id="title">CodeGraph Map: pi-session-memory source architecture</title>
+  <desc id="description">One Pi entry point imports nine source module groups containing 35 TypeScript files. Each card lists all cross-domain dependencies. Arrows show selected dependencies, not runtime sequence. The recall-to-relevance import is type-only. Consultation dynamically imports history, verified in source. Contracts, history, and settings do not depend on other source domains.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#81aa98"/></marker>
+    <marker id="type-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#91b7dd"/></marker>
+    <marker id="dynamic-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#efbc71"/></marker>
+    <style>
+      text { font-family: system-ui, -apple-system, sans-serif; fill: #eef0e8; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+      .section { font-size: 13px; letter-spacing: 1.8px; fill: #98c8b3; }
+      .name { font-size: 23px; font-weight: 600; }
+      .count { font-size: 14px; fill: #efbc71; }
+      .body { font-size: 17px; fill: #c4ccc5; }
+      .uses { font-size: 14px; fill: #a8b7ad; }
+      .card { fill: #1b2829; stroke: #51645b; stroke-width: 1.2; }
+      .foundation { fill: #202c26; stroke: #667b5c; stroke-width: 1.2; }
+      .edge { fill: none; stroke: #81aa98; stroke-width: 1.6; marker-end: url(#arrow); }
+      .type-edge { fill: none; stroke: #91b7dd; stroke-width: 1.6; stroke-dasharray: 5 5; marker-end: url(#type-arrow); }
+      .dynamic-edge { fill: none; stroke: #efbc71; stroke-width: 1.6; stroke-dasharray: 7 5; marker-end: url(#dynamic-arrow); }
+    </style>
+  </defs>
+  <rect width="1200" height="1010" rx="20" fill="#111a1d"/>
+  <text x="40" y="42" class="section">IMPLEMENTATION ARCHITECTURE · CODEGRAPH MAP</text>
+  <text x="40" y="78" font-size="27" font-weight="600">9 source module groups. 35 TypeScript files.</text>
+  <text x="40" y="104" class="uses">Redrawn from declared Map relations. Types count as dependencies; arrows are not a runtime trace.</text>
+
+  <g data-module="extensions/index.ts" data-files="1" data-dependencies="consultation contracts history knowledge presentation recall relevance settings setup">
+    <rect x="360" y="126" width="480" height="86" rx="12" class="card"/>
+    <text x="384" y="158" class="name mono">extensions/index.ts</text>
+    <text x="384" y="185" class="body">Registers Pi tools and connects all 9 domains.</text>
+  </g>
+  <path d="M600 212V232H210V258" class="edge" data-source="extensions/index.ts" data-target="src/consultation"/>
+  <path d="M600 212V258" class="edge" data-source="extensions/index.ts" data-target="src/recall"/>
+  <path d="M600 232H990V258" class="edge" data-source="extensions/index.ts" data-target="src/setup"/>
+
+  <path d="M210 412V492" class="edge" data-source="src/consultation" data-target="src/presentation"/>
+  <path d="M380 380H394V442H930V492" class="edge" data-source="src/consultation" data-target="src/knowledge"/>
+  <path d="M600 412V492" class="type-edge" data-source="src/recall" data-target="src/relevance"/>
+  <path d="M430 364H406V710H210V748" class="edge" data-source="src/recall" data-target="src/history"/>
+  <path d="M990 412V492" class="edge" data-source="src/setup" data-target="src/knowledge"/>
+  <path d="M210 646V678H990V646" class="edge" data-source="src/presentation" data-target="src/knowledge"/>
+  <path d="M40 340H18V804H40" class="dynamic-edge" data-source="src/consultation" data-target="src/history"/>
+  <text x="617" y="473" font-size="13" fill="#91b7dd" style="fill:#91b7dd">type-only</text>
+  <text x="448" y="669" class="uses">output depends on knowledge storage</text>
+
+  <g data-module="src/consultation" data-files="4" data-dependencies="contracts history knowledge presentation settings">
+    <rect x="40" y="258" width="340" height="154" rx="12" class="card"/>
+    <text x="64" y="292" class="name mono">consultation</text><text x="350" y="290" text-anchor="end" class="count">4 files</text>
+    <text x="64" y="322" class="body">Historical agents and private review</text>
+    <text x="64" y="352" class="uses">Uses: contracts, knowledge,</text>
+    <text x="64" y="373" class="uses">presentation, settings;</text>
+    <text x="64" y="394" class="uses">history via verified dynamic import</text>
+  </g>
+  <g data-module="src/recall" data-files="4" data-dependencies="contracts history relevance settings">
+    <rect x="430" y="258" width="340" height="154" rx="12" class="card"/>
+    <text x="454" y="292" class="name mono">recall</text><text x="740" y="290" text-anchor="end" class="count">4 files</text>
+    <text x="454" y="322" class="body">Global → project literal search</text>
+    <text x="454" y="352" class="uses">Uses: contracts, history, settings,</text>
+    <text x="454" y="373" class="uses">relevance types (reviewer callback)</text>
+  </g>
+  <g data-module="src/setup" data-files="3" data-dependencies="knowledge settings">
+    <rect x="820" y="258" width="340" height="154" rx="12" class="card"/>
+    <text x="844" y="292" class="name mono">setup</text><text x="1130" y="290" text-anchor="end" class="count">3 files</text>
+    <text x="844" y="322" class="body">Guide reads and approved saves</text>
+    <text x="844" y="352" class="uses">Uses: knowledge, settings</text>
+    <text x="844" y="383" class="uses">No transcript import or service startup</text>
+  </g>
+
+  <text x="40" y="476" class="section" style="font-size:11px;letter-spacing:1px">OUTPUT AND SERVICES</text>
+  <g data-module="src/presentation" data-files="5" data-dependencies="contracts knowledge settings">
+    <rect x="40" y="492" width="340" height="154" rx="12" class="card"/>
+    <text x="64" y="526" class="name mono">presentation</text><text x="350" y="524" text-anchor="end" class="count">5 files</text>
+    <text x="64" y="556" class="body">Temporary context and final output</text>
+    <text x="64" y="586" class="uses">Uses: contracts, knowledge, settings</text>
+    <text x="64" y="616" class="uses">Canonical saved document and UI text</text>
+  </g>
+  <g data-module="src/relevance" data-files="3" data-dependencies="contracts settings">
+    <rect x="430" y="492" width="340" height="154" rx="12" class="card"/>
+    <text x="454" y="526" class="name mono">relevance</text><text x="740" y="524" text-anchor="end" class="count">3 files</text>
+    <text x="454" y="556" class="body">Optional System One filtering</text>
+    <text x="454" y="586" class="uses">Uses: contracts, settings</text>
+    <text x="454" y="616" class="uses">Ollama management requires opt-in</text>
+  </g>
+  <g data-module="src/knowledge" data-files="5" data-dependencies="contracts settings">
+    <rect x="820" y="492" width="340" height="154" rx="12" class="card"/>
+    <text x="844" y="526" class="name mono">knowledge</text><text x="1130" y="524" text-anchor="end" class="count">5 files</text>
+    <text x="844" y="556" class="body">Saved OKF inspection and storage</text>
+    <text x="844" y="586" class="uses">Uses: contracts, settings</text>
+    <text x="844" y="616" class="uses">No consultation runtime dependency</text>
+  </g>
+
+  <text x="430" y="732" class="section">FOUNDATIONS · NO CROSS-DOMAIN IMPORTS</text>
+  <g data-module="src/history" data-files="8" data-dependencies="">
+    <rect x="40" y="748" width="340" height="130" rx="12" class="foundation"/>
+    <text x="64" y="782" class="name mono">history</text><text x="350" y="780" text-anchor="end" class="count">8 files</text>
+    <text x="64" y="812" class="body">SQLite and native Pi transcripts</text>
+    <text x="64" y="842" class="uses">Parsing, import, writes, and cleanup</text>
+  </g>
+  <g data-module="src/contracts" data-files="2" data-dependencies="">
+    <rect x="430" y="748" width="340" height="130" rx="12" class="foundation"/>
+    <text x="454" y="782" class="name mono">contracts</text><text x="740" y="780" text-anchor="end" class="count">2 files</text>
+    <text x="454" y="812" class="body">Shared transcript and review types</text>
+    <text x="454" y="842" class="uses">Types only; no runtime implementation</text>
+  </g>
+  <g data-module="src/settings" data-files="1" data-dependencies="">
+    <rect x="820" y="748" width="340" height="130" rx="12" class="foundation"/>
+    <text x="844" y="782" class="name mono">settings</text><text x="1130" y="780" text-anchor="end" class="count">1 file</text>
+    <text x="844" y="812" class="body">Configuration and validation</text>
+    <text x="844" y="842" class="uses">Explicit settings and connection checks</text>
+  </g>
+
+  <path d="M40 918H79" class="edge"/><text x="92" y="923" class="uses">Declared dependency</text>
+  <path d="M370 918H409" class="type-edge"/><text x="422" y="923" class="uses">Type-only dependency</text>
+  <path d="M750 918H789" class="dynamic-edge"/><text x="802" y="923" class="uses">Source-verified dynamic import</text>
+  <text x="40" y="958" class="uses">Cards list every cross-domain import. Only selected arrows are drawn; the entry imports all nine domains.</text>
+  <text x="40" y="981" class="uses">Map scope: extensions + src · tests omitted from this view · no module cycles reported · raw guesses excluded</text>
+</svg>

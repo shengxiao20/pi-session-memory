@@ -1,7 +1,7 @@
 import { noul } from "@typesafe-ai/sdk";
-import type { RecallTurnResult } from "./retriever.ts";
+import type { RecallTurnResult } from "../contracts/recall.ts";
 import type { JevRuntime } from "./jev-runtime.ts";
-import type { JevModel } from "./config.ts";
+import type { JevModel } from "../settings/config.ts";
 
 const MAX_BATCH_ITEMS = 64;
 const RESERVED_TOKENS = 256;

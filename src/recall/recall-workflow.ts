@@ -1,7 +1,7 @@
 import { validateRecallQuery, type RecallQuery } from "./recall-query.ts";
 import { recallTurns } from "./retriever.ts";
 import { recallProjectMemory, type ProjectRecallResult } from "./project-retriever.ts";
-import type { JevFilterResult } from "./jev-filter.ts";
+import type { JevFilterResult } from "../relevance/jev-filter.ts";
 
 export interface RecallWorkflowOptions extends RecallQuery {}
 export interface RecallWorkflowProgress {

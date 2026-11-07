@@ -23,7 +23,8 @@
           pi-session-memory
         </a>
         <nav class="nav-links" aria-label="Main navigation">
-          <a href="#architecture">Architecture</a>
+          <a href="#architecture">Source map</a>
+          <a href="#review-routing">Review routing</a>
           <a href="#workflow">Workflow</a>
           <a href="https://github.com/shengxiao20/pi-session-memory#readme">Docs</a>
           <a class="repository-link" href="https://github.com/shengxiao20/pi-session-memory">GitHub <span aria-hidden="true">↗</span></a>
@@ -46,7 +47,7 @@
               </button>
             </div>
             <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
-            <p class="release-note">Version 1.1.0 · Install from npm.</p>
+            <p class="release-note">Version 1.1.2 · Install from npm.</p>
           </div>
           <div class="hero-visual">
             <div class="ledger-heading"><span class="ledger-indicator" aria-hidden="true"></span><p class="diagram-label">Multi-agent evidence routing</p><span class="ledger-tag">1 MAIN + 3 HISTORY</span></div>
@@ -75,9 +76,33 @@
             <a href="https://github.com/shengxiao20/pi-session-memory#saved-okf-knowledge">Explore saved knowledge <span aria-hidden="true">↗</span></a>
           </article>
         </section>
-        <section class="architecture" id="architecture" aria-labelledby="architecture-title">
+        <section class="source-architecture" id="architecture" aria-labelledby="source-architecture-title">
+          <div class="section-intro">
+            <p class="eyebrow">Implementation architecture · CodeGraph Map</p>
+            <h2 id="source-architecture-title">One entry point. Nine source module groups.</h2>
+            <p>The Pi entry point connects 35 TypeScript files across nine module groups. This map shows static dependencies, not agent participation or runtime sequence.</p>
+          </div>
+          <figure class="source-map-figure" aria-labelledby="source-map-caption">
+            <div class="source-map-scroll" tabindex="0" role="region" aria-label="Source architecture map. Scroll horizontally on small screens.">
+              <img class="source-map" src="./assets/codegraph-map.svg" width="1200" height="1010" alt="CodeGraph Map: extensions/index.ts connects consultation, recall, setup, presentation, relevance, knowledge, history, contracts, and settings. Cards list dependencies. Recall imports relevance types; consultation dynamically imports history. Foundations have no cross-domain imports.">
+            </div>
+            <figcaption id="source-map-caption">Redrawn from CodeGraph Map declared relationships. Cards list every cross-domain import; arrows show selected dependencies. The dynamic consultation-to-history import is verified in source. Static relationships are not runtime traces. On small screens, scroll the map horizontally or open the full-size SVG.</figcaption>
+          </figure>
+          <ol class="source-map-guide">
+            <li><h3>Start with the entry point</h3><p><code>extensions/index.ts</code> registers Pi tools and connects all nine domains.</p></li>
+            <li><h3>Follow domain responsibilities</h3><p>Review and setup use output and service modules. Recall receives a reviewer callback; its relevance import is type-only.</p></li>
+            <li><h3>Check the foundations</h3><p><code>history</code>, <code>contracts</code>, and <code>settings</code> do not import other source domains.</p></li>
+          </ol>
+          <div class="source-map-links">
+            <a class="text-link" href="./assets/codegraph-map.svg">Open full-size map <span aria-hidden="true">↗</span></a>
+            <a class="text-link" href="./assets/codegraph-map.json">Inspect Map evidence <span aria-hidden="true">↗</span></a>
+            <a class="text-link" href="https://github.com/shengxiao20/pi-session-memory/blob/main/docs/architecture.md">Read module ownership <span aria-hidden="true">↗</span></a>
+          </div>
+          <p class="source-map-note">Tests remain indexed but are omitted here. Unresolved Map guesses are excluded. The source map does not change tools, commands, or review permissions.</p>
+        </section>
+        <section class="architecture" id="review-routing" aria-labelledby="architecture-title">
           <div class="architecture-intro">
-            <p class="eyebrow">The 1.0 multi-agent architecture</p>
+            <p class="eyebrow">Historical-review routing · separate from source dependencies</p>
             <h2 id="architecture-title">One main agent.<br><span>Multiple historical perspectives.</span></h2>
             <p>Discussion routes one recall request through user-confirmed native Pi sessions. Pi-only history avoids external formats that Discussion cannot activate directly. The main agent keeps its tools and independently checks persisted evidence.</p>
             <a class="text-link" href="https://github.com/shengxiao20/pi-session-memory/blob/main/docs/adr/0001-independent-source-verification.md">Read ADR 0001 <span aria-hidden="true">↗</span></a>

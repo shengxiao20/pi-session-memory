@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 const home = mkdtempSync(join(tmpdir(), "pi-memory-index-policy-"));
 process.env.HOME = home; process.env.USERPROFILE = home;
 process.env.MEMORY_DB_PATH = join(home, "memory.db");
-const { SESSION_MEMORY_TOOL_NAMES, isMemoryToolTurn, installMemoryTurnExclusion } = await import("../src/memory-index-policy.ts");
+const { SESSION_MEMORY_TOOL_NAMES, isMemoryToolTurn, installMemoryTurnExclusion } = await import("../src/history/memory-index-policy.ts");
 const legacy = new DatabaseSync(process.env.MEMORY_DB_PATH);
 legacy.exec(`CREATE TABLE sessions (session_id TEXT PRIMARY KEY, source TEXT NOT NULL, cwd TEXT NOT NULL, started_at INTEGER NOT NULL, model_id TEXT, jsonl_path TEXT NOT NULL);
 CREATE TABLE turns (turn_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, turn_index INTEGER NOT NULL, ts INTEGER NOT NULL, user_text TEXT NOT NULL, reply_text TEXT NOT NULL, tool_names TEXT, user_message_id TEXT);
@@ -17,9 +17,9 @@ legacy.prepare("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)").run("pi:legacy"
 const rawInsert = legacy.prepare("INSERT INTO turns VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 for (const [index, tool] of SESSION_MEMORY_TOOL_NAMES.entries()) rawInsert.run(`legacy-${index}`, "pi:legacy", index, index, "user", "final OKF", JSON.stringify(["read", tool]), `message-${index}`);
 rawInsert.run("ordinary", "pi:legacy", 20, 20, "Discuss recall_memory without calling it", "ordinary reply", '["read"]', "ordinary-message");
-const { getDb, getSession, upsertSession, upsertTurn, insertTurn, replaceSourceFile } = await import("../src/db.ts");
-const { writeTurn } = await import("../src/writer.ts");
-const { backfillAll, syncChangedHistory } = await import("../src/backfill.ts");
+const { getDb, getSession, upsertSession, upsertTurn, insertTurn, replaceSourceFile } = await import("../src/history/db.ts");
+const { writeTurn } = await import("../src/history/writer.ts");
+const { backfillAll, syncChangedHistory } = await import("../src/history/backfill.ts");
 const db = getDb();
 try {
   assert.deepEqual(getSession("pi:legacy").turns.map(turn => turn.turn_id), ["ordinary"], "opening the DB purges old package-tool turns without removing ordinary turns or session metadata");
@@ -81,7 +81,7 @@ try {
   const badDb = new DatabaseSync(badPath);
   badDb.exec("CREATE TABLE turns (turn_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, turn_index INTEGER NOT NULL, ts INTEGER NOT NULL, user_text TEXT NOT NULL, reply_text TEXT NOT NULL, tool_names TEXT, user_message_id TEXT); INSERT INTO turns VALUES ('bad', 'session', 0, 0, 'user', 'reply', 'not JSON', NULL);");
   badDb.close();
-  const failedOpen = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `import assert from 'node:assert/strict'; const {getDb} = await import(${JSON.stringify(new URL("../src/db.ts", import.meta.url).href)}); assert.throws(() => getDb(), SyntaxError); assert.throws(() => getDb(), SyntaxError);`], { env: { ...process.env, MEMORY_DB_PATH: badPath }, encoding: "utf8" });
+  const failedOpen = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `import assert from 'node:assert/strict'; const {getDb} = await import(${JSON.stringify(new URL("../src/history/db.ts", import.meta.url).href)}); assert.throws(() => getDb(), SyntaxError); assert.throws(() => getDb(), SyntaxError);`], { env: { ...process.env, MEMORY_DB_PATH: badPath }, encoding: "utf8" });
   assert.equal(failedOpen.status, 0, failedOpen.stderr);
   console.log("memory-index-policy tests passed: legacy purge, exact names, old connections, direct writes, partial-turn removal, import/live exclusion, stable indices, JSONL immutability and rollback");
 } finally { legacy.close(); db.close(); rmSync(home, { recursive: true, force: true }); }

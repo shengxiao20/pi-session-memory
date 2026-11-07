@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { JevFilterResult } from "../src/jev-filter.ts";
-import type { RecallTurnResult } from "../src/retriever.ts";
-import type { RecallWorkflowProgress } from "../src/recall-workflow.ts";
+import type { JevFilterResult } from "../src/relevance/jev-filter.ts";
+import type { RecallTurnResult } from "../src/contracts/recall.ts";
+import type { RecallWorkflowProgress } from "../src/recall/recall-workflow.ts";
 
 const home = mkdtempSync(join(tmpdir(), "pi-recall-workflow-"));
 process.env.HOME = home;
@@ -14,10 +14,10 @@ const configDir = join(home, ".pi", "agent", "pi-session-memory");
 mkdirSync(configDir, { recursive: true });
 writeFileSync(join(configDir, "config.json"), JSON.stringify({ recallLimit: 2 }));
 
-const { getDb, getSession, insertTurn, upsertSession } = await import("../src/db.ts");
-const { recallTurns } = await import("../src/retriever.ts");
-const { recallProjectMemory } = await import("../src/project-retriever.ts");
-const { recallSequentially } = await import("../src/recall-workflow.ts");
+const { getDb, getSession, insertTurn, upsertSession } = await import("../src/history/db.ts");
+const { recallTurns } = await import("../src/recall/retriever.ts");
+const { recallProjectMemory } = await import("../src/recall/project-retriever.ts");
+const { recallSequentially } = await import("../src/recall/recall-workflow.ts");
 const options = { entities: ["target app", "needle"], primary_entity: "target app", question: "What did we decide about the target app needle?" };
 
 function addSession(session_id: string, source: "pi", cwd: string): void {

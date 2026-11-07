@@ -1,5 +1,5 @@
 import { TypeSafeClient } from "@typesafe-ai/sdk";
-import type { JevConnectionConfig, JevModel } from "./config.ts";
+import type { JevConnectionConfig, JevModel } from "../settings/config.ts";
 import { OllamaService } from "./ollama-service.ts";
 
 export type JevRuntimeState = "disabled" | "starting" | "ready" | "unavailable";

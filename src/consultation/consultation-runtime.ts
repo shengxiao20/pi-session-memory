@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { RecallTurnResult } from "./retriever.ts";
-import { getEnabledConsultation } from "./config.ts";
-import { createHistoricalAgent, type HistoricalAgent, type HistoricalAgentFactory, type ConsultationAnswer } from "./consultation-agent.ts";
+import type { RecallTurnResult } from "../contracts/recall.ts";
+import type { ConsultationAnswer, ConsultationRecord } from "../contracts/consultation.ts";
+import { getEnabledConsultation } from "../settings/config.ts";
+import { createHistoricalAgent, type HistoricalAgent, type HistoricalAgentFactory } from "./consultation-agent.ts";
 import { selectConsultationParticipants } from "./consultation-selection.ts";
-import { resolveKnowledgePath } from "./knowledge-storage.ts";
-import { writeMeetingMinutes, type MeetingConclusion } from "./meeting-minutes.ts";
+import { resolveKnowledgePath } from "../knowledge/knowledge-storage.ts";
+import { writeMeetingMinutes, type MeetingConclusion } from "../knowledge/meeting-minutes.ts";
 
 export function selectConsultationSessions(turns: RecallTurnResult[], mainSessionId: string): RecallTurnResult[][] {
   const groups = new Map<string, RecallTurnResult[]>();
@@ -21,11 +22,6 @@ export function selectConsultationSessions(turns: RecallTurnResult[], mainSessio
 }
 
 interface Participant { turns: RecallTurnResult[]; agent: HistoricalAgent; }
-export interface ConsultationRecord {
-  id: string; owner: string; question: string; answers: ConsultationAnswer[]; evidence: RecallTurnResult[];
-  knowledgePath: string; timeoutMs: number; kind?: "transcript" | "discussion";
-}
-
 /** Own one consultation and its in-memory participants. Never broadcast between consultants. */
 export class ConsultationRuntime {
   private record?: ConsultationRecord;

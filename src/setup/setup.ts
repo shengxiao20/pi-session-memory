@@ -4,10 +4,10 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, mkdirSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getMemoryConfigPath, validateMemoryConfig } from "./config.ts";
-import { resolveKnowledgePath } from "./knowledge-storage.ts";
+import { getMemoryConfigPath, validateMemoryConfig } from "../settings/config.ts";
+import { resolveKnowledgePath } from "../knowledge/knowledge-storage.ts";
 
-const GUIDE_PATH = fileURLToPath(new URL("../setup.md", import.meta.url));
+const GUIDE_PATH = fileURLToPath(new URL("../../setup.md", import.meta.url));
 export const SETUP_NOTICE = "Use setup_memory when the user asks how pi-session-memory works, how to use this plugin, or asks to run setup. Read setup.md and ask one configuration question per reply in its stated order. General usage questions do not authorize writes. Call configure_memory only after the user approves the final proposed settings. Setup is not historical review and does not run import, cleanup or service startup. The /pi-session-memory command provides direct setup, Pi history import, and indexed-tool-turn cleanup actions; transcript search uses Agent tools.";
 export const SETUP_REQUEST = "Run pi-session-memory setup. Call setup_memory to read setup.md and the current configuration. Explain each optional feature and ask one question at a time in the guide's order. Wait for every answer. Show the proposed changes, then write the plugin configuration with configure_memory only after I approve saving.";
 

@@ -7,8 +7,8 @@ const home = mkdtempSync(join(tmpdir(), "pi-fetch-context-"));
 process.env.HOME = home;
 process.env.USERPROFILE = home;
 process.env.MEMORY_DB_PATH = join(home, "history.db");
-const { getDb, getHistoryStats, insertTurn, upsertSession } = await import("../src/db.ts");
-const { fetchTurnContext } = await import("../src/fetch-turn-context.ts");
+const { getDb, getHistoryStats, insertTurn, upsertSession } = await import("../src/history/db.ts");
+const { fetchTurnContext } = await import("../src/history/fetch-turn-context.ts");
 
 try {
   for (const source of ["pi"] as const) {

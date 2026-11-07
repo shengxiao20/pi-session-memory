@@ -1,30 +1,31 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { writeTurn } from "../src/writer.ts";
-import { getHistoryStats } from "../src/db.ts";
-import { fetchTurnContext } from "../src/fetch-turn-context.ts";
-import { formatRecallResults, recallTurns } from "../src/retriever.ts";
-import { MemoryOutput, OKF_OUTPUT_NOTICE } from "../src/memory-output.ts";
-import { MemoryContext, withMemoryContext } from "../src/memory-context.ts";
-import { KNOWLEDGE_FIRST_NOTICE } from "../src/memory-knowledge.ts";
-import { registerMemoryKnowledgeTools } from "../src/memory-knowledge-tools.ts";
-import { meetingConclusionSchema } from "../src/meeting-conclusion-schema.ts";
-import { registerSetupTools } from "../src/setup-tools.ts";
-import { SETUP_REQUEST } from "../src/setup.ts";
-import { recallSequentially } from "../src/recall-workflow.ts";
-import { backfillAll, syncChangedHistory, type BackfillStats } from "../src/backfill.ts";
-import { notifyMemoryToolCleanup, registerMemoryCleanupTools } from "../src/memory-index-cleanup-tools.ts";
-import { formatProjectRecallResults, recallProjectMemory } from "../src/project-retriever.ts";
-import { validateRecallQuery } from "../src/recall-query.ts";
-import { getSessionMemoryConfig, getEnabledConsultation } from "../src/config.ts";
-import { ConsultationRuntime } from "../src/consultation-runtime.ts";
-import { registerConsultationTools } from "../src/consultation-tools.ts";
-import { ConsultationPresentation } from "../src/consultation-presentation.ts";
-import { consultationGuidance } from "../src/consultation-guidance.ts";
-import { CONFIG_SUMMARY_PREFIX, withConfigSummary } from "../src/tool-config-summary.ts";
-import { JevRuntime } from "../src/jev-runtime.ts";
-import { filterRecallWithJev, type JevFilterStats } from "../src/jev-filter.ts";
+import { writeTurn } from "../src/history/writer.ts";
+import { getHistoryStats } from "../src/history/db.ts";
+import { fetchTurnContext } from "../src/history/fetch-turn-context.ts";
+import { formatRecallResults, recallTurns } from "../src/recall/retriever.ts";
+import { MemoryOutput, OKF_OUTPUT_NOTICE } from "../src/presentation/memory-output.ts";
+import { MemoryContext, withMemoryContext } from "../src/presentation/memory-context.ts";
+import { KNOWLEDGE_FIRST_NOTICE } from "../src/knowledge/memory-knowledge.ts";
+import { registerMemoryKnowledgeTools } from "../src/knowledge/memory-knowledge-tools.ts";
+import { meetingConclusionSchema } from "../src/knowledge/meeting-conclusion-schema.ts";
+import { registerSetupTools } from "../src/setup/setup-tools.ts";
+import { SETUP_REQUEST } from "../src/setup/setup.ts";
+import { recallSequentially } from "../src/recall/recall-workflow.ts";
+import { backfillAll, syncChangedHistory, type BackfillStats } from "../src/history/backfill.ts";
+import { notifyMemoryToolCleanup, registerMemoryCleanupTools } from "../src/history/memory-index-cleanup-tools.ts";
+import { formatProjectRecallResults, recallProjectMemory } from "../src/recall/project-retriever.ts";
+import { validateRecallQuery } from "../src/recall/recall-query.ts";
+import { getSessionMemoryConfig, getEnabledConsultation } from "../src/settings/config.ts";
+import { ConsultationRuntime } from "../src/consultation/consultation-runtime.ts";
+import { registerConsultationTools } from "../src/consultation/consultation-tools.ts";
+import { ConsultationPresentation } from "../src/presentation/consultation-presentation.ts";
+import { consultationGuidance } from "../src/presentation/consultation-guidance.ts";
+import { CONFIG_SUMMARY_PREFIX, withConfigSummary } from "../src/presentation/tool-config-summary.ts";
+import { JevRuntime } from "../src/relevance/jev-runtime.ts";
+import { filterRecallWithJev, type JevFilterStats, type JevFilteredOutTurn } from "../src/relevance/jev-filter.ts";
+import type { RecallTurnResult } from "../src/contracts/recall.ts";
 
 /** Register local Pi cross-session transcript retrieval features. */
 export default function (pi: ExtensionAPI) {
@@ -216,7 +217,7 @@ function _historyStatsSummary(stats: ReturnType<typeof getHistoryStats>): string
 function _backfillSummary(stats: BackfillStats, action: string): string { return `[session-memory] ${action} ${stats.turns} turns from ${stats.scannedFiles} files: ${stats.pi} Pi sessions`; }
 function _notifyBackfill(ctx: ExtensionContext, stats: BackfillStats, action: string): void { ctx.ui.notify(_backfillSummary(stats, action), "info"); for (const issue of stats.issues) ctx.ui.notify(`[session-memory] ${issue.error}`, "error"); }
 
-async function _reviewWithJev(runtime: JevRuntime, question: string, results: import("../src/retriever.ts").RecallTurnResult[], progress: (message: string) => void): Promise<{ results: import("../src/retriever.ts").RecallTurnResult[]; filteredOut: import("../src/jev-filter.ts").JevFilteredOutTurn[]; stats: JevFilterStats }> {
+async function _reviewWithJev(runtime: JevRuntime, question: string, results: RecallTurnResult[], progress: (message: string) => void): Promise<{ results: RecallTurnResult[]; filteredOut: JevFilteredOutTurn[]; stats: JevFilterStats }> {
   const config = getSessionMemoryConfig();
   if (!config.jevEnable) return { results, filteredOut: [], stats: { status: "disabled", model: config.model, contextWindow: 0, reviewed: 0, retained: results.length, filtered: 0, truncated: 0, reason: "jevEnable is false" } };
   const status = await runtime.ensureReady(true, config.model, config.jevConnection);
@@ -234,7 +235,7 @@ async function _reviewWithJev(runtime: JevRuntime, question: string, results: im
   }
 }
 
-function _formatJevFilteredOut(filteredOut: import("../src/jev-filter.ts").JevFilteredOutTurn[]): string {
+function _formatJevFilteredOut(filteredOut: JevFilteredOutTurn[]): string {
   const header = `# Jev filtered-out evidence\n**Turns:** ${filteredOut.length}\n**Interpretation:** noul relevance is Jev's probability that a turn is directly relevant. The displayed value is the maximum noul across this turn's segments; values below 0.5 were excluded from normal recall.`;
   const turns = filteredOut.length
     ? filteredOut.map(({ turn, noul }) => `## Filtered turn · noul relevance ${noul.toFixed(3)}\n**Fetch turn ID:** \`${turn.turn_id}\` (pass this exact value to \`fetch_session.turn_id\`)\n**Session ID:** \`${turn.session_id}\`\n**You:** ${turn.user_text}\n${turn.reply_text ? `**Assistant:** ${turn.reply_text}` : ""}`).join("\n\n")

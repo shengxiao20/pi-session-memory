@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_JEV_CONNECTION, getSessionMemoryConfig, type JevConnectionConfig } from "../src/config.ts";
-import { JevRuntime } from "../src/jev-runtime.ts";
-import { OllamaService } from "../src/ollama-service.ts";
-import { filterRecallWithJev } from "../src/jev-filter.ts";
+import { DEFAULT_JEV_CONNECTION, getSessionMemoryConfig, type JevConnectionConfig } from "../src/settings/config.ts";
+import { JevRuntime } from "../src/relevance/jev-runtime.ts";
+import { OllamaService } from "../src/relevance/ollama-service.ts";
+import { filterRecallWithJev } from "../src/relevance/jev-filter.ts";
 
 const root = mkdtempSync(join(tmpdir(), "pi-memory-systemone-"));
 const env = { ...process.env };

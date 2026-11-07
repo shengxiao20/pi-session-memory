@@ -1,6 +1,6 @@
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
-import { getSessionMemoryConfig, type SessionMemoryConfig } from "./config.ts";
+import { getSessionMemoryConfig, type SessionMemoryConfig } from "../settings/config.ts";
 
 export const CONFIG_SUMMARY_PREFIX = "Config · ";
 

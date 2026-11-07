@@ -8,9 +8,9 @@ import { join } from "node:path";
 const home = mkdtempSync(join(tmpdir(), "pi-memory-setup-"));
 process.env.HOME = home; process.env.USERPROFILE = home;
 process.env.MEMORY_DB_PATH = join(home, "untouched.db");
-const { getMemoryConfigPath, getSessionMemoryConfig } = await import("../src/config.ts");
-const { readMemorySetup, configureMemory, SETUP_NOTICE } = await import("../src/setup.ts");
-const { registerSetupTools } = await import("../src/setup-tools.ts");
+const { getMemoryConfigPath, getSessionMemoryConfig } = await import("../src/settings/config.ts");
+const { readMemorySetup, configureMemory, SETUP_NOTICE } = await import("../src/setup/setup.ts");
+const { registerSetupTools } = await import("../src/setup/setup-tools.ts");
 const path = getMemoryConfigPath();
 const baseline = { recallLimit: 20, enableDiscussion: false, jevEnable: false, model: "nimble", obsidianExportEnabled: false };
 try {

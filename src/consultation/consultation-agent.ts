@@ -1,8 +1,7 @@
 import { createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager, SettingsManager, type ExtensionContext, type FileEntry, type ResourceLoader } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import type { RecallTurnResult } from "./retriever.ts";
-
-export interface ConsultationAnswer { sessionId: string; question: string; answer: string; messageIds: string[]; }
+import type { RecallTurnResult } from "../contracts/recall.ts";
+import type { ConsultationAnswer } from "../contracts/consultation.ts";
 export interface HistoricalAgent {
   ask(question: string, signal?: AbortSignal): Promise<ConsultationAnswer>;
   abort(): Promise<void>;
@@ -12,7 +11,7 @@ export type HistoricalAgentFactory = (turns: RecallTurnResult[], context: Extens
 
 /** Load the original Pi history into memory; consultation never appends to its JSONL file. */
 export const createHistoricalAgent: HistoricalAgentFactory = async (turns, context) => {
-  const { getSession } = await import("./db.ts");
+  const { getSession } = await import("../history/db.ts");
   const stored = getSession(turns[0].session_id);
   if (stored.session.source !== "pi") throw new Error("Consultation requires a native Pi session");
   if (stored.session.session_id === `pi:${context.sessionManager.getSessionId()}`) throw new Error("Cannot consult the active main session");

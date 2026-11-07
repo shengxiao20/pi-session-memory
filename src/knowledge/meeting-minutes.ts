@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync, existsSync, appendFileSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { ConsultationRecord } from "./consultation-runtime.ts";
+import type { ConsultationRecord } from "../contracts/consultation.ts";
 
 export interface MeetingConclusion {
   description: string;

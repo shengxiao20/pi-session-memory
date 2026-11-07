@@ -55,7 +55,7 @@ assert.deepEqual(events.map(({ event }) => event), ["context", "message_end", "s
 assert.equal(commands.length, 1);
 assert.deepEqual(commands.map(({ name }) => name), ["pi-session-memory"]);
 assert.equal(tools.length, 14);
-const { SESSION_MEMORY_TOOL_NAMES } = await import("../src/memory-index-policy.ts");
+const { SESSION_MEMORY_TOOL_NAMES } = await import("../src/history/memory-index-policy.ts");
 assert.ok(tools.every(tool => (SESSION_MEMORY_TOOL_NAMES as readonly string[]).includes(tool.name)), "every registered package tool must be covered by SQLite turn exclusion");
 assert.ok(!tools.some((tool) => tool.name === "recall_project_memory"), "the agent must have only one sequential recall entry point");
 assert.ok(commands.every(({ options }) => options.description.length > 0), "every user command needs a description");
@@ -98,7 +98,7 @@ assert.deepEqual(menuOptions[0], [
 ]);
 assert.ok(menuOptions[0]!.every((option) => !/[\u4e00-\u9fff]/.test(option)), "menu descriptions must be English only");
 assert.ok(menuOptions[0]!.every((option) => !/search|help|status|knowledge|consultation|conclusion/i.test(option)), "Agent-handled review actions must not appear in the direct-operation menu");
-(await import("../src/db.ts")).getDb();
+(await import("../src/history/db.ts")).getDb();
 selections.push("Clean indexed tool turns — back up SQLite and remove complete package-tool turns");
 await menu.options.handler("", ctx);
 assert.match(notices.at(-1)!.message, /SQLite cleanup removed 0 package-tool turns/);
@@ -112,7 +112,7 @@ await assert.rejects(menu.options.handler("unexpected", ctx), /accepts no argume
 const setupConfigPath = join(historyHome, ".pi", "agent", "pi-session-memory", "config.json");
 const beforeSetup = readFileSync(setupConfigPath, "utf8");
 const setupTool = tools.find(tool => tool.name === "setup_memory")!;
-const startupJevPrototype = (await import("../src/jev-runtime.ts")).JevRuntime.prototype;
+const startupJevPrototype = (await import("../src/relevance/jev-runtime.ts")).JevRuntime.prototype;
 const originalStartupReadiness = startupJevPrototype.ensureReady;
 let startupReadinessCalls = 0;
 startupJevPrototype.ensureReady = async () => { startupReadinessCalls++; throw new Error("Unexpected startup with invalid configuration"); };
@@ -204,7 +204,7 @@ assert.match(renderedError, /Recall failed[\s\S]*Full failure detail/, "compact 
 const exportedNotes = readdirSync(obsidianVault);
 assert.equal(exportedNotes.length, 0, "agent recall must not export raw results before the final OKF conclusion");
 
-const db = await import("../src/db.ts");
+const db = await import("../src/history/db.ts");
 for (const [session_id, source, cwd] of [
   ["pi:project", "pi", "/work/jev"],
   ["pi:outside", "pi", "/work/outside"],
@@ -367,7 +367,7 @@ assert.equal(readdirSync(obsidianVault).length, 0, "failed workflows must not ex
 writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2, jevEnable: true, obsidianExportEnabled: true, obsidianVaultPath: obsidianVault }));
 
 // Mock only the runtime boundary: execute the unchanged Jev filter inside both tool stages.
-const { JevRuntime } = await import("../src/jev-runtime.ts");
+const { JevRuntime } = await import("../src/relevance/jev-runtime.ts");
 const runtimePrototype = JevRuntime.prototype;
 const originalRuntime = {
   ensureReady: runtimePrototype.ensureReady,
@@ -420,7 +420,7 @@ assert.match(unavailable.content[2]!.text, /Config · Jev=on/, "configuration mu
 // Exercise real runtime + SDK + filter + sequential workflow for remote connections.
 const originalFetch = globalThis.fetch;
 const previousKey = process.env.PI_MEMORY_E2E_DECISION_KEY;
-const { OllamaService } = await import("../src/ollama-service.ts");
+const { OllamaService } = await import("../src/relevance/ollama-service.ts");
 const originalEnsureModel = OllamaService.prototype.ensureModel;
 const remoteCalls: Array<{ url: string; body: any; authorization: string | null }> = [];
 function freshRecall(): RegisteredTool {
@@ -513,7 +513,7 @@ for (const obsidianEnabled of [false, true]) {
   writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2, obsidianExportEnabled: obsidianEnabled, ...(obsidianEnabled ? { obsidianVaultPath: obsidianVault } : {}) }));
   const defaultRoot = join(historyHome, ".pi", "agent", "pi-session-memory", "knowledge");
   const defaultMeetingsBefore = existsSync(join(defaultRoot, "meetings")) ? readdirSync(join(defaultRoot, "meetings")) : [];
-  const sourceTurn = (await import("../src/retriever.ts")).recallTurns({ entities: options.entities })[0]!;
+  const sourceTurn = (await import("../src/recall/retriever.ts")).recallTurns({ entities: options.entities })[0]!;
   const fetched = await fetchTool.execute("final-source", { turn_id: sourceTurn.turn_id, before: 0, after: 0 });
   assert.match(fetched.content[0]!.text, /Storage action:\*\* none/);
   assert.equal((await messageEnd.handler({ message: finalMessage }, finalContext) as any).message.stopReason, "error");
@@ -552,6 +552,6 @@ for (const name of ["inspect_memory_knowledge", "read_memory_knowledge", "recall
   assert.doesNotMatch(`${tool.description}\n${tool.promptSnippet}`, /Use for any question|For every prior-conversation/);
 }
 assert.match(recall.promptSnippet!, /after saved OKF descriptions show no clear match/);
-(await import("../src/db.ts")).getDb().close();
+(await import("../src/history/db.ts")).getDb().close();
 cleanup();
 console.log("e2e.test.ts: passed");

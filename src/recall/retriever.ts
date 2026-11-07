@@ -1,9 +1,6 @@
-import { getDb } from "./db.ts";
-import { getRecallLimit } from "./config.ts";
-
-export type HistorySource = "pi";
-export interface RecallOptions { entities: string[]; primary_entity?: string; sources?: HistorySource[]; cwd?: string; sessionIds?: string[]; after?: number; before?: number; }
-export interface RecallTurnResult { turn_id: string; session_id: string; turn_index: number; source: HistorySource; cwd: string; ts: number; user_text: string; reply_text: string; score: number; }
+import { getDb } from "../history/db.ts";
+import { getRecallLimit } from "../settings/config.ts";
+import type { RecallOptions, RecallTurnResult } from "../contracts/recall.ts";
 
 /** Search every matching raw local transcript turn using literal entity alternatives and strict optional scope filters. */
 export function recallTurns(options: RecallOptions | string[]): RecallTurnResult[] {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateRecallQuery } from "../src/recall-query.ts";
+import { validateRecallQuery } from "../src/recall/recall-query.ts";
 
 const home = mkdtempSync(join(tmpdir(), "pi-primary-entity-"));
 process.env.HOME = process.env.USERPROFILE = home;
@@ -11,10 +11,10 @@ const directory = join(home, ".pi", "agent", "pi-session-memory");
 mkdirSync(directory, { recursive: true });
 const configPath = join(directory, "config.json");
 writeFileSync(configPath, JSON.stringify({ recallLimit: 20 }));
-const { getDb, upsertSession, insertTurn } = await import("../src/db.ts");
-const { recallTurns, formatRecallResults } = await import("../src/retriever.ts");
-const { recallProjectMemory } = await import("../src/project-retriever.ts");
-const { recallSequentially } = await import("../src/recall-workflow.ts");
+const { getDb, upsertSession, insertTurn } = await import("../src/history/db.ts");
+const { recallTurns, formatRecallResults } = await import("../src/recall/retriever.ts");
+const { recallProjectMemory } = await import("../src/recall/project-retriever.ts");
+const { recallSequentially } = await import("../src/recall/recall-workflow.ts");
 const query = { primary_entity: "joule engagement layer", entities: ["joule engagement layer", "joule", "engagement"], question: "How did we design joule engagement layer?" };
 try {
   validateRecallQuery(query);

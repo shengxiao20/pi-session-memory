@@ -9,12 +9,12 @@ process.env.MEMORY_DB_PATH = dbPath;
 process.env.HOME = historyHome;
 process.env.USERPROFILE = historyHome; // os.homedir() uses USERPROFILE on Windows.
 
-const { getDb, getHistoryStats, getSession, insertTurn, upsertSession } = await import("../src/db.ts");
-const { fetchTurnContext } = await import("../src/fetch-turn-context.ts");
-const { formatRecallResults, recallTurns } = await import("../src/retriever.ts");
-const { formatProjectRecallResults, recallProjectMemory } = await import("../src/project-retriever.ts");
-const { backfillAll, syncChangedHistory } = await import("../src/backfill.ts");
-const { getSessionMemoryConfig, JEV_MODELS, DEFAULT_JEV_CONNECTION } = await import("../src/config.ts");
+const { getDb, getHistoryStats, getSession, insertTurn, upsertSession } = await import("../src/history/db.ts");
+const { fetchTurnContext } = await import("../src/history/fetch-turn-context.ts");
+const { formatRecallResults, recallTurns } = await import("../src/recall/retriever.ts");
+const { formatProjectRecallResults, recallProjectMemory } = await import("../src/recall/project-retriever.ts");
+const { backfillAll, syncChangedHistory } = await import("../src/history/backfill.ts");
+const { getSessionMemoryConfig, JEV_MODELS, DEFAULT_JEV_CONNECTION } = await import("../src/settings/config.ts");
 
 function cleanup(): void { for (const suffix of ["", "-wal", "-shm"]) rmSync(`${dbPath}${suffix}`, { force: true }); rmSync(historyHome, { recursive: true, force: true }); }
 cleanup();
@@ -26,7 +26,7 @@ const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
 const changelog = readFileSync(join(process.cwd(), "CHANGELOG.md"), "utf8");
 const packageManifest = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
 const lockManifest = JSON.parse(readFileSync(join(process.cwd(), "package-lock.json"), "utf8"));
-assert.equal(packageManifest.version, "1.1.0");
+assert.equal(packageManifest.version, "1.1.2");
 assert.equal(lockManifest.version, packageManifest.version);
 assert.equal(lockManifest.packages[""].version, packageManifest.version);
 assert.ok(readme.includes(`Current version: ${packageManifest.version}`));
@@ -58,11 +58,13 @@ assert.doesNotMatch(`${readme}\n${changelog}\n${packageManifest.description}`, /
 assert.doesNotMatch(extensionSource, /whatsNew|getWhatsNew|showWhatsNewIfUpdated|whats-new|packageJson/);
 const releaseEntries = changelog.split(/^## \[(\d+\.\d+\.\d+)\]\s*$/m);
 const releaseVersions = releaseEntries.filter((_entry, index) => index % 2 === 1);
-assert.deepEqual(releaseVersions, [packageManifest.version, "1.0.1", "1.0.0"], "native changelog contains current release notes and the 1.0 baseline");
+assert.deepEqual(releaseVersions, [packageManifest.version, "1.1.1", "1.1.0", "1.0.1", "1.0.0"], "native changelog contains current release notes and the 1.0 baseline");
 for (let index = 1; index < releaseEntries.length; index += 2) {
   assert.match(releaseEntries[index + 1]!, /^\s*(?:Version|[#-])/, `release ${releaseEntries[index]} must contain notes`);
 }
 const notesByVersion = new Map(releaseVersions.map((version, index) => [version, releaseEntries[index * 2 + 2]!]));
+assert.match(notesByVersion.get(packageManifest.version)!, /CodeGraph Map illustration/);
+assert.match(notesByVersion.get(packageManifest.version)!, /Preserves public tools, commands, configuration, and runtime behavior/);
 assert.match(notesByVersion.get("1.0.0")!, /English labels/);
 assert.match(notesByVersion.get("1.0.0")!, /original language/);
 assert.match(notesByVersion.get("1.0.0")!, /Expands the registered Agent tools from 6 to 15/);

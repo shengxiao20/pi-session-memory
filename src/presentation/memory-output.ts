@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { MessageEndEvent } from "@earendil-works/pi-coding-agent";
-import type { RecallTurnResult } from "./retriever.ts";
-import type { ConsultationRecord } from "./consultation-runtime.ts";
-import { resolveKnowledgePath } from "./knowledge-storage.ts";
-import { writeMeetingMinutes, type MeetingConclusion } from "./meeting-minutes.ts";
+import type { RecallTurnResult } from "../contracts/recall.ts";
+import type { ConsultationRecord } from "../contracts/consultation.ts";
+import { resolveKnowledgePath } from "../knowledge/knowledge-storage.ts";
+import { writeMeetingMinutes, type MeetingConclusion } from "../knowledge/meeting-minutes.ts";
 
 export type FinalAssistantMessage = Extract<MessageEndEvent["message"], { role: "assistant" }>;
 

@@ -1,0 +1,62 @@
+{
+  "source": {
+    "tool": "CodeGraph Map",
+    "route": "/api/map?root=&depth=2",
+    "root": "",
+    "depth": 2,
+    "scope": "extensions/index.ts and src; tests omitted",
+    "relation": "Declared static dependencies, including type-only imports; not runtime traces",
+    "sourceFiles": 35,
+    "moduleCycles": 0,
+    "unresolvedLinksOmitted": 2
+  },
+  "modules": [
+    { "id": "extensions/index.ts", "files": 1 },
+    { "id": "src/consultation", "files": 4 },
+    { "id": "src/contracts", "files": 2 },
+    { "id": "src/history", "files": 8 },
+    { "id": "src/knowledge", "files": 5 },
+    { "id": "src/presentation", "files": 5 },
+    { "id": "src/recall", "files": 4 },
+    { "id": "src/relevance", "files": 3 },
+    { "id": "src/settings", "files": 1 },
+    { "id": "src/setup", "files": 3 }
+  ],
+  "links": [
+    { "source": "extensions/index.ts", "target": "src/consultation", "declared": 10 },
+    { "source": "extensions/index.ts", "target": "src/contracts", "declared": 4 },
+    { "source": "extensions/index.ts", "target": "src/history", "declared": 23 },
+    { "source": "extensions/index.ts", "target": "src/knowledge", "declared": 7 },
+    { "source": "extensions/index.ts", "target": "src/presentation", "declared": 42 },
+    { "source": "extensions/index.ts", "target": "src/recall", "declared": 16 },
+    { "source": "extensions/index.ts", "target": "src/relevance", "declared": 19 },
+    { "source": "extensions/index.ts", "target": "src/settings", "declared": 7 },
+    { "source": "extensions/index.ts", "target": "src/setup", "declared": 5 },
+    { "source": "src/consultation", "target": "src/contracts", "declared": 20 },
+    { "source": "src/consultation", "target": "src/knowledge", "declared": 10 },
+    { "source": "src/consultation", "target": "src/presentation", "declared": 19 },
+    { "source": "src/consultation", "target": "src/settings", "declared": 4 },
+    { "source": "src/knowledge", "target": "src/contracts", "declared": 4 },
+    { "source": "src/knowledge", "target": "src/settings", "declared": 5 },
+    { "source": "src/presentation", "target": "src/contracts", "declared": 10 },
+    { "source": "src/presentation", "target": "src/knowledge", "declared": 8 },
+    { "source": "src/presentation", "target": "src/settings", "declared": 6 },
+    { "source": "src/recall", "target": "src/contracts", "declared": 10 },
+    { "source": "src/recall", "target": "src/history", "declared": 6 },
+    { "source": "src/recall", "target": "src/relevance", "declared": 6 },
+    { "source": "src/recall", "target": "src/settings", "declared": 6 },
+    { "source": "src/relevance", "target": "src/contracts", "declared": 6 },
+    { "source": "src/relevance", "target": "src/settings", "declared": 16 },
+    { "source": "src/setup", "target": "src/knowledge", "declared": 3 },
+    { "source": "src/setup", "target": "src/settings", "declared": 6 }
+  ],
+  "reviewedDynamicImports": [
+    {
+      "source": "src/consultation",
+      "target": "src/history",
+      "file": "src/consultation/consultation-agent.ts",
+      "specifier": "../history/db.ts",
+      "note": "Verified in source; Map reports this link with declared=0. The reverse history-to-consultation guess is omitted."
+    }
+  ]
+}

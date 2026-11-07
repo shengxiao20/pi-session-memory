@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { formatConfigSummary, formatConsultationSummary, withConfigSummary } from "../src/tool-config-summary.ts";
-import { DEFAULT_JEV_CONNECTION, type SessionMemoryConfig } from "../src/config.ts";
+import { formatConfigSummary, formatConsultationSummary, withConfigSummary } from "../src/presentation/tool-config-summary.ts";
+import { DEFAULT_JEV_CONNECTION, type SessionMemoryConfig } from "../src/settings/config.ts";
 
 const config: SessionMemoryConfig = { recallLimit: 20, jevEnable: false, model: "nimble", jevConnection: { ...DEFAULT_JEV_CONNECTION }, obsidianExportEnabled: false };
 assert.equal(formatConfigSummary(config, {}), "Config · Jev=off (nimble) · Obsidian=off · manageOllama=on · limit=20\nEnv · MEMORY_DB_PATH=unset · API key=local-placeholder · OLLAMA_HOST=unset (managed override)");

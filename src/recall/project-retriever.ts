@@ -1,6 +1,7 @@
-import { getDb } from "./db.ts";
-import { getRecallLimit } from "./config.ts";
-import { type RecallTurnResult, recallTurns } from "./retriever.ts";
+import { getDb } from "../history/db.ts";
+import { getRecallLimit } from "../settings/config.ts";
+import { recallTurns } from "./retriever.ts";
+import type { RecallTurnResult } from "../contracts/recall.ts";
 
 export interface ProjectRecallOptions {
   /** Literal entities used both to discover stored session directory names and search matched sessions' turns. */
