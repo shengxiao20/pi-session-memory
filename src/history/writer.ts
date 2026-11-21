@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
 import { upsertSession, upsertTurn } from "./db.ts";
 import { buildPiTurns } from "./pi-turns.ts";
 
@@ -6,7 +6,7 @@ import { buildPiTurns } from "./pi-turns.ts";
 export function writeTurn(ctx: ExtensionContext): void {
   const sessionManager = ctx.sessionManager;
   const sessionId = `pi:${sessionManager.getSessionId()}`;
-  const userEntry = [...sessionManager.getBranch()].reverse().find((entry) =>
+  const userEntry = [...sessionManager.getBranch()].reverse().find((entry): entry is SessionMessageEntry =>
     entry.type === "message" && entry.message.role === "user",
   );
   if (!userEntry) throw new Error("Current session branch has no user message");

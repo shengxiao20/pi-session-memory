@@ -6,6 +6,7 @@ import { DEFAULT_JEV_CONNECTION, getSessionMemoryConfig, type JevConnectionConfi
 import { JevRuntime } from "../src/relevance/jev-runtime.ts";
 import { OllamaService } from "../src/relevance/ollama-service.ts";
 import { filterRecallWithJev } from "../src/relevance/jev-filter.ts";
+import type { RecallTurnResult } from "../src/contracts/recall.ts";
 
 const root = mkdtempSync(join(tmpdir(), "pi-memory-systemone-"));
 const env = { ...process.env };
@@ -59,7 +60,7 @@ try {
     assert.equal(init?.method, "POST");
     return new Response(JSON.stringify({ model: body.model, answers: Object.fromEntries(Object.keys(body.questions).map((id) => [id, { type: "noul", noul: 0.9 }])) }), { headers: { "Content-Type": "application/json" } });
   };
-  const candidate = { turn_id: "pi:test:turn", session_id: "pi:test", turn_index: 0, source: "pi", cwd: "/work", ts: 1, user_text: "Relevant original history", reply_text: "Original reply", score: 1 };
+  const candidate: RecallTurnResult = { turn_id: "pi:test:turn", session_id: "pi:test", turn_index: 0, source: "pi", cwd: "/work", ts: 1, user_text: "Relevant original history", reply_text: "Original reply", score: 1 };
   for (const [baseURL, model] of [
     ["https://api.typesafe.ai/", "jev-latest"],
     ["https://workspace.ap-southeast-1.maas.aliyuncs.com/compatible-mode/", "decision-model-preview"],

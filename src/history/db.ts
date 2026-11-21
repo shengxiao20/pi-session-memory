@@ -116,7 +116,12 @@ export function getSession(sessionId: string, fromTurnIndex?: number, toTurnInde
   const filters = ["session_id = ?"]; const parameters: Array<string | number> = [sessionId];
   if (fromTurnIndex !== undefined) { filters.push("turn_index >= ?"); parameters.push(fromTurnIndex); }
   if (toTurnIndex !== undefined) { filters.push("turn_index <= ?"); parameters.push(toTurnIndex); }
-  const turns = getDb().prepare(`SELECT turn_id, session_id, turn_index, ts, user_text, reply_text, tool_names, user_message_id FROM turns WHERE ${filters.join(" AND ")} ORDER BY turn_index`).all(...parameters) as TurnRow[];
+  const turns = getDb().prepare(`SELECT turn_id, session_id, turn_index, ts, user_text, reply_text, tool_names, user_message_id FROM turns WHERE ${filters.join(" AND ")} ORDER BY turn_index`).all(...parameters).map((row): TurnRow => ({
+    turn_id: row.turn_id as string, session_id: row.session_id as string,
+    turn_index: row.turn_index as number, ts: row.ts as number,
+    user_text: row.user_text as string, reply_text: row.reply_text as string,
+    tool_names: row.tool_names as string | null, user_message_id: row.user_message_id as string,
+  }));
   return { session, turns };
 }
 export function getHistoryStats(): HistoryStats {

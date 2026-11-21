@@ -3,7 +3,6 @@ import { recallTurns } from "./retriever.ts";
 import { recallProjectMemory, type ProjectRecallResult } from "./project-retriever.ts";
 import type { JevFilterResult } from "../relevance/jev-filter.ts";
 
-export interface RecallWorkflowOptions extends RecallQuery {}
 export interface RecallWorkflowProgress {
   stage: "global" | "project";
   message: string;
@@ -20,7 +19,7 @@ export type RecallReviewer = (
 
 /** Run the existing global and project searches sequentially, then deduplicate only final project output. */
 export async function recallSequentially(
-  options: RecallWorkflowOptions,
+  options: RecallQuery,
   review: RecallReviewer,
   progress: (update: RecallWorkflowProgress) => void,
 ): Promise<RecallWorkflowResult> {

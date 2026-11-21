@@ -17,7 +17,7 @@ legacy.prepare("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)").run("pi:legacy"
 const rawInsert = legacy.prepare("INSERT INTO turns VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 for (const [index, tool] of SESSION_MEMORY_TOOL_NAMES.entries()) rawInsert.run(`legacy-${index}`, "pi:legacy", index, index, "user", "final OKF", JSON.stringify(["read", tool]), `message-${index}`);
 rawInsert.run("ordinary", "pi:legacy", 20, 20, "Discuss recall_memory without calling it", "ordinary reply", '["read"]', "ordinary-message");
-const { getDb, getSession, upsertSession, upsertTurn, insertTurn, replaceSourceFile } = await import("../src/history/db.ts");
+const { getDb, getSession, upsertTurn, insertTurn, replaceSourceFile } = await import("../src/history/db.ts");
 const { writeTurn } = await import("../src/history/writer.ts");
 const { backfillAll, syncChangedHistory } = await import("../src/history/backfill.ts");
 const db = getDb();

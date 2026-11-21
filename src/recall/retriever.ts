@@ -27,7 +27,11 @@ export function recallTurns(options: RecallOptions | string[]): RecallTurnResult
   }
   if (normalized.after !== undefined) { filters.push("turns.ts >= ?"); scopedParameters.push(normalized.after); }
   if (normalized.before !== undefined) { filters.push("turns.ts <= ?"); scopedParameters.push(normalized.before); }
-  return getDb().prepare(`SELECT turns.turn_id, turns.session_id, turns.turn_index, sessions.source, sessions.cwd, turns.ts, turns.user_text, turns.reply_text, (${scoreExpression}) AS score FROM turns JOIN sessions ON sessions.session_id = turns.session_id WHERE ${filters.join(" AND ")} ORDER BY score DESC, turns.ts DESC, turns.turn_id LIMIT ?`).all(...scoreParameters, ...terms, ...scopedParameters, getRecallLimit()) as RecallTurnResult[];
+  return getDb().prepare(`SELECT turns.turn_id, turns.session_id, turns.turn_index, sessions.source, sessions.cwd, turns.ts, turns.user_text, turns.reply_text, (${scoreExpression}) AS score FROM turns JOIN sessions ON sessions.session_id = turns.session_id WHERE ${filters.join(" AND ")} ORDER BY score DESC, turns.ts DESC, turns.turn_id LIMIT ?`).all(...scoreParameters, ...terms, ...scopedParameters, getRecallLimit()).map((row): RecallTurnResult => ({
+    turn_id: row.turn_id as string, session_id: row.session_id as string, turn_index: row.turn_index as number,
+    source: row.source as "pi", cwd: row.cwd as string, ts: row.ts as number,
+    user_text: row.user_text as string, reply_text: row.reply_text as string, score: row.score as number,
+  }));
 }
 
 /** Render all raw transcript matches without implying that they are persistent summary memories. */
