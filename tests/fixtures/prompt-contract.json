@@ -1,0 +1,48 @@
+{
+  "description": "Public text and complete schema contract. Recall/review inputs retain reviewed 2.0.8 changes; recall modes retain reviewed 2.0.9 changes. Storage help/schema/fields and the shared OKF path sentence reflect reviewed 2.0.10 storage unification. Complete metadata was compared with the earlier baseline using only these explicit transformations. Guide changes are limited to reviewed editor/storage sections, section numbering and the storage JSON field. The configuration command description and direct-editor guide also reflect reviewed now-value rows. Other tools, notices, environment help, model and response formats retain earlier baselines. SHA-256 over canonical JSON. The default knowledge path is normalized for portability. No events or tools were executed.",
+  "tools": {
+    "follow_up_session": "7ad654caec17a47eccc7e87808eb40d1fd7b0003d510c1b21ee9f12fec878163",
+    "finish_session_consultation": "c2f7576ef3cf136460d62bc2a6be72615a1266980534f2413071e3da27149d19",
+    "cancel_session_consultation": "c11d92accfa0ba7b4a60fc288ffa9f2600e3240ce4873a6982e03e83d26f739c",
+    "setup_memory": "fcf9219e67d4429842857351ff0e216db9179d4762c12bc7cade62c103ea0da6",
+    "configure_memory": "43ec7acb944ad3f00adff6a188a8066816512aaad6f13b019c53e6e6cb2f5d95",
+    "inspect_memory_knowledge": "bc0e05c6a4f4455923df47babde3cfbba8292955ba59637aa6e3da709afe40e1",
+    "read_memory_knowledge": "b5844f72f401852f0b700f71e7dae36243faa0c4f9bed0f1af6fb6718bbbc0af",
+    "recall_memory": "27d8808d6e4db4121dc6b673ee5b3c25e2cebb2f1ffc99f6f5de7db9a0ddf8f6",
+    "review_jev_filtered": "a6e51ed6c9b1a6292658c75ced225ee230a9738055f73c11ec176788bc2519c5",
+    "fetch_session": "20f106ff51563e4422f8babbf248d2d4f48643a667916b15883485c4bcf756ad",
+    "finish_memory_recall": "7d9dd2e5b7e2a24ea07f84b9a42d4b6af6c25a26a6a0123ce8b450c8471d6075",
+    "get_memory_stats": "cdf0ab0ea487d5978a45457c5d3f6982b1bfabff0176cb60a53485c3ff8ee93e",
+    "backfill_memory": "496b427d849b821b06110116e04cc859dd14bbf8564747b2677f32ba8e31b9e3",
+    "clean_memory_tool_turns": "f75aa6567112e0f52ae4470acfb412ca32a87b73cb777b2f680ece4a183d6d8d"
+  },
+  "commands": "c10b925cc5a4fdc824d57e50d70c0aa582322c53b13526110ec42490fa1a1207",
+  "notices": {
+    "SETUP_NOTICE": "4becb559054102d569bed922cd936bcae6dca0fbe3e16df7e34c7dfc73e5845a",
+    "SETUP_REQUEST": "daa2fa8a376a711409299442e8fe6abf8b16c47c5f896608e87dcdc90f76334e",
+    "KNOWLEDGE_FIRST_NOTICE": "e2730e2f49716a6c7719acd44080ccb926459a92d043de3409b1a732d70c87ed",
+    "OKF_OUTPUT_NOTICE": "8c11360008ce54d0697cf6e501644c48001cdae65184566a3b4daea91a287259",
+    "MAIN_AGENT_NOTICE": "19d3dc4b3d53e4c411f678f0b1bfd2889151b1fa565d62fe47886e85f780d479",
+    "CONSULTATION_CLOSED_NOTICE": "e58ffbc5dcb52caced7ca917bea989f72c9dea76a78aab6a281e708ec29ba8f0",
+    "closed": "81bca9e837b8b102d541b55bb9cce956250425b97c6c56bffe3638be7fa0cb78",
+    "active": "61e8f1dbfcfd033fa7346e66da174251b30b0adba088092bde5b76867de2eeba",
+    "TRANSIENT_NOTICE": "233126896b068388886c17a8455205fd02b48754e3dab08b203aa4cd378b5ce2"
+  },
+  "fields": "0e4257f70b1a32e372e2767530ba0c9e8568191bedb6489b6c20d68806d4afac",
+  "environment": "a3b21e8a0e9fdbb6b31ff6d6aef6873fc5acb096b915a96e98b2de06c4f2a911",
+  "guide": "467dab46272aa38e04560c36d8d4829b0ef09ec603c450dcf7dc15467aa96825",
+  "guideWording": "9de9cc66e132a72f0d19caacc8895bab32fca873d4a30cbd4b42697330031f5f",
+  "models": {
+    "consultantSystem": "1cc630636eb678f8a0527c5dd11114948f9f8d2b0d14a648118b285214e87b10",
+    "evidence": "f0c9d5f2e15a23eab33bc189eb834ee85709a9ec4fe2018a5ce58bb7a2e6c5ec",
+    "consultation": "032336109170187e2a0403a37f6a43a81f02e66de17a1c129f0903478da875c7",
+    "followUp": "3d5f2aef79cc65b149b990ea86f4ac665c73519121a71d45bada40435aa25e76",
+    "criteria": "8c9678cb672eb6ad8ee87dbfcdb98e739108aef3f01167d24006b2952134da14",
+    "segment": "66e465384cbd9f6537f5ec6c737a4af77ef9cdc756aaa582f9c83262be0c630b",
+    "transcript": "da28b981757d8493ce681540ebe799a6233c6a678c9b8d59eab0903cf2a46c8e"
+  },
+  "responses": {
+    "read": "1906bb8b4f7cf45635fc93809c7a70841454cef19e07d7d3aa729c3ec23afe25",
+    "saved": "66b3bd5e61182abf88366224796dcbf979d8cc1a2162f746450d139d3e1c21d0"
+  }
+}

@@ -12,21 +12,23 @@ const { getMemoryConfigPath, getSessionMemoryConfig } = await import("../src/set
 const { readMemorySetup, configureMemory, SETUP_NOTICE } = await import("../src/setup/setup.ts");
 const { registerSetupTools } = await import("../src/setup/setup-tools.ts");
 const path = getMemoryConfigPath();
-const baseline = { recallLimit: 20, enableDiscussion: false, jevEnable: false, model: "nimble", obsidianExportEnabled: false };
+const baseline = { recallLimit: 20, recallMode: "normal", jevEnable: false, model: "nimble" };
 try {
   const missing = readMemorySetup();
   assert.equal(missing.config_path, path);
   assert.equal(missing.configuration, null);
   assert.ok(existsSync(missing.guide_path), "guide is an external packaged Markdown file");
   assert.ok(!existsSync(path), "reading setup must not create a configuration");
-  for (const key of ["recallLimit", "enableDiscussion", "consultation.timeoutMs", "consultation.knowledgePath", "jevEnable", "model", "jevConnection.manageOllama", "jevConnection.baseURL", "jevConnection.apiKeyEnv", "jevConnection.contextWindow", "obsidianExportEnabled", "obsidianVaultPath", "MEMORY_DB_PATH", "OLLAMA_HOST"]) assert.ok(missing.guide.includes(key), `guide explains ${key}`);
+  for (const key of ["recallLimit", "recallMode", "consultation.timeoutMs", "knowledgePath", "jevEnable", "model", "jevConnection.manageOllama", "jevConnection.baseURL", "jevConnection.apiKeyEnv", "jevConnection.contextWindow", "MEMORY_DB_PATH", "OLLAMA_HOST"]) assert.ok(missing.guide.includes(key), `guide explains ${key}`);
   assert.match(missing.guide, /one question per assistant reply/);
-  assert.match(missing.guide, /Wait for each answer/);
+  assert.match(missing.guide, /Wait\s+for\s+each\s+answer/);
   assert.match(missing.guide, /Cancellation does not write anything/);
   assert.match(missing.guide, /Save these settings/);
   assert.match(SETUP_NOTICE, /General usage questions do not authorize writes/);
   const headings = [...missing.guide.matchAll(/^### (\d+)\./gm)].map(match => Number(match[1]));
-  assert.deepEqual(headings, [1, 2, 3, 4, 5, 6, 7, 8], "guide has a fixed question order");
+  assert.deepEqual(headings, [1, 2, 3, 4, 5, 6, 7], "guide has a fixed question order");
+  assert.match(missing.guide, /does not require a timeout or a consultation object/);
+  assert.match(missing.guide, /rejected, not automatically migrated/);
 
   assert.throws(() => configureMemory({ ...baseline, recallLimit: 0 }), /Invalid setup configuration/);
   assert.ok(!existsSync(path), "invalid proposals do not create configuration directories or files");
@@ -44,6 +46,8 @@ try {
   for (const proposal of [
     { ...baseline, MEMORY_DB_PATH: "must-not-save" },
     { ...baseline, apiKey: "must-not-save" },
+    { ...baseline, recallMode: "discussion" },
+    { ...baseline, recallMode: "invalid" },
     { ...baseline, enableDiscussion: true },
     { ...baseline, consultation: { timeoutMs: 0 } },
     { ...baseline, consultation: { timeoutMs: 1000, knowledgePath: "relative" } },
@@ -61,18 +65,17 @@ try {
   assert.ok(!existsSync(join(home, "missing-vault")), "setup does not create or replace an invalid vault");
   assert.ok(readdirSync(join(home, ".pi", "agent", "pi-session-memory")).every(name => !name.endsWith(".pending")));
 
-  const vault = join(home, "vault"); mkdirSync(vault);
   const customRoot = join(home, "custom-knowledge");
-  const complete = { ...baseline, recallLimit: 12, enableDiscussion: true, consultation: { knowledgePath: customRoot, timeoutMs: 9000 }, jevEnable: true, model: "tev1:4b", jevConnection: { baseURL: "https://service.test/api", manageOllama: false, apiKeyEnv: "TEST_SETUP_SECRET", contextWindow: 8192 }, obsidianExportEnabled: true, obsidianVaultPath: vault };
+  const complete = { ...baseline, recallLimit: 12, recallMode: "discussion", consultation: { timeoutMs: 9000 }, knowledgePath: customRoot, jevEnable: true, model: "tev1:4b", jevConnection: { baseURL: "https://service.test/api", manageOllama: false, apiKeyEnv: "TEST_SETUP_SECRET", contextWindow: 8192 } };
   configureMemory(complete);
   const runtime = getSessionMemoryConfig();
   assert.equal(runtime.consultation!.timeoutMs, 9000);
   assert.deepEqual(runtime.jevConnection, complete.jevConnection);
   assert.ok(!existsSync(customRoot), "saving does not initialize knowledge storage");
-  assert.deepEqual(readdirSync(vault), [], "saving does not export anything");
+  assert.equal(runtime.knowledgePath, customRoot);
   assert.ok(!process.env.TEST_SETUP_SECRET, "saving neither reads nor writes credentials");
   configureMemory({ ...baseline, consultation: { timeoutMs: 9000 } });
-  assert.equal(getSessionMemoryConfig().consultation!.knowledgePath, undefined, "complete nested replacement can remove a legacy custom path");
+  assert.equal(getSessionMemoryConfig().knowledgePath, undefined, "complete replacement can remove the custom root without changing the timeout");
 
   const tools: any[] = []; registerSetupTools(tool => { tools.push(tool); });
   assert.deepEqual(tools.map(tool => tool.name), ["setup_memory", "configure_memory"]);

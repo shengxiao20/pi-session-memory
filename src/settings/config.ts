@@ -23,13 +23,18 @@ export const DEFAULT_JEV_CONNECTION: Readonly<JevConnectionConfig> = Object.free
 });
 
 export interface SessionConsultationConfig {
-  /** Optional legacy custom root, used only when Obsidian is disabled. */
-  knowledgePath?: string;
   timeoutMs: number;
+  /** Exclusive count of unique returned turns; omitted values use 5. */
+  turnThreshold?: number;
 }
 
+export const RECALL_MODES = ["choice", "normal", "discussion"] as const;
+export type RecallMode = typeof RECALL_MODES[number];
+export const DEFAULT_RECALL_MODE: RecallMode = "choice";
+
 export interface SessionMemoryConfig {
-  enableDiscussion?: boolean;
+  /** How recall_memory delivers retrieved evidence; omitted settings use choice. */
+  recallMode: RecallMode;
   consultation?: SessionConsultationConfig;
   recallLimit: number;
   /** Optional System One relevance filtering; omitted legacy configuration means false. */
@@ -38,10 +43,8 @@ export interface SessionMemoryConfig {
   model: JevModel;
   /** Missing connection configuration retains the original managed local Ollama behavior. */
   jevConnection: JevConnectionConfig;
-  /** Select an existing Obsidian vault as the OKF storage root. */
-  obsidianExportEnabled: boolean;
-  /** Existing Obsidian vault directory required only when automatic export is enabled. */
-  obsidianVaultPath?: string;
+  /** Complete absolute OKF root, independent of consultation; omitted values use the default root. */
+  knowledgePath?: string;
 }
 
 type StoredConfig = Pick<SessionMemoryConfig, "recallLimit"> & Partial<Omit<SessionMemoryConfig, "recallLimit">>;
@@ -57,8 +60,8 @@ export function getSessionMemoryConfig(): SessionMemoryConfig {
 
 /** Validate proposed setup settings with the same rules used by every runtime reader. */
 export function validateMemoryConfig(value: unknown, path = getMemoryConfigPath()): SessionMemoryConfig {
-  if (!_isConfig(value)) throw new Error(`Invalid pi-session-memory configuration at ${path}: enableDiscussion must be a boolean; enabled discussion requires consultation with optional absolute knowledgePath and positive integer timeoutMs; enableEnv is no longer supported; recallLimit must be a positive integer; jevEnable and obsidianExportEnabled must be booleans when provided; model must be a non-empty string when provided; jevConnection requires an HTTP(S) baseURL without credentials, query, hash or a full systemone endpoint, and boolean manageOllama; apiKeyEnv must be an environment variable name and contextWindow a positive integer when provided; unmanaged connections require explicit model, apiKeyEnv and contextWindow; managed Ollama requires a local HTTP root URL; obsidianVaultPath must be a non-empty string when obsidianExportEnabled is true.`);
-  return { ...(value.enableDiscussion === undefined ? {} : { enableDiscussion: value.enableDiscussion }), ...(value.consultation ? { consultation: value.consultation } : {}), recallLimit: value.recallLimit, jevEnable: value.jevEnable ?? false, model: value.model ?? "nimble", jevConnection: value.jevConnection ?? { ...DEFAULT_JEV_CONNECTION }, obsidianExportEnabled: value.obsidianExportEnabled ?? false, obsidianVaultPath: value.obsidianVaultPath };
+  if (!_isConfig(value)) throw new Error(`Invalid pi-session-memory configuration at ${path}: recallMode must be discussion, normal or choice (default choice); enableDiscussion is no longer supported: remove it through Edit configuration or approved setup; discussion mode requires consultation with positive integer timeoutMs and optional non-negative safe integer turnThreshold; knowledgePath must be a non-empty absolute path when provided; obsidianExportEnabled, obsidianVaultPath and consultation.knowledgePath are no longer supported: replace them with knowledgePath through Edit configuration or approved setup; enableEnv is no longer supported; recallLimit must be a positive integer; jevEnable must be a boolean when provided; model must be a non-empty string when provided; jevConnection requires an HTTP(S) baseURL without credentials, query, hash or a full systemone endpoint, and boolean manageOllama; apiKeyEnv must be an environment variable name and contextWindow a positive integer when provided; unmanaged connections require explicit model, apiKeyEnv and contextWindow; managed Ollama requires a local HTTP root URL.`);
+  return { recallMode: value.recallMode ?? DEFAULT_RECALL_MODE, ...(value.consultation ? { consultation: value.consultation } : {}), recallLimit: value.recallLimit, jevEnable: value.jevEnable ?? false, model: value.model ?? "nimble", jevConnection: value.jevConnection ?? { ...DEFAULT_JEV_CONNECTION }, knowledgePath: value.knowledgePath };
 }
 
 /** Read the required global recall result limit from Pi's extension configuration directory. */
@@ -67,24 +70,40 @@ export function getRecallLimit(): number { return getSessionMemoryConfig().recal
 function _isConfig(value: unknown): value is StoredConfig {
   if (!_isObject(value)) return false;
   return _isPositiveInteger(value.recallLimit)
-    && (value.enableDiscussion === undefined || typeof value.enableDiscussion === "boolean")
-    && (value.enableDiscussion !== true || value.consultation !== undefined)
+    && !("enableDiscussion" in value)
+    && (value.recallMode === undefined || RECALL_MODES.some(mode => mode === value.recallMode))
+    && (value.recallMode !== "discussion" || value.consultation !== undefined)
     && (value.consultation === undefined || (_isObject(value.consultation)
       && !("enableEnv" in value.consultation)
-      && (value.consultation.knowledgePath === undefined || (_isNonEmptyString(value.consultation.knowledgePath) && isAbsolute(value.consultation.knowledgePath)))
-      && _isPositiveInteger(value.consultation.timeoutMs)))
+      && !("knowledgePath" in value.consultation)
+      && _isPositiveInteger(value.consultation.timeoutMs)
+      && (value.consultation.turnThreshold === undefined || _isNonNegativeInteger(value.consultation.turnThreshold))))
     && (value.jevEnable === undefined || typeof value.jevEnable === "boolean")
     && (value.model === undefined || _isNonEmptyString(value.model))
     && (value.jevConnection === undefined || (_isConnection(value.jevConnection) && (value.jevConnection.manageOllama || _isNonEmptyString(value.model))))
-    && (value.obsidianExportEnabled === undefined || typeof value.obsidianExportEnabled === "boolean")
-    && (value.obsidianVaultPath === undefined || _isNonEmptyString(value.obsidianVaultPath))
-    && (value.obsidianExportEnabled !== true || _isNonEmptyString(value.obsidianVaultPath));
+    && !("obsidianExportEnabled" in value)
+    && !("obsidianVaultPath" in value)
+    && (value.knowledgePath === undefined || (_isNonEmptyString(value.knowledgePath) && isAbsolute(value.knowledgePath)));
 }
 
-/** Resolve the explicit consultation switch. Invalid configured values are errors. */
-export function getEnabledConsultation(): SessionConsultationConfig | undefined {
+/** Read consultation settings for discussion or choice; normal cannot open consultants. */
+export function getDiscussionConfiguration(): SessionConsultationConfig | undefined {
   const config = getSessionMemoryConfig();
-  return config.enableDiscussion === true ? config.consultation : undefined;
+  return config.recallMode === "normal" ? undefined : config.consultation;
+}
+
+export const DISCUSSION_TURN_THRESHOLD_ENV = "PI_SESSION_MEMORY_DISCUSSION_TURN_THRESHOLD";
+export const DEFAULT_DISCUSSION_TURN_THRESHOLD = 5;
+
+/** Read the exclusive unique returned-turn threshold on each consultation selection. */
+export function getDiscussionTurnThreshold(): number {
+  const raw = process.env[DISCUSSION_TURN_THRESHOLD_ENV];
+  if (raw === undefined) return getSessionMemoryConfig().consultation?.turnThreshold ?? DEFAULT_DISCUSSION_TURN_THRESHOLD;
+  const threshold = Number(raw);
+  if (!Number.isSafeInteger(threshold) || threshold < 0 || raw !== String(threshold)) {
+    throw new Error(`${DISCUSSION_TURN_THRESHOLD_ENV} must be a non-negative safe integer in decimal notation without whitespace`);
+  }
+  return threshold;
 }
 
 function _isConnection(value: unknown): value is JevConnectionConfig {
@@ -101,4 +120,5 @@ function _isConnection(value: unknown): value is JevConnectionConfig {
 
 function _isObject(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function _isNonEmptyString(value: unknown): value is string { return typeof value === "string" && value.trim().length > 0; }
+function _isNonNegativeInteger(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
 function _isPositiveInteger(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value > 0; }

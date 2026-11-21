@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { FinalAssistantMessage } from "../src/presentation/memory-output.ts";
+import { knowledgeFields } from "./helpers/knowledge-fixture.ts";
+import { readConceptMetadata, renderConcept } from "../src/knowledge/okf-frontmatter.ts";
+import { publishKnowledge } from "../src/knowledge/knowledge-publication.ts";
 
 const home = mkdtempSync(join(tmpdir(), "pi-okf-catalogue-"));
 process.env.HOME = home; process.env.USERPROFILE = home;
@@ -11,81 +14,132 @@ mkdirSync(configRoot, { recursive: true });
 const configure = (extra = {}) => writeFileSync(join(configRoot, "config.json"), JSON.stringify({ recallLimit: 20, ...extra }));
 configure();
 const { inspectMemoryKnowledge, readMemoryKnowledge } = await import("../src/knowledge/memory-knowledge.ts");
-const { registerMemoryKnowledgeTools, openMemoryKnowledgeMenu } = await import("../src/knowledge/memory-knowledge-tools.ts");
+const { registerMemoryKnowledgeTools } = await import("../src/knowledge/memory-knowledge-tools.ts");
 const { MemoryOutput } = await import("../src/presentation/memory-output.ts");
-const { writeMeetingMinutes } = await import("../src/knowledge/meeting-minutes.ts");
+const { writeTranscriptMinutes } = await import("../src/knowledge/meeting-minutes.ts");
 const knowledgeRoot = join(configRoot, "knowledge");
-const conclusion = { description: "Joule research scope and unresolved deployment questions", findings: "BODY_NOT_METADATA", decisions: "None", unverified_inferences: "None", disagreements: "None", open_questions: "None", actions: "None" };
-const record = { id: "joule", owner: "main", question: "Review Joule Engagement Layer research", knowledgePath: knowledgeRoot, timeoutMs: 0, kind: "transcript" as const, answers: [], evidence: [] };
+const conclusion = { ...knowledgeFields, description: "Joule research scope and unresolved deployment questions", findings: "BODY_NOT_METADATA", decisions: "None", unverified_inferences: "None", disagreements: "None", open_questions: "None", actions: "None" };
+const record = { id: "joule", question: "Review Joule Engagement Layer research", knowledgePath: knowledgeRoot, evidence: [] };
 const final = { role: "assistant", content: [{ type: "text", text: "Different response" }], stopReason: "stop", timestamp: 1 } as FinalAssistantMessage;
+const topic = `meetings/${conclusion.topic_path}`;
 try {
-  assert.deepEqual(inspectMemoryKnowledge(), { knowledge_root: knowledgeRoot, meetings: [] });
+  assert.deepEqual(inspectMemoryKnowledge(), { knowledge_root: knowledgeRoot, directory: "", directories: [], meetings: [], documents: [] });
   assert.ok(!existsSync(knowledgeRoot), "inspection must not create storage");
-  assert.throws(() => writeMeetingMinutes(record, { ...conclusion, description: record.question }), /must summarize the content/);
-  const saved = writeMeetingMinutes(record, conclusion);
-  mkdirSync(join(knowledgeRoot, "meetings", ".pending"));
-  const catalogue = inspectMemoryKnowledge();
-  assert.equal(catalogue.meetings.length, 1, "unpublished pending directories are not saved knowledge");
+  assert.throws(() => writeTranscriptMinutes(record, { ...conclusion, description: record.question }), /must summarize the content/);
+  for (const topic_path of ["", "../escape", "/absolute", "Uppercase", "a//b", "a\\b", "a/../b"]) assert.throws(() => writeTranscriptMinutes(record, { ...conclusion, topic_path }), /topic_path/);
+  assert.throws(() => writeTranscriptMinutes(record, { ...conclusion, topic_summaries: [] }), /topic_summaries/);
+  assert.throws(() => writeTranscriptMinutes(record, { ...conclusion, title: "two\nlines" }), /single-line/);
+  assert.throws(() => writeTranscriptMinutes(record, { ...conclusion, findings: "Fact.[^transcript-99]" }), /Unknown OKF source citation/);
+  assert.ok(!existsSync(knowledgeRoot), "invalid input must not write files");
+  const saved = writeTranscriptMinutes(record, conclusion);
+  assert.equal(saved.concept_id, `${topic}/joule/minutes`);
+  assert.equal(inspectMemoryKnowledge().meetings.length, 0, "root inspection does not flatten all meeting metadata");
+  assert.deepEqual(inspectMemoryKnowledge().directories.map(entry => entry.directory), ["meetings"]);
+  assert.deepEqual(inspectMemoryKnowledge("meetings").directories.map(entry => entry.directory), ["meetings/agent-memory"]);
+  assert.equal(inspectMemoryKnowledge("meetings/agent-memory").directories[0].description, conclusion.topic_summaries[1].description);
+  const catalogue = inspectMemoryKnowledge(topic);
+  assert.equal(catalogue.meetings.length, 1);
+  assert.equal(catalogue.meetings[0].frontmatter.type, "Meeting Minutes");
   assert.equal(catalogue.meetings[0].frontmatter.description, conclusion.description);
-  assert.deepEqual(Object.keys(catalogue.meetings[0].frontmatter), ["description"]);
+  assert.equal(catalogue.meetings[0].index_matches_metadata, true);
   assert.doesNotMatch(JSON.stringify(catalogue), /BODY_NOT_METADATA/);
+  assert.match(readFileSync(join(knowledgeRoot, "index.md"), "utf8"), /^---\nokf_version: "0.2"\n---/);
+  for (const directory of ["meetings", "meetings/agent-memory", topic, `${topic}/joule`]) assert.doesNotMatch(readFileSync(join(knowledgeRoot, directory, "index.md"), "utf8"), /^---/);
   const before = readFileSync(join(knowledgeRoot, "index.md"), "utf8");
-  const restored = readMemoryKnowledge("joule");
-  assert.equal(restored.markdown, saved.markdown);
+  assert.equal(readMemoryKnowledge("joule").markdown, saved.markdown);
   assert.equal(readFileSync(join(knowledgeRoot, "index.md"), "utf8"), before);
-  assert.equal(readdirSync(join(knowledgeRoot, "meetings")).length, 2);
-  for (const id of ["", " ", "..", "../joule", "joule/minutes.md", "joule\\minutes.md", ".pending"]) {
-    assert.throws(() => readMemoryKnowledge(id), /meeting_id must be/);
-  }
-  assert.throws(() => readMemoryKnowledge("missing"), /ENOENT/);
+  for (const id of ["", " ", "..", "../joule", "joule/minutes.md", "joule\\minutes.md", ".pending"]) assert.throws(() => readMemoryKnowledge(id), /meeting_id must be/);
+  assert.throws(() => readMemoryKnowledge("missing"), /not found/);
+  for (const directory of ["../", "/meetings", "meetings/../escape", "meetings\\joule"]) assert.throws(() => inspectMemoryKnowledge(directory), /directory must/);
+  assert.throws(() => inspectMemoryKnowledge("meetings/missing"), /ENOENT/);
+  assert.throws(() => writeTranscriptMinutes(record, conclusion), /Duplicate meeting_id/);
+  assert.throws(() => writeTranscriptMinutes({ ...record, id: "other" }, { ...conclusion, topic_summaries: [{ ...conclusion.topic_summaries[0], description: "Conflicting summary" }, conclusion.topic_summaries[1]] }), /summary conflicts/);
+  assert.equal(readFileSync(join(knowledgeRoot, "index.md"), "utf8"), before);
+
   const output = new MemoryOutput();
   const tools = new Map<string, any>();
   registerMemoryKnowledgeTools((tool: any) => tools.set(tool.name, tool), output);
-  const inspected = await tools.get("inspect_memory_knowledge").execute();
+  const inspected = await tools.get("inspect_memory_knowledge").execute("inspect", { directory: topic });
   assert.doesNotMatch(inspected.content[0].text, /BODY_NOT_METADATA/);
-  assert.equal(output.finalize(final), final, "metadata inspection alone does not require a new OKF conclusion");
+  assert.equal(output.finalize(final), final);
   const read = await tools.get("read_memory_knowledge").execute("read", { meeting_id: "joule" });
   assert.equal(read.content[0].text, saved.markdown);
   assert.equal((output.finalize(final).content[0] as any).text, saved.markdown);
-  assert.equal(readdirSync(join(knowledgeRoot, "meetings")).length, 2, "direct reuse must not create a meeting");
   output.reset(); output.startDiscussion();
   await assert.rejects(tools.get("read_memory_knowledge").execute("wrong-order", { meeting_id: "joule" }), /before starting transcript recall or Discussion/);
   output.reset(); output.addTranscript([]);
   assert.throws(() => output.reuse(saved.markdown), /before starting/);
-  const notices: string[] = [];
-  await openMemoryKnowledgeMenu({ ui: { notify(text: string) { notices.push(text); }, async select(_title: string, choices: string[]) { assert.match(choices[0], /joule — Joule research scope/); return choices[0]; } } } as any);
-  assert.equal(notices[1], saved.markdown);
-  assert.doesNotMatch(notices[0], /BODY_NOT_METADATA/);
-  for (const description of [...tools.values()].map(tool => tool.description)) {
-    assert.match(description, /explicit/);
-  }
+  for (const tool of tools.values()) assert.match(tool.description, /explicit/);
 
-  // Read native YAML edits while enforcing the description-only contract.
-  const multiline = saved.markdown.replace('description: "Joule research scope and unresolved deployment questions"', "description: |\n  Joule research scope\n  and unresolved deployment questions");
+  // OKF permits optional fields, unknown types, extensions, and a single verified mapping.
+  const edited = renderConcept({ type: "Custom Concept", description: "Edited summary", custom: { preserved: true }, verified: { by: "human:test", at: "2026-07-01T10:00:00Z" } }, "BODY_NOT_METADATA");
+  writeFileSync(saved.path, edited);
+  assert.deepEqual(inspectMemoryKnowledge(topic).meetings[0].frontmatter.custom, { preserved: true });
+  assert.equal(inspectMemoryKnowledge(topic).meetings[0].index_matches_metadata, false, "index mismatch must be visible");
+  assert.equal(readMemoryKnowledge("joule").markdown, edited);
+  writeFileSync(saved.path, renderConcept({ type: "Reference" }, "BODY_NOT_METADATA"));
+  assert.equal(inspectMemoryKnowledge(topic).meetings[0].frontmatter.description, undefined, "optional descriptions are not invented");
+  const multiline = renderConcept({ type: "Reference", description: "Line one\nLine two" }, "Body");
   writeFileSync(saved.path, multiline);
-  assert.match(String(inspectMemoryKnowledge().meetings[0].frontmatter.description), /and unresolved deployment questions/);
-  assert.equal(readMemoryKnowledge("joule").markdown, multiline);
-  for (const invalid of [
-    saved.markdown.replace('description: "Joule research scope and unresolved deployment questions"\n', ""),
-    saved.markdown.replace('description: "Joule research scope and unresolved deployment questions"', 'description: " "'),
-    saved.markdown.replace('description: "Joule research scope and unresolved deployment questions"', 'description: "Summary"\ntitle: "Extra"'),
-    saved.markdown.replace('description: "Joule research scope and unresolved deployment questions"', "description: [broken"),
-    "No frontmatter\n",
-  ]) {
+  assert.equal(readMemoryKnowledge("joule").frontmatter.description, "Line one\nLine two");
+  for (const invalid of ["No frontmatter\n", "---\ndescription: Legacy\n---\n", "---\ntype: ''\n---\n", "---\ntype: [broken\n---\n", "---\ntype: Reference\nsources: [{}]\n---\n", "---\ntype: Reference\ngenerated: {at: now}\n---\n"]) {
     writeFileSync(saved.path, invalid);
-    assert.throws(() => inspectMemoryKnowledge(), /OKF/);
+    assert.throws(() => inspectMemoryKnowledge(topic), /OKF/);
     assert.throws(() => readMemoryKnowledge("joule"), /OKF/);
   }
   writeFileSync(saved.path, saved.markdown);
-  const vault = join(home, "vault");
-  mkdirSync(vault);
-  configure({ obsidianExportEnabled: true, obsidianVaultPath: vault });
-  assert.deepEqual(inspectMemoryKnowledge(), { knowledge_root: vault, meetings: [] }, "enabled vault must not inspect the default root as a fallback");
-  writeMeetingMinutes({ ...record, knowledgePath: vault }, conclusion);
-  assert.equal(inspectMemoryKnowledge().meetings[0].path, join(vault, "meetings", "joule", "minutes.md"));
-  assert.equal(readMemoryKnowledge("joule").path, join(vault, "meetings", "joule", "minutes.md"));
-  configure({ obsidianExportEnabled: true, obsidianVaultPath: join(home, "invalid-vault") });
-  assert.throws(() => inspectMemoryKnowledge(), /existing absolute vault/);
-  assert.throws(() => readMemoryKnowledge("joule"), /existing absolute vault/);
-  console.log("memory-knowledge tests passed: metadata-first inspection, required description, exact read-only reuse, strict errors and storage selection");
+  assert.throws(() => readConceptMetadata("---\ntype: Reference\ngenerated: {by: test/1, at: '2026-07-01T10:00:00'}\n---\n", "bad-time"), /UTC offset/);
+  const indexPath = join(knowledgeRoot, topic, "index.md");
+  const originalIndex = readFileSync(indexPath, "utf8");
+  rmSync(indexPath);
+  assert.throws(() => inspectMemoryKnowledge(topic), /ENOENT/);
+  assert.throws(() => writeTranscriptMinutes({ ...record, id: "missing-index-save" }, conclusion), /Unlisted/);
+  assert.ok(!existsSync(indexPath), "writing must not silently repair a missing published index");
+  assert.equal(readFileSync(join(knowledgeRoot, "index.md"), "utf8"), before);
+  writeFileSync(indexPath, originalIndex);
+  const wrongType = join(knowledgeRoot, topic, "wrong.md");
+  writeFileSync(wrongType, renderConcept({ type: "Reference" }, "Body"));
+  writeFileSync(indexPath, `${originalIndex}* [Wrong](wrong.md/) - Wrong file type.\n`);
+  assert.throws(() => inspectMemoryKnowledge(topic), /wrong file type/);
+  writeFileSync(indexPath, originalIndex); rmSync(wrongType);
+  writeFileSync(indexPath, `---\nokf_version: "0.2"\n---\n${originalIndex}`);
+  assert.throws(() => inspectMemoryKnowledge(topic), /Only the bundle-root/);
+  writeFileSync(indexPath, originalIndex);
+  const unlisted = join(knowledgeRoot, topic, "unlisted.md");
+  writeFileSync(unlisted, renderConcept({ type: "Reference" }, "Body"));
+  assert.throws(() => inspectMemoryKnowledge(topic), /Unlisted/);
+  rmSync(unlisted);
+  const duplicate = join(knowledgeRoot, "meetings", "duplicate", "joule");
+  mkdirSync(duplicate, { recursive: true }); writeFileSync(join(duplicate, "minutes.md"), saved.markdown);
+  assert.throws(() => readMemoryKnowledge("joule"), /Duplicate meeting_id/);
+  rmSync(dirname(duplicate), { recursive: true });
+  symlinkSync(join(home, "missing-target"), join(knowledgeRoot, "meetings", "unsafe"));
+  assert.throws(() => readMemoryKnowledge("joule"), /symlinks/);
+  assert.throws(() => writeTranscriptMinutes({ ...record, id: "unsafe-save" }, { ...conclusion, topic_path: "unsafe", topic_summaries: [conclusion.topic_summaries[0]] }), /symlinks/);
+  rmSync(join(knowledgeRoot, "meetings", "unsafe"));
+
+  // Fail the second index rename and verify that the first index and new directories roll back.
+  const rollback = join(home, "rollback"); mkdirSync(rollback);
+  const oldIndex = join(rollback, "index.md"); writeFileSync(oldIndex, "before");
+  const broken = join(rollback, "broken.md"); mkdirSync(broken);
+  assert.throws(() => publishKnowledge(rollback, join(rollback, "meetings", "topic", "id"), new Map([["minutes.md", saved.markdown]]), [
+    { path: oldIndex, previous: "before", content: "after" }, { path: broken, content: "cannot replace a directory" },
+  ]));
+  assert.equal(readFileSync(oldIndex, "utf8"), "before");
+  assert.ok(!existsSync(join(rollback, "meetings")));
+  assert.ok(!readdirSync(home).some(name => name.startsWith(".pi-session-memory-pending-")));
+
+  const vault = join(home, "vault"); mkdirSync(vault);
+  writeFileSync(join(vault, "index.md"), "User index");
+  const vaultRoot = join(vault, "pi-session-memory");
+  configure({ knowledgePath: vaultRoot });
+  assert.equal(inspectMemoryKnowledge().knowledge_root, vaultRoot);
+  assert.equal(inspectMemoryKnowledge().directories.length, 0);
+  const vaultSaved = writeTranscriptMinutes({ ...record, knowledgePath: vaultRoot }, conclusion);
+  assert.equal(inspectMemoryKnowledge(topic).meetings[0].path, vaultSaved.path);
+  assert.equal(readFileSync(join(vault, "index.md"), "utf8"), "User index");
+  configure({ knowledgePath: join(vault, "index.md") });
+  assert.throws(() => inspectMemoryKnowledge(), /not an existing file/);
+  assert.throws(() => readMemoryKnowledge("joule"), /not an existing file/);
+  console.log("memory-knowledge tests passed: OKF conformance, progressive inspection, safe topics, exact reuse, visible metadata signals and rollback");
 } finally { rmSync(home, { recursive: true, force: true }); }

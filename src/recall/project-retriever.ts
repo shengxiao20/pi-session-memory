@@ -42,9 +42,11 @@ export function findProjectSessions(options: ProjectRecallOptions): ProjectSessi
   const rows = getDb().prepare(`SELECT sessions.session_id, sessions.source, sessions.cwd, sessions.started_at, count(turns.turn_id) AS turn_count,
     (SELECT first_turn.user_text FROM turns AS first_turn WHERE first_turn.session_id = sessions.session_id ORDER BY first_turn.turn_index LIMIT 1) AS first_user_text
     FROM sessions JOIN turns ON turns.session_id = sessions.session_id
-    GROUP BY sessions.session_id ORDER BY sessions.started_at DESC, sessions.session_id`).all() as ProjectSessionCandidate[];
+    GROUP BY sessions.session_id ORDER BY sessions.started_at DESC, sessions.session_id`).all().map((row): ProjectSessionCandidate => ({
+      session_id: row.session_id as string, source: row.source as "pi", cwd: row.cwd as string,
+      started_at: row.started_at as number, turn_count: row.turn_count as number, first_user_text: row.first_user_text as string,
+    }));
   const entityTokenSequences = options.entities.map(_projectTokens).filter((tokens) => tokens.length > 0);
-  if (!entityTokenSequences.length) throw new Error("Entities must contain at least one letter or number");
   return rows.filter((session) => {
     const directoryTokens = _projectTokens(_cwdProjectName(session.cwd));
     return entityTokenSequences.some((entityTokens) => _containsTokenSequence(directoryTokens, entityTokens));

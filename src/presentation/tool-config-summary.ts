@@ -11,12 +11,12 @@ export function formatConfigSummary(config: SessionMemoryConfig, env: NodeJS.Pro
     ? "API key=local-placeholder"
     : `${connection.apiKeyEnv}=${_envState(env[connection.apiKeyEnv])}`;
   const host = `${_envState(env.OLLAMA_HOST)}${connection.manageOllama ? " (managed override)" : ""}`;
-  return `${CONFIG_SUMMARY_PREFIX}Jev=${_switch(config.jevEnable)} (${config.model.replace(/\s+/g, " ")}) · Obsidian=${_switch(config.obsidianExportEnabled)} · manageOllama=${_switch(connection.manageOllama)} · limit=${config.recallLimit}\nEnv · MEMORY_DB_PATH=${_envState(env.MEMORY_DB_PATH)} · ${key} · OLLAMA_HOST=${host}`;
+  return `${CONFIG_SUMMARY_PREFIX}Jev=${_switch(config.jevEnable)} (${config.model.replace(/\s+/g, " ")}) · manageOllama=${_switch(connection.manageOllama)} · limit=${config.recallLimit} · recallMode=${config.recallMode}\nEnv · MEMORY_DB_PATH=${_envState(env.MEMORY_DB_PATH)} · ${key} · OLLAMA_HOST=${host}`;
 }
 
 /** Show only settings used by private consultation tools; never expose paths. */
 export function formatConsultationSummary(config: SessionMemoryConfig): string {
-  return `${CONFIG_SUMMARY_PREFIX}Discussion=${_switch(config.enableDiscussion === true)} (recall only; main tools unchanged) · timeoutMs=${config.consultation?.timeoutMs ?? "not configured"}\nKnowledge · configured=on · Obsidian=${_switch(config.obsidianExportEnabled)} · output=draft OKF v0.2 (chat = saved file)`;
+  return `${CONFIG_SUMMARY_PREFIX}recallMode=${config.recallMode} (recall only; main tools unchanged) · timeoutMs=${config.consultation?.timeoutMs ?? "not configured"}\nKnowledge · location=${config.knowledgePath === undefined ? "default" : "custom"} · output=draft OKF v0.2 (typed metadata; topic indexes; chat = saved file)`;
 }
 
 /** Add one invocation-time configuration snapshot to every tool result and progress update without changing evidence details. */
@@ -26,7 +26,7 @@ export function withConfigSummary<TParams extends TSchema, TDetails, TState>(too
     async execute(id, params, signal, onUpdate, ctx) {
       const config = getSessionMemoryConfig();
       const consultationTool = ["follow_up_session", "finish_session_consultation", "cancel_session_consultation", "finish_memory_recall"].includes(tool.name);
-      const summary = consultationTool || (tool.name === "recall_memory" && config.enableDiscussion === true)
+      const summary = consultationTool || (tool.name === "recall_memory" && config.recallMode === "discussion")
         ? formatConsultationSummary(config)
         : formatConfigSummary(config);
       const result = await tool.execute(id, params, signal, onUpdate && ((update) => onUpdate(_appendSummary(update, summary))), ctx);

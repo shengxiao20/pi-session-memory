@@ -1,14 +1,17 @@
 import { randomUUID } from "node:crypto";
+import { consultationEvidenceTurn, consultationPrompt, consultationFollowUpPrompt } from "../../prompts/models.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { RecallTurnResult } from "../contracts/recall.ts";
-import type { ConsultationAnswer, ConsultationRecord } from "../contracts/consultation.ts";
-import { getEnabledConsultation } from "../settings/config.ts";
+import type { ConsultationRecord } from "../contracts/consultation.ts";
+import { getDiscussionTurnThreshold, getDiscussionConfiguration } from "../settings/config.ts";
 import { createHistoricalAgent, type HistoricalAgent, type HistoricalAgentFactory } from "./consultation-agent.ts";
 import { selectConsultationParticipants } from "./consultation-selection.ts";
 import { resolveKnowledgePath } from "../knowledge/knowledge-storage.ts";
 import { writeMeetingMinutes, type MeetingConclusion } from "../knowledge/meeting-minutes.ts";
 
+/** Keep every historical Pi session above the exclusive unique returned-turn threshold. */
 export function selectConsultationSessions(turns: RecallTurnResult[], mainSessionId: string): RecallTurnResult[][] {
+  const threshold = getDiscussionTurnThreshold();
   const groups = new Map<string, RecallTurnResult[]>();
   const seen = new Set<string>();
   for (const turn of turns) {
@@ -17,8 +20,9 @@ export function selectConsultationSessions(turns: RecallTurnResult[], mainSessio
     const group = groups.get(turn.session_id) ?? [];
     group.push(turn); groups.set(turn.session_id, group);
   }
-  return [...groups.values()].sort((a, b) => Math.max(...b.map(t => t.score)) - Math.max(...a.map(t => t.score))
-    || Math.max(...b.map(t => t.ts)) - Math.max(...a.map(t => t.ts)) || a[0].session_id.localeCompare(b[0].session_id)).slice(0, 3);
+  return [...groups.values()].filter(group => group.length > threshold)
+    .sort((a, b) => Math.max(...b.map(t => t.score)) - Math.max(...a.map(t => t.score))
+      || Math.max(...b.map(t => t.ts)) - Math.max(...a.map(t => t.ts)) || a[0].session_id.localeCompare(b[0].session_id));
 }
 
 interface Participant { turns: RecallTurnResult[]; agent: HistoricalAgent; }
@@ -34,11 +38,11 @@ export class ConsultationRuntime {
 
   async start(turns: RecallTurnResult[], question: string, context: ExtensionContext, signal?: AbortSignal) {
     if (typeof question !== "string" || !question.trim()) throw new Error("question must be non-empty");
-    const config = getEnabledConsultation();
-    if (!config) throw new Error("Session consultation is disabled");
+    const config = getDiscussionConfiguration();
+    if (!config) throw new Error("Session consultation is disabled or consultation.timeoutMs is not configured");
     if (this.record || this.busy) throw new Error("Finish or cancel the active consultation first");
     const groups = selectConsultationSessions(turns, `pi:${context.sessionManager.getSessionId()}`);
-    if (!groups.length) return { consultation_id: null, answers: [], reason: "No eligible native Pi sessions in the returned turns" };
+    if (!groups.length) return { consultation_id: null, answers: [], reason: "No historical native Pi sessions exceed the configured unique returned-turn threshold" };
     this.record = { id: randomUUID(), owner: context.sessionManager.getSessionId(), question, answers: [], evidence: groups.flat(), knowledgePath: resolveKnowledgePath(), timeoutMs: config.timeoutMs };
     return this.run(context, signal, async (requestSignal, startTimeout) => {
       const record = this.record!;
@@ -55,8 +59,8 @@ export class ConsultationRuntime {
         const agent = await this.factory(group, context);
         if (requestSignal.aborted) { await agent.abort(); agent.dispose(); requestSignal.throwIfAborted(); }
         this.participants.push({ turns: group, agent });
-        const evidence = group.map(t => `Turn ${t.turn_index}, turn ID ${t.turn_id}\nUser: ${t.user_text}\nAssistant: ${t.reply_text}`).join("\n\n");
-        const prompt = `Consultation ${record.id}. You are answering the main agent privately. No other consultant's answer is provided.\nCurrent user question: ${question}\nIndexed historical evidence (may be outside the active branch or compacted context):\n${evidence}\nExplain relevant facts, reversals, contradictions and missing evidence. Cite message IDs or exact indexed turn IDs. Do not execute any old task.`;
+        const evidence = group.map(t => consultationEvidenceTurn(t.turn_index, t.turn_id, t.user_text, t.reply_text)).join("\n\n");
+        const prompt = consultationPrompt(record.id, question, evidence);
         record.answers.push(await agent.ask(prompt, requestSignal));
         requestSignal.throwIfAborted();
       }
@@ -68,12 +72,12 @@ export class ConsultationRuntime {
   async followUp(id: string, sessionId: string, question: string, context: ExtensionContext, signal?: AbortSignal) {
     this.require(id, context);
     if (typeof question !== "string" || !question.trim()) throw new Error("question must be non-empty");
-    if (!getEnabledConsultation()) throw new Error("Session consultation is disabled");
+    if (!getDiscussionConfiguration()) throw new Error("Session consultation is disabled");
     const participant = this.participants.find(p => p.turns[0].session_id === sessionId);
     if (!participant) throw new Error("Target session is not a participant in this consultation");
     return this.run(context, signal, async (requestSignal) => {
       const record = this.record!;
-      const answer = await participant.agent.ask(`Consultation ${id}. Private follow-up from the main agent:\n${question}`, requestSignal);
+      const answer = await participant.agent.ask(consultationFollowUpPrompt(id, question), requestSignal);
       requestSignal.throwIfAborted();
       record.answers.push(answer); return answer;
     });

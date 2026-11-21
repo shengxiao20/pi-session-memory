@@ -5,15 +5,15 @@ import { tmpdir } from "node:os";
 import { formatConfigSummary, formatConsultationSummary, withConfigSummary } from "../src/presentation/tool-config-summary.ts";
 import { DEFAULT_JEV_CONNECTION, type SessionMemoryConfig } from "../src/settings/config.ts";
 
-const config: SessionMemoryConfig = { recallLimit: 20, jevEnable: false, model: "nimble", jevConnection: { ...DEFAULT_JEV_CONNECTION }, obsidianExportEnabled: false };
-assert.equal(formatConfigSummary(config, {}), "Config · Jev=off (nimble) · Obsidian=off · manageOllama=on · limit=20\nEnv · MEMORY_DB_PATH=unset · API key=local-placeholder · OLLAMA_HOST=unset (managed override)");
+const config: SessionMemoryConfig = { recallMode: "normal", recallLimit: 20, jevEnable: false, model: "nimble", jevConnection: { ...DEFAULT_JEV_CONNECTION } };
+assert.equal(formatConfigSummary(config, {}), "Config · Jev=off (nimble) · manageOllama=on · limit=20 · recallMode=normal\nEnv · MEMORY_DB_PATH=unset · API key=local-placeholder · OLLAMA_HOST=unset (managed override)");
 const remoteConfig: SessionMemoryConfig = {
-  ...config, jevEnable: true, model: "jev-latest", obsidianExportEnabled: true, obsidianVaultPath: "/private/vault",
+  ...config, jevEnable: true, model: "jev-latest", knowledgePath: "/private/knowledge",
   jevConnection: { baseURL: "https://example.com", manageOllama: false, apiKeyEnv: "TEST_JEV_KEY", contextWindow: 4096 },
 };
 const env = { MEMORY_DB_PATH: "/private/history.db", TEST_JEV_KEY: "secret-never-display", OLLAMA_HOST: "private-host" };
 const remoteSummary = formatConfigSummary(remoteConfig, env);
-assert.equal(remoteSummary, "Config · Jev=on (jev-latest) · Obsidian=on · manageOllama=off · limit=20\nEnv · MEMORY_DB_PATH=set · TEST_JEV_KEY=set · OLLAMA_HOST=set");
+assert.equal(remoteSummary, "Config · Jev=on (jev-latest) · manageOllama=off · limit=20 · recallMode=normal\nEnv · MEMORY_DB_PATH=set · TEST_JEV_KEY=set · OLLAMA_HOST=set");
 assert.doesNotMatch(remoteSummary, /secret-never-display|private|example\.com/);
 assert.match(formatConfigSummary(remoteConfig, {}), /TEST_JEV_KEY=unset/);
 assert.match(formatConfigSummary(remoteConfig, { TEST_JEV_KEY: "  " }), /TEST_JEV_KEY=unset/);
@@ -53,14 +53,17 @@ try {
   const second = await tool.execute("call", { topic: "history" }, undefined, undefined, context);
   assert.match((second.content[2] as any).text, /Config · Jev=on/);
 
-  const discussionConfig = { ...config, enableDiscussion: true, consultation: { knowledgePath: join(home, "knowledge"), timeoutMs: 120000 } };
+  assert.match(formatConsultationSummary(config), /Knowledge · location=default/);
+  const discussionConfig = { ...config, recallMode: "discussion" as const, knowledgePath: join(home, "private-knowledge"), consultation: { timeoutMs: 120000 } };
+  assert.match(formatConsultationSummary(discussionConfig), /Knowledge · location=custom/);
+  assert.doesNotMatch(formatConsultationSummary(discussionConfig), /private-knowledge|Obsidian/);
   assert.doesNotMatch(formatConsultationSummary(discussionConfig), /Jev|Ollama|knowledgePath/);
   assert.match(formatConsultationSummary(discussionConfig), /recall only; main tools unchanged/);
   writeFileSync(configPath, JSON.stringify(discussionConfig));
   for (const name of ["recall_memory", "follow_up_session", "finish_session_consultation", "cancel_session_consultation"]) {
     const discussionTool = withConfigSummary({ name, label: name, description: "Test consultation summary", parameters: {} as any, async execute() { return original; } });
     const output = await discussionTool.execute("call", {}, undefined, undefined, context);
-    assert.match((output.content.at(-1) as any).text, /Discussion=on/);
+    assert.match((output.content.at(-1) as any).text, /recallMode=discussion/);
     assert.doesNotMatch((output.content.at(-1) as any).text, /Jev=|Ollama/);
   }
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const sourceRoot = join(root, "src");
@@ -28,23 +29,67 @@ const sources = domains.flatMap(domain => {
   return files.map(entry => join(directory, entry.name));
 });
 const entryPoint = join(root, "extensions", "index.ts");
+const mappedSources = [...sources, entryPoint];
+const promptRoot = join(root, "prompts");
+const promptEntries = readdirSync(promptRoot, { withFileTypes: true });
+assert.ok(promptEntries.every(entry => entry.isFile() && /\.(?:ts|md)$/.test(entry.name)), "prompts contains text resources only");
+const promptSources = promptEntries.filter(entry => entry.name.endsWith(".ts")).map(entry => join(promptRoot, entry.name));
+assert.equal(promptSources.length, 6, "six focused prompt modules are covered by dependency checks");
+const allSources = [...mappedSources, ...promptSources];
+function analyzeSource(text: string, filename: string) {
+  const ast = ts.createSourceFile(filename, text, ts.ScriptTarget.Latest, true);
+  const imports: string[] = [];
+  let hasControlFlow = false;
+  function visitNode(node: ts.Node): void {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
+      assert.ok(ts.isStringLiteral(node.moduleSpecifier), "module specifiers are string literals");
+      imports.push(node.moduleSpecifier.text);
+    }
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      assert.equal(node.arguments.length, 1, "dynamic imports have one explicit module specifier");
+      assert.ok(ts.isStringLiteral(node.arguments[0]), "dynamic imports use literal module paths");
+      imports.push(node.arguments[0].text);
+    }
+    hasControlFlow ||= ts.isIfStatement(node) || ts.isSwitchStatement(node)
+      || ts.isTryStatement(node) || ts.isThrowStatement(node) || ts.isAwaitExpression(node);
+    ts.forEachChild(node, visitNode);
+  }
+  visitNode(ast);
+  return { imports, hasControlFlow };
+}
+assert.deepEqual(analyzeSource('export const note = "Copy from " + "a file. if (needed), throw(error).";', "probe.ts"),
+  { imports: [], hasControlFlow: false }, "text is not an import or runtime control flow");
+assert.deepEqual(analyzeSource('import x from "node:fs"; export { y } from "./shared.ts"; const z = import("./dynamic.ts");', "probe.ts").imports,
+  ["node:fs", "./shared.ts", "./dynamic.ts"], "static imports, re-exports and dynamic imports remain checked");
+for (const code of ['if (true) {}', 'switch (x) {}', 'try {} catch {}', 'throw new Error();', 'await task();']) {
+  assert.equal(analyzeSource(code, "probe.ts").hasControlFlow, true, "real control flow remains rejected");
+}
 const graph = new Map<string, string[]>();
-for (const source of [...sources, entryPoint]) {
+for (const source of allSources) {
   const text = readFileSync(source, "utf8");
   const sourceDomain = relative(sourceRoot, source).split(/[\\/]/)[0];
   if (sourceDomain === "contracts") {
     assert.doesNotMatch(text, /^import (?!type\b)|^export (?:const|let|var|class|function|enum)\b/m, "contracts contain types only");
   }
-  const targets = [...text.matchAll(/(?:\bfrom\s*|\bimport\s*\()\s*["'](\.[^"']+\.ts)["']/g)].map(match => {
-    const target = resolve(dirname(source), match[1]);
-    assert.ok(statSync(target).isFile(), `import target exists: ${relative(root, source)} → ${match[1]}`);
-    assert.ok(sources.includes(target), `internal imports target a domain module: ${match[1]}`);
+  const analysis = analyzeSource(text, source);
+  const targets = analysis.imports.filter(specifier => specifier.startsWith(".") && specifier.endsWith(".ts")).map(specifier => {
+    const target = resolve(dirname(source), specifier);
+    assert.ok(statSync(target).isFile(), `import target exists: ${relative(root, source)} → ${specifier}`);
+    assert.ok(allSources.includes(target), `internal imports target a source or prompt module: ${specifier}`);
     const targetDomain = relative(sourceRoot, target).split(/[\\/]/)[0];
-    if (source !== entryPoint && sourceDomain !== targetDomain) {
+    if (promptSources.includes(source)) {
+      assert.ok(promptSources.includes(target), "prompt resources must not import runtime modules");
+    } else if (promptSources.includes(target)) {
+      assert.notEqual(sourceDomain, "contracts", "type-only contracts must not import prompt values");
+    } else if (source !== entryPoint && sourceDomain !== targetDomain) {
       assert.ok(allowedDependencies[sourceDomain].includes(targetDomain), `allowed domain dependency: ${sourceDomain} → ${targetDomain}`);
     }
     return target;
   });
+  if (promptSources.includes(source)) {
+    assert.ok(analysis.imports.every(specifier => specifier.startsWith("./") && specifier.endsWith(".ts")), "prompt modules have no external, filesystem or service dependencies");
+    assert.equal(analysis.hasControlFlow, false, "prompt modules format text without runtime control flow");
+  }
   graph.set(source, targets);
 }
 
@@ -70,7 +115,7 @@ function moduleId(file: string): string {
   return file === entryPoint ? "extensions/index.ts" : `src/${relative(sourceRoot, file).split(/[\\/]/)[0]}`;
 }
 const moduleFiles = new Map<string, number>();
-for (const source of graph.keys()) {
+for (const source of mappedSources) {
   const id = moduleId(source);
   moduleFiles.set(id, (moduleFiles.get(id) ?? 0) + 1);
 }
@@ -83,7 +128,7 @@ assert.deepEqual(mapSnapshot.modules.map(module => [module.id, module.files]).so
 const actualLinks = new Set<string>();
 for (const [source, targets] of graph) {
   for (const target of targets) {
-    if (moduleId(source) !== moduleId(target)) actualLinks.add(`${moduleId(source)} → ${moduleId(target)}`);
+    if (mappedSources.includes(source) && mappedSources.includes(target) && moduleId(source) !== moduleId(target)) actualLinks.add(`${moduleId(source)} → ${moduleId(target)}`);
   }
 }
 const snapshotLinks = [...mapSnapshot.links, ...mapSnapshot.reviewedDynamicImports];
@@ -118,7 +163,9 @@ assert.deepEqual(config, { exclude: [".github/", "scripts/", "site/", "sites/"] 
 const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 assert.deepEqual(manifest.pi.extensions, ["./extensions"], "the public Pi entry point remains unchanged");
 assert.ok(manifest.files.includes("src/"), "all domain modules are packaged");
-assert.ok(manifest.files.includes("docs/architecture.md"), "the architecture guide is packaged");
+assert.ok(manifest.files.includes("prompts/"), "all shared text resources are packaged");
+assert.deepEqual(manifest.pi.prompts, [], "internal Markdown resources are not registered as Pi slash commands");
+assert.ok(!manifest.files.some((path: string) => path.startsWith("docs/")), "retired documentation is not declared for publication");
 assert.ok(manifest.files.includes("site/assets/codegraph-map.svg"), "the shared README architecture image is packaged");
 assert.ok(manifest.files.includes("site/assets/codegraph-map.json"), "the architecture evidence snapshot is packaged");
 console.log("architecture.test.ts: passed");

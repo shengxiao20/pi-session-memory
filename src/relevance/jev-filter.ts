@@ -1,4 +1,5 @@
 import { noul } from "@typesafe-ai/sdk";
+import { RELEVANCE_CRITERIA, jevSegmentQuestion, jevTranscriptText } from "../../prompts/models.ts";
 import type { RecallTurnResult } from "../contracts/recall.ts";
 import type { JevRuntime } from "./jev-runtime.ts";
 import type { JevModel } from "../settings/config.ts";
@@ -9,11 +10,6 @@ const MINIMUM_SEGMENT_TOKENS = 256;
 const MAX_SEGMENT_TOKENS = 1_024;
 const REQUEST_OVERHEAD_TOKENS = 512;
 const RELEVANCE_THRESHOLD = 0.5;
-const RELEVANCE_CRITERIA = {
-  true: "The transcript segment materially helps answer the question.",
-  false: "The transcript segment is only a keyword match or does not help answer the question.",
-} as const;
-
 interface JevWorkItem {
   candidateIndex: number;
   segmentIndex: number;
@@ -64,7 +60,7 @@ function _request(question: string, batch: JevWorkItem[]) {
     state: { userQuestion: question },
     questions: Object.fromEntries(batch.map((item, index) => [
       `item_${index}`,
-      noul(`Is this transcript segment directly relevant evidence for answering the user question? Segment ${item.segmentIndex + 1} of ${item.segmentCount}.\n\n${item.text}`, RELEVANCE_CRITERIA),
+      noul(jevSegmentQuestion(item.segmentIndex, item.segmentCount, item.text), RELEVANCE_CRITERIA),
     ])),
   };
 }
@@ -79,7 +75,7 @@ function _tokenBudget(question: string, contextWindow: number): number {
 function _workItems(candidates: RecallTurnResult[], tokenBudget: number): { items: JevWorkItem[]; truncated: number } {
   let truncated = 0;
   const items = candidates.flatMap((candidate, candidateIndex) => {
-    const segments = _tokenSegments(`User: ${candidate.user_text}\n\nAssistant: ${candidate.reply_text}`, tokenBudget);
+    const segments = _tokenSegments(jevTranscriptText(candidate.user_text, candidate.reply_text), tokenBudget);
     if (segments.length > 1) truncated++;
     return segments.map((text, segmentIndex) => ({ candidateIndex, segmentIndex, segmentCount: segments.length, text }));
   });

@@ -47,11 +47,11 @@
               </button>
             </div>
             <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
-            <p class="release-note">Version 1.1.2 · Install from npm.</p>
+            <p class="release-note">Version 2.0.10 · Install from npm.</p>
           </div>
           <div class="hero-visual">
             <div class="ledger-heading"><span class="ledger-indicator" aria-hidden="true"></span><p class="diagram-label">Multi-agent evidence routing</p><span class="ledger-tag">1 MAIN + 3 HISTORY</span></div>
-            <img class="memory-map" src="./assets/memory-map.svg" width="600" height="480" alt="One current main agent routes recall to transcript evidence or up to three user-confirmed historical Pi agents. The main agent can independently use fetch_session to verify persisted context.">
+            <img class="memory-map" src="./assets/memory-map.svg" width="600" height="480" alt="One current main agent routes recall to transcript evidence or user-confirmed historical Pi agents above a configurable returned-turn threshold. The main agent can independently use fetch_session to verify persisted context.">
             <div class="diagram-caption"><span aria-hidden="true">✓</span> Discussion changes one recall result, not the main agent. Source transcripts remain unchanged.</div>
           </div>
         </section>
@@ -66,13 +66,13 @@
           <article class="feature">
             <span class="feature-number" aria-hidden="true">02 /</span>
             <h2>Multi-agent Discussion</h2>
-            <p>Activate up to three user-confirmed native Pi sessions as historical agents. They answer privately and sequentially without changing source history.</p>
+            <p>Activate every user-confirmed native Pi session above the returned-turn threshold. The default requires at least 6 unique hits. Agents answer privately and sequentially without changing source history.</p>
             <a href="https://github.com/shengxiao20/pi-session-memory#discussion-private-historical-session-consultation">Explore Discussion <span aria-hidden="true">↗</span></a>
           </article>
           <article class="feature">
             <span class="feature-number" aria-hidden="true">03 /</span>
             <h2>Portable knowledge</h2>
-            <p>Save cited findings, decisions, uncertainty, and actions as draft Open Knowledge Format (OKF) Markdown. Optionally use an Obsidian vault.</p>
+            <p>Save cited findings as typed draft Open Knowledge Format (OKF) Markdown. Browse explicit topic directories. Use one default or custom <code>knowledgePath</code>, independent of consultation settings.</p>
             <a href="https://github.com/shengxiao20/pi-session-memory#saved-okf-knowledge">Explore saved knowledge <span aria-hidden="true">↗</span></a>
           </article>
         </section>
@@ -80,13 +80,13 @@
           <div class="section-intro">
             <p class="eyebrow">Implementation architecture · CodeGraph Map</p>
             <h2 id="source-architecture-title">One entry point. Nine source module groups.</h2>
-            <p>The Pi entry point connects 35 TypeScript files across nine module groups. This map shows static dependencies, not agent participation or runtime sequence.</p>
+            <p>The Pi entry point connects 43 TypeScript files across nine module groups. This map shows static dependencies, not agent participation or runtime sequence.</p>
           </div>
           <figure class="source-map-figure" aria-labelledby="source-map-caption">
             <div class="source-map-scroll" tabindex="0" role="region" aria-label="Source architecture map. Scroll horizontally on small screens.">
               <img class="source-map" src="./assets/codegraph-map.svg" width="1200" height="1010" alt="CodeGraph Map: extensions/index.ts connects consultation, recall, setup, presentation, relevance, knowledge, history, contracts, and settings. Cards list dependencies. Recall imports relevance types; consultation dynamically imports history. Foundations have no cross-domain imports.">
             </div>
-            <figcaption id="source-map-caption">Redrawn from CodeGraph Map declared relationships. Cards list every cross-domain import; arrows show selected dependencies. The dynamic consultation-to-history import is verified in source. Static relationships are not runtime traces. On small screens, scroll the map horizontally or open the full-size SVG.</figcaption>
+            <figcaption id="source-map-caption">Redrawn from the CodeGraph Map relationship baseline. File counts are source-reviewed for configuration editor 2.0.3 and recall modes 2.0.9, not a fresh extraction. Cards list every cross-domain import; arrows show selected dependencies. The dynamic consultation-to-history import is verified in source. Static relationships are not runtime traces. Shared <code>prompts/</code> resources are omitted. On small screens, scroll the map horizontally or open the full-size SVG.</figcaption>
           </figure>
           <ol class="source-map-guide">
             <li><h3>Start with the entry point</h3><p><code>extensions/index.ts</code> registers Pi tools and connects all nine domains.</p></li>
@@ -96,7 +96,7 @@
           <div class="source-map-links">
             <a class="text-link" href="./assets/codegraph-map.svg">Open full-size map <span aria-hidden="true">↗</span></a>
             <a class="text-link" href="./assets/codegraph-map.json">Inspect Map evidence <span aria-hidden="true">↗</span></a>
-            <a class="text-link" href="https://github.com/shengxiao20/pi-session-memory/blob/main/docs/architecture.md">Read module ownership <span aria-hidden="true">↗</span></a>
+            <a class="text-link" href="https://github.com/shengxiao20/pi-session-memory#source-architecture">Read module ownership <span aria-hidden="true">↗</span></a>
           </div>
           <p class="source-map-note">Tests remain indexed but are omitted here. Unresolved Map guesses are excluded. The source map does not change tools, commands, or review permissions.</p>
         </section>
@@ -105,11 +105,12 @@
             <p class="eyebrow">Historical-review routing · separate from source dependencies</p>
             <h2 id="architecture-title">One main agent.<br><span>Multiple historical perspectives.</span></h2>
             <p>Discussion routes one recall request through user-confirmed native Pi sessions. Pi-only history avoids external formats that Discussion cannot activate directly. The main agent keeps its tools and independently checks persisted evidence.</p>
-            <a class="text-link" href="https://github.com/shengxiao20/pi-session-memory/blob/main/docs/adr/0001-independent-source-verification.md">Read ADR 0001 <span aria-hidden="true">↗</span></a>
+            <p><code>recallMode</code> selects <code>normal</code>, <code>discussion</code>, or <code>choice</code> (default). Choice asks after each completed global/project search and shows unique-turn counts. The selection applies only to that call; Esc cancels. Non-interactive use needs a fixed mode.</p>
+            <a class="text-link" href="https://github.com/shengxiao20/pi-session-memory#architecture-decision-independent-evidence-routing">Read evidence-routing boundaries <span aria-hidden="true">↗</span></a>
           </div>
           <dl class="architecture-facts" aria-label="Multi-agent architecture facts">
             <div><dt>1</dt><dd>current main agent</dd></div>
-            <div><dt>Up to 3</dt><dd>historical Pi agents</dd></div>
+            <div><dt>More than 5 hits</dt><dd>default session threshold</dd></div>
             <div><dt>2</dt><dd>explicit evidence routes</dd></div>
           </dl>
           <figure class="routing-figure" aria-labelledby="routing-caption">
@@ -121,18 +122,20 @@
               <article class="transcript-route">
                 <span class="route-tag">Route A · transcripts</span>
                 <h3>Direct evidence review</h3>
-                <p>Discussion off. Ranked transcript excerpts return to the main agent.</p>
+                <p><code>normal</code> mode. Ranked transcript excerpts return to the main agent without opening historical agents.</p>
               </article>
               <article class="discussion-route">
                 <span class="hot-tag">Multi-agent Discussion</span>
                 <span class="route-tag">Route B · consultation</span>
                 <h3>Ask historical Pi agents</h3>
-                <div class="agent-chain" aria-label="Up to three historical agents run sequentially">
+                <div class="agent-chain" aria-label="All user-confirmed eligible historical agents run sequentially, without a session-count cap">
                   <span><b>A1</b><small>History</small></span><i aria-hidden="true">→</i>
                   <span><b>A2</b><small>History</small></span><i aria-hidden="true">→</i>
-                  <span><b>A3</b><small>History</small></span>
+                  <span><b>AN</b><small>History</small></span>
                 </div>
                 <p>User-confirmed agents answer privately and sequentially. They have no tools and never write to source sessions.</p>
+                <p>Discussion requires a positive <code>consultation.timeoutMs</code>. A missing timeout raises an error. No eligible participants means no consultation answers, not a transcript fallback.</p>
+                <p><code>consultation.turnThreshold</code> sets the exclusive unique returned-turn threshold. The default is 5. <code>PI_SESSION_MEMORY_DISCUSSION_TURN_THRESHOLD</code> overrides the saved setting. Eligible sessions have no count cap.</p>
               </article>
             </div>
             <aside class="source-verification">
@@ -168,11 +171,12 @@
             <p class="eyebrow">Get started</p>
             <h2 id="get-started-title">Bring your history<br>into the next session.</h2>
             <p>You need Pi and native Pi session files. This shared format supports both transcript retrieval and Discussion activation.</p>
-            <a class="text-link" href="https://github.com/shengxiao20/pi-session-memory/blob/main/setup.md">Read the setup guide <span aria-hidden="true">↗</span></a>
+            <a class="text-link" href="https://github.com/shengxiao20/pi-session-memory/blob/main/prompts/setup.md">Read the setup guide <span aria-hidden="true">↗</span></a>
           </div>
           <ol class="setup-steps">
             <li><h3>Install from npm</h3><p>Use the command above. Restart Pi or run <code>/reload</code> to load the extension.</p></li>
             <li><h3>Choose your settings</h3><p>Ask Pi: <q>Set up pi-session-memory.</q> The guide explains one option at a time and saves only after your approval.</p></li>
+            <li><h3>Edit your configuration</h3><p>Open <code>/pi-session-memory</code> and select <q>Edit configuration</q>. Aligned rows show variable names with required/optional and <code>now: value</code> labels. Saved fields show current values; unset fields show defaults. Select a field to see its input rules. Enter saves immediately; Esc goes back.</p></li>
             <li><h3>Import your existing history</h3><p>Ask Pi: <q>Import my Pi conversation history.</q> You can also use the <code>/pi-session-memory</code> menu.</p></li>
             <li><h3>Ask for an explicit review</h3><p>For example: <q>Review our earlier work on offline eval and summarize the decisions and open questions.</q></p></li>
           </ol>

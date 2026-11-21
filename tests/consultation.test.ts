@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { knowledgeFields } from "./helpers/knowledge-fixture.ts";
+import { readConceptMetadata } from "../src/knowledge/okf-frontmatter.ts";
 import { requestContextTool } from "./helpers/request-context-tool.ts";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,22 +13,26 @@ const configDirectory = join(root, ".pi", "agent", "pi-session-memory");
 mkdirSync(configDirectory, { recursive: true });
 const configPath = join(configDirectory, "config.json");
 const knowledgePath = join(root, "knowledge");
-function configure(consultation?: unknown) { writeFileSync(configPath, JSON.stringify({ recallLimit: 20, ...(consultation === undefined ? {} : { enableDiscussion: true, consultation }) })); }
-const enabled = { knowledgePath, timeoutMs: 2000 };
+function configure(consultation?: unknown) { writeFileSync(configPath, JSON.stringify({ recallLimit: 20, knowledgePath, ...(consultation === undefined ? {} : { recallMode: "discussion", consultation }) })); }
+const enabled = { timeoutMs: 2000 };
 configure();
-const { getEnabledConsultation, getSessionMemoryConfig } = await import("../src/settings/config.ts");
-assert.equal(getEnabledConsultation(), undefined);
+const { getDiscussionConfiguration, getSessionMemoryConfig, getDiscussionTurnThreshold, DISCUSSION_TURN_THRESHOLD_ENV, DEFAULT_DISCUSSION_TURN_THRESHOLD } = await import("../src/settings/config.ts");
+delete process.env[DISCUSSION_TURN_THRESHOLD_ENV];
+assert.equal(DEFAULT_DISCUSSION_TURN_THRESHOLD, 5);
+assert.equal(getDiscussionTurnThreshold(), 5);
+assert.equal(getDiscussionConfiguration(), undefined);
+assert.equal(getSessionMemoryConfig().recallMode, "choice");
 configure(enabled);
-assert.deepEqual(getEnabledConsultation(), enabled);
+assert.deepEqual(getDiscussionConfiguration(), enabled);
 writeFileSync(configPath, JSON.stringify({ recallLimit: 20, consultation: enabled }));
-assert.equal(getEnabledConsultation(), undefined);
-writeFileSync(configPath, JSON.stringify({ recallLimit: 20, enableDiscussion: false, consultation: enabled }));
-assert.equal(getEnabledConsultation(), undefined);
-for (const value of ["true", 1, null]) {
-  writeFileSync(configPath, JSON.stringify({ recallLimit: 20, enableDiscussion: value, consultation: enabled }));
+assert.deepEqual(getDiscussionConfiguration(), enabled, "default choice can consult after user selection");
+writeFileSync(configPath, JSON.stringify({ recallLimit: 20, recallMode: "normal", consultation: enabled }));
+assert.equal(getDiscussionConfiguration(), undefined);
+for (const value of ["true", true, 1, null, "Discussion", " choice "] ) {
+  writeFileSync(configPath, JSON.stringify({ recallLimit: 20, recallMode: value, consultation: enabled }));
   assert.throws(() => getSessionMemoryConfig(), /Invalid/);
 }
-writeFileSync(configPath, JSON.stringify({ recallLimit: 20, enableDiscussion: true }));
+writeFileSync(configPath, JSON.stringify({ recallLimit: 20, recallMode: "discussion" }));
 assert.throws(() => getSessionMemoryConfig(), /Invalid/);
 for (const value of [{ ...enabled, enableEnv: "TEST_CONSULTATION" }, { ...enabled, knowledgePath: "relative" }, { ...enabled, timeoutMs: 0 }]) {
   configure(value); assert.throws(() => getSessionMemoryConfig(), /Invalid/);
@@ -74,7 +80,45 @@ const provider: any = {
 };
 const modelRuntime = await ModelRuntime.create({ refreshOnCreate: false }); modelRuntime.registerNativeProvider(provider);
 const ctx: any = { model, modelRegistry: new ModelRegistry(modelRuntime), sessionManager: main, thinkingLevel: "off" };
+// Synthetic returned-turn fixtures test policy only; no source session is changed.
+const hits = (sessionId: string, count: number) => Array.from({ length: count }, (_, index) => ({
+  ...turns[0], session_id: sessionId, turn_id: `${sessionId}:hit-${index}`, turn_index: index, score: count, ts: index,
+}));
+const policyGroups = [5, 6, 7, 8, 9, 10].map((count, index) => hits(index < 4 ? turns[index].session_id : `pi:policy-${index}`, count));
+const mainSessionId = `pi:${main.getSessionId()}`;
+const policyTurns = [...policyGroups.flat(), ...policyGroups[0], ...policyGroups[1], ...hits(mainSessionId, 12),
+  ...hits("other:excluded", 15).map(turn => ({ ...turn, source: "other" as any }))];
+configure({ ...enabled, turnThreshold: 6 });
+assert.equal(getDiscussionTurnThreshold(), 6);
+assert.deepEqual(selectConsultationSessions(policyTurns, mainSessionId).map(group => group.length), [10, 9, 8, 7], "saved threshold governs eligibility when the environment is unset");
+process.env[DISCUSSION_TURN_THRESHOLD_ENV] = "5";
+assert.deepEqual(selectConsultationSessions(policyTurns, mainSessionId).map(group => group.length), [10, 9, 8, 7, 6], "explicit environment threshold overrides the saved value");
+delete process.env[DISCUSSION_TURN_THRESHOLD_ENV];
+configure(enabled);
+const eligibleGroups = selectConsultationSessions(policyTurns, mainSessionId);
+assert.deepEqual(eligibleGroups.map(group => group.length), [10, 9, 8, 7, 6], "default 5 excludes equal counts, deduplicates turns, and has no three-session cap");
+assert.deepEqual(eligibleGroups.map(group => group[0].session_id), policyGroups.slice(1).reverse().map(group => group[0].session_id));
+assert.deepEqual(selectConsultationSessions(turns, mainSessionId), [], "one returned turn is below the default threshold");
+const scoreOrdered = [hits("pi:rank-a", 6).map(turn => ({ ...turn, score: 20, ts: 1 })),
+  hits("pi:rank-b", 7).map(turn => ({ ...turn, score: 1, ts: 999 })),
+  hits("pi:rank-c", 8).map(turn => ({ ...turn, score: 20, ts: 2 }))];
+assert.deepEqual(selectConsultationSessions(scoreOrdered.flat(), mainSessionId).map(group => group[0].session_id),
+  ["pi:rank-c", "pi:rank-a", "pi:rank-b"], "threshold does not replace the existing score/time ordering");
+for (const raw of ["", " ", " 5", "5 ", "5\n", "5\r", "5\t", "5\r\n", "\n5", "5\u00a0", "-1", "+5", "1.5", "5.0", "5e0", "05", "NaN", "Infinity", "bad", "9007199254740992"]) {
+  process.env[DISCUSSION_TURN_THRESHOLD_ENV] = raw;
+  assert.throws(() => getDiscussionTurnThreshold(), /PI_SESSION_MEMORY_DISCUSSION_TURN_THRESHOLD must be a non-negative safe integer/);
+  assert.throws(() => selectConsultationSessions(policyTurns, mainSessionId), /PI_SESSION_MEMORY_DISCUSSION_TURN_THRESHOLD/);
+}
+process.env[DISCUSSION_TURN_THRESHOLD_ENV] = "9007199254740991";
+assert.equal(getDiscussionTurnThreshold(), Number.MAX_SAFE_INTEGER);
+assert.deepEqual(selectConsultationSessions(policyTurns, mainSessionId), []);
+process.env[DISCUSSION_TURN_THRESHOLD_ENV] = "6";
+assert.deepEqual(selectConsultationSessions(policyTurns, mainSessionId).map(group => group.length), [10, 9, 8, 7]);
+process.env[DISCUSSION_TURN_THRESHOLD_ENV] = "0";
+assert.equal(selectConsultationSessions(turns, mainSessionId).length, 4, "environment changes are read on each selection");
 assert.deepEqual(selectConsultationSessions([...turns, turns[3], { ...turns[0], source: "pi" }], turns[2].session_id).map(group => group[0].session_id), [turns[3].session_id, turns[1].session_id, turns[0].session_id]);
+const tied = ["pi:b", "pi:a", "pi:c"].map(sessionId => ({ ...hits(sessionId, 1)[0], score: 1, ts: sessionId === "pi:c" ? 2 : 1 }));
+assert.deepEqual(selectConsultationSessions(tied, mainSessionId).map(group => group[0].session_id), ["pi:c", "pi:a", "pi:b"]);
 
 // Real SDK restoration in memory, with an in-process deterministic provider. No remote request.
 const originalBytes = readFileSync(managers[0].getSessionFile(), "utf8");
@@ -154,39 +198,84 @@ const simulateSelection = (inputs: string[]) => ({ ...ctx, mode: "tui", ui: {
 } } as any);
 assert.deepEqual(await selectConsultationParticipants(candidates, simulateSelection([" ", "\u001b[B", " ", "\r"])), candidates.slice(2));
 assert.deepEqual(await selectConsultationParticipants(candidates, simulateSelection(["\r"])), candidates);
-assert.deepEqual(await selectConsultationParticipants(candidates, simulateSelection([" ", "\u001b[B", " ", "\u001b[B", " ", "\r"])), []);
+assert.deepEqual(await selectConsultationParticipants(candidates, simulateSelection([" ", "\u001b[B", " ", "\u001b[B", " ", "\u001b[B", " ", "\r"])), []);
 assert.deepEqual(await selectConsultationParticipants(candidates, simulateSelection(["\u001b"])), []);
 await assert.rejects(() => selectConsultationParticipants(candidates, { ...ctx, mode: "json" } as any), /requires Pi TUI/);
 let selectionFactoryCalls = 0;
 const rejectedRuntime = new ConsultationRuntime(async (...args) => { selectionFactoryCalls++; return factory(...args); });
-const rejectedSelection = await rejectedRuntime.start(turns, "reject all", simulateSelection([" ", "\u001b[B", " ", "\u001b[B", " ", "\r"]));
+const rejectedSelection = await rejectedRuntime.start(turns, "reject all", simulateSelection([" ", "\u001b[B", " ", "\u001b[B", " ", "\u001b[B", " ", "\r"]));
 assert.equal(rejectedSelection.consultation_id, null);
 assert.equal(selectionFactoryCalls, 0);
 const acceptedRuntime = new ConsultationRuntime(factory);
-const acceptedSelection = await acceptedRuntime.start(turns, "select one", simulateSelection([" ", "\u001b[B", " ", "\r"]));
+const acceptedSelection = await acceptedRuntime.start(turns, "select one", simulateSelection([" ", "\u001b[B", " ", "\u001b[B", " ", "\r"]));
 assert.equal(acceptedSelection.answers.length, 1);
 await acceptedRuntime.cancel(acceptedSelection.consultation_id!, ctx);
 asked.length = 0; disposed = 0;
 
+// Every candidate stays selected, including sessions outside the visible TUI window.
+const manyCandidates = Array.from({ length: 20 }, (_, index) => hits(`pi:viewport-${index}`, 6));
+const manyContext: any = { ...ctx, mode: "tui", ui: {
+  async custom(build: any) {
+    let result: any;
+    const component = build({ terminal: { rows: 18 }, requestRender() {} }, {
+      fg(_role: string, text: string) { return text; }, bg(_role: string, text: string) { return text; },
+    }, new KeybindingsManager(TUI_KEYBINDINGS), (value: any) => { result = value; });
+    for (let index = 0; index < manyCandidates.length; index++) {
+      const lines = component.render(40);
+      const text = lines.join("\n");
+      assert.ok(lines.length <= 18, "candidate and evidence windows must fit the terminal");
+      assert.ok(lines.every((line: string) => visibleWidth(line) <= 40));
+      assert.match(text, new RegExp(`> \\[x\\] Agent ${index + 1} \\| 6 unique turns`));
+      assert.match(text, /Selected: 20\/20/);
+      assert.ok((text.match(/\[x\]/g) ?? []).length < 20, "the window is not a participant cap");
+      component.handleInput("\u001b[B");
+    }
+    assert.match(component.render(40).join("\n"), /> \[x\] Agent 1 \|/);
+    component.handleInput("\r"); component.dispose();
+    return result;
+  },
+} };
+assert.deepEqual(await selectConsultationParticipants(manyCandidates, manyContext), manyCandidates);
+
 const approveAll = async (groups: any[][]) => groups;
+delete process.env[DISCUSSION_TURN_THRESHOLD_ENV];
+const eligibleRuntime = new ConsultationRuntime(factory, approveAll);
+const eligibleMeeting = await eligibleRuntime.start(policyTurns, "all eligible sessions", ctx);
+assert.equal(eligibleMeeting.answers.length, 5);
+assert.deepEqual(asked.map(call => call.session), eligibleGroups.map(group => group[0].session_id));
+assert.equal(peak, 1, "all five eligible agents run sequentially");
+await eligibleRuntime.cancel(eligibleMeeting.consultation_id!, ctx);
+assert.equal(disposed, 5);
+const belowThreshold = new ConsultationRuntime(factory, async () => { throw new Error("No candidates must not open the picker"); });
+const emptyMeeting = await belowThreshold.start(turns, "below threshold", ctx);
+assert.equal(emptyMeeting.consultation_id, null);
+assert.deepEqual(emptyMeeting.answers, []);
+assert.match(emptyMeeting.reason!, /unique returned-turn threshold/);
+assert.equal(asked.length, 5, "below-threshold sessions never activate agents");
+process.env[DISCUSSION_TURN_THRESHOLD_ENV] = "invalid";
+await assert.rejects(() => belowThreshold.start(turns, "invalid threshold", ctx), /PI_SESSION_MEMORY_DISCUSSION_TURN_THRESHOLD/);
+process.env[DISCUSSION_TURN_THRESHOLD_ENV] = "0";
+asked.length = 0; disposed = 0;
 const runtime = new ConsultationRuntime(factory, approveAll);
 const first = await runtime.start(turns, "current question", ctx);
-assert.equal(first.answers.length, 3); assert.equal(peak, 1);
+assert.equal(first.answers.length, 4); assert.equal(peak, 1);
 assert.ok(first.answers.every(answer => answer.question === "current question"), "return only the user question, not prompts containing raw indexed evidence");
-assert.equal(asked.length, 3);
+assert.equal(asked.length, 4);
 assert.ok(asked.every(call => !call.question.includes("answer-pi:")), "consultants must not see other answers");
 await assert.rejects(() => runtime.start(turns, "duplicate", ctx), /Finish or cancel/);
-await assert.rejects(() => runtime.followUp(first.consultation_id!, turns[0].session_id, "not selected", ctx), /not a participant/);
+await assert.rejects(() => runtime.followUp(first.consultation_id!, "pi:not-selected", "not selected", ctx), /not a participant/);
 await assert.rejects(() => runtime.followUp(first.consultation_id!, turns[3].session_id, "wrong owner", { ...ctx, sessionManager: managers[0] }), /another main session/);
 await runtime.followUp(first.consultation_id!, turns[3].session_id, "clarify privately", ctx);
-assert.equal(asked.length, 4); assert.equal(asked[3].session, turns[3].session_id);
-const conclusion = { description: "Consultation findings and remaining actions", findings: "Supported fact.[^consultation-1]", decisions: "None", unverified_inferences: "None", disagreements: "None", open_questions: "None", actions: "None" };
+assert.equal(asked.length, 5); assert.equal(asked[4].session, turns[3].session_id);
+const conclusion = { ...knowledgeFields, description: "Consultation findings and remaining actions", findings: "Supported fact.[^consultation-1]", decisions: "None", unverified_inferences: "None", disagreements: "None", open_questions: "None", actions: "None" };
 const minutes = await runtime.finish(first.consultation_id!, conclusion, ctx);
-assert.equal(minutes.status, "draft"); assert.equal(disposed, 3);
+assert.equal(minutes.status, "draft"); assert.equal(disposed, 4);
 const saved = readFileSync(minutes.path, "utf8");
-assert.match(saved, /^---\ndescription: "Consultation findings and remaining actions"\n---/); assert.doesNotMatch(saved, /meeting_status:|type:|generated:/); assert.doesNotMatch(saved, /verified:/);
+assert.equal(readConceptMetadata(saved, minutes.path).type, "Meeting Minutes");
+assert.equal(readConceptMetadata(saved, minutes.path).description, conclusion.description);
+assert.match(saved, /generated:/); assert.doesNotMatch(saved, /verified:/);
 assert.match(saved, /\[\^consultation-1\]/);
-assert.doesNotMatch(readFileSync(join(knowledgePath, "index.md"), "utf8"), /---|okf_version/);
+assert.match(readFileSync(join(knowledgePath, "index.md"), "utf8"), /^---\nokf_version: "0.2"\n---/);
 assert.match(readFileSync(join(knowledgePath, "log.md"), "utf8"), /## \d{4}-\d{2}-\d{2}/);
 assert.match(saved, /\(evidence-1\.md\)/);
 assert.ok(!existsSync(join(configDirectory, "consultation-locks")));
@@ -211,14 +300,14 @@ const selectionPending = selectConsultationParticipants(candidates, abortedConte
 await built; selectionAborted.abort(new Error("selection aborted"));
 await assert.rejects(() => selectionPending, /selection aborted/);
 configure({ ...enabled, timeoutMs: 1 });
-const reviewedRuntime = new ConsultationRuntime(factory, async groups => { await new Promise(resolve => setTimeout(resolve, 10)); return []; });
+const reviewedRuntime = new ConsultationRuntime(factory, async () => { await new Promise(resolve => setTimeout(resolve, 10)); return []; });
 assert.equal((await reviewedRuntime.start(turns, "review without timeout", ctx)).consultation_id, null);
 configure(enabled);
 const next = await runtime.start(turns, "cancel", ctx); await runtime.cancel(next.consultation_id!, ctx);
 assert.ok(!existsSync(join(configDirectory, "consultation-locks")));
 // Timeout and external cancellation must release in-memory participants before another consultation starts.
 configure({ ...enabled, timeoutMs: 15 });
-const waitingFactory: any = async (group: any[]) => ({
+const waitingFactory: any = async () => ({
   ask(_question: string, signal: AbortSignal) {
     return new Promise((_resolve, reject) => {
       signal.throwIfAborted();
@@ -240,7 +329,7 @@ assert.ok(!existsSync(join(configDirectory, "consultation-locks")));
 const firstReader = await runtime.start(turns, "first reader", ctx);
 const competitor = new ConsultationRuntime(factory, approveAll);
 const secondReader = await competitor.start(turns, "second reader", ctx);
-assert.equal(secondReader.answers.length, 3);
+assert.equal(secondReader.answers.length, 4);
 assert.ok(!existsSync(join(configDirectory, "consultation-locks")));
 await runtime.cancel(firstReader.consultation_id!, ctx);
 await competitor.cancel(secondReader.consultation_id!, ctx);
@@ -265,13 +354,12 @@ assert.equal(startupDisposed, 1);
 assert.ok(!existsSync(join(configDirectory, "consultation-locks")));
 
 const { registerConsultationTools } = await import("../src/consultation/consultation-tools.ts");
-let command: any;
 const registered: any[] = [];
 const { ConsultationPresentation, cleanDisplayText } = await import("../src/presentation/consultation-presentation.ts");
 assert.equal(cleanDisplayText("\u001b[31m安全文本\u001b[0m\u0007"), "安全文本");
 const presentation = new ConsultationPresentation();
 const { MemoryOutput } = await import("../src/presentation/memory-output.ts");
-command = { handler: registerConsultationTools((tool: any) => { registered.push(tool); }, runtime, presentation, new MemoryOutput()) };
+registerConsultationTools((tool: any) => { registered.push(tool); }, runtime, presentation, new MemoryOutput());
 assert.equal(registered.length, 3);
 const { initTheme } = await import("@earendil-works/pi-coding-agent");
 const { getThemeByName } = await import(new URL("modes/interactive/theme/theme.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href);
@@ -332,9 +420,6 @@ assert.match(stripVTControlCharacters(presentation.render("recall_memory", { con
 for (const tool of registered) {
   assert.equal(stripVTControlCharacters(tool.renderCall({ consultation_id: "hidden-id", session_id: "hidden-session" }, theme).render(100).join("\n")).trim(), tool.label);
 }
-for (const args of ["null", "{}", '{"action":"cancel"}', '{"action":"follow-up","consultation_id":"x"}', '{"action":"finish","consultation_id":"x","conclusion":{}}']) {
-  await assert.rejects(() => command.handler(args, ctx), /Invalid consultation command/);
-}
 // Real main-agent tools remain usable during Discussion and in later prompts. No remote requests.
 const mainLoader: any = {
   getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
@@ -363,9 +448,21 @@ extension({
 const discussionOptions = { entities: ["historical", "consultation"], primary_entity: "historical", question: "What does historical evidence say about consultation?" };
 const startDiscussion = async () => {
   const callsBefore = calls.length;
-  const result = await extensionTools.get("recall_memory").execute("discussion", discussionOptions, undefined, () => {}, simulateSelection(["\r"]));
+  const picker = simulateSelection(["\r"]);
+  const choices: string[] = [];
+  const configuredMode = getSessionMemoryConfig().recallMode;
+  picker.hasUI = true;
+  picker.ui.select = async (title: string, options: string[]) => {
+    choices.push(title);
+    assert.match(title, /Recall complete: \d+ unique turns/);
+    assert.match(title, /This call only/);
+    return options[1];
+  };
+  const result = await extensionTools.get("recall_memory").execute("discussion", discussionOptions, undefined, () => {}, picker);
+  assert.equal(choices.length, configuredMode === "choice" ? 1 : 0);
+  assert.equal(result.details.recallMode, "discussion");
   assert.ok(calls.slice(callsBefore).every(call => (call.tools?.length ?? 0) === 0 && /historical session consultant/.test(call.systemPrompt)), "only historical consultants must be tool-free");
-  assert.equal(result.details.consultation.answers.length, 3);
+  assert.equal(result.details.consultation.answers.length, 4);
   assert.match(result.content[0].text, /You remain the main agent/);
   assert.doesNotMatch(result.content[0].text, /Do not use fetch_session|This is the consultation branch/);
   assert.deepEqual(mainAgent.getActiveToolNames(), mainTools);
@@ -394,11 +491,11 @@ await assert.rejects(() => extensionTools.get("follow_up_session").execute("clos
   consultation_id: automaticCleanup.consultation_id, session_id: automaticCleanup.answers[0].sessionId, question: "too late",
 }, undefined, undefined, ctx), /Unknown consultation ID/);
 await probeMainTools("after Discussion settles");
-configure({ timeoutMs: 2000 });
+writeFileSync(configPath, JSON.stringify({ recallLimit: 20, recallMode: "discussion", consultation: { timeoutMs: 2000 } }));
 const finished = await startDiscussion();
 const finishResult = await extensionTools.get("finish_session_consultation").execute("finish", { consultation_id: finished.consultation_id, conclusion }, undefined, undefined, ctx);
 assert.match(finishResult.content[1].text, /No consultation is active/);
-const defaultMinutes = join(configDirectory, "knowledge", "meetings", finished.consultation_id, "minutes.md");
+const defaultMinutes = join(configDirectory, "knowledge", "meetings", conclusion.topic_path, finished.consultation_id, "minutes.md");
 assert.equal(finishResult.details.path, defaultMinutes, "Discussion uses the shared default directory when knowledgePath is omitted");
 const finalMessage = { role: "assistant", content: [{ type: "text", text: "A different summary" }], stopReason: "stop", timestamp: 1 };
 const replaced = await extensionEvents.get("message_end")!({ message: finalMessage }, ctx);
@@ -409,20 +506,34 @@ const cancelled = await startDiscussion();
 const cancelResult = await extensionTools.get("cancel_session_consultation").execute("cancel", { consultation_id: cancelled.consultation_id }, undefined, undefined, ctx);
 assert.match(cancelResult.content[1].text, /No consultation is active/);
 await probeMainTools("after explicit cancel");
-assert.equal(getSessionMemoryConfig().enableDiscussion, true, "ending a discussion must not disable future recall discussions");
+assert.equal(getSessionMemoryConfig().recallMode, "discussion", "ending a discussion must not disable future recall discussions");
 assert.ok(!existsSync(join(configDirectory, "consultation-locks")));
 const vault = join(root, "obsidian-vault");
 mkdirSync(vault);
-writeFileSync(configPath, JSON.stringify({ recallLimit: 20, enableDiscussion: true, consultation: { timeoutMs: 2000 }, obsidianExportEnabled: true, obsidianVaultPath: vault }));
+writeFileSync(configPath, JSON.stringify({ recallLimit: 20, recallMode: "discussion", consultation: { timeoutMs: 2000 }, knowledgePath: join(vault, "pi-session-memory") }));
 const defaultMeetingsBeforeVault = readdirSync(join(configDirectory, "knowledge", "meetings"));
 const vaultDiscussion = await startDiscussion();
 const vaultFinished = await extensionTools.get("finish_session_consultation").execute("finish-vault", { consultation_id: vaultDiscussion.consultation_id, conclusion }, undefined, undefined, ctx);
-assert.equal(vaultFinished.details.path, join(vault, "meetings", vaultDiscussion.consultation_id, "minutes.md"));
+assert.equal(vaultFinished.details.path, join(vault, "pi-session-memory", "meetings", conclusion.topic_path, vaultDiscussion.consultation_id, "minutes.md"));
 const vaultMessage = await extensionEvents.get("message_end")!({ message: finalMessage }, ctx);
 assert.equal(vaultMessage.message.content[0].text, readFileSync(vaultFinished.details.path, "utf8"));
 assert.deepEqual(readdirSync(join(configDirectory, "knowledge", "meetings")), defaultMeetingsBeforeVault, "Discussion must not duplicate vault minutes in the default directory");
 await extensionEvents.get("agent_settled")!({}, ctx);
 assert.deepEqual((await extensionEvents.get("message_end")!({ message: finalMessage }, ctx)).message, finalMessage, "finished OKF must not replace a later unrelated answer");
+configure(enabled);
+const choiceConfig = { ...JSON.parse(readFileSync(configPath, "utf8")), recallMode: "choice" };
+writeFileSync(configPath, JSON.stringify(choiceConfig));
+const choiceBytes = readFileSync(configPath, "utf8");
+const choiceSourceBytes = managers.map(manager => readFileSync(manager.getSessionFile()!, "utf8"));
+const choiceDiscussion = await startDiscussion();
+const choiceFollowup = await extensionTools.get("follow_up_session").execute("choice-followup", {
+  consultation_id: choiceDiscussion.consultation_id, session_id: choiceDiscussion.answers[0].sessionId, question: "Explain this evidence",
+}, undefined, undefined, ctx);
+assert.equal(choiceFollowup.details.sessionId, choiceDiscussion.answers[0].sessionId);
+await probeMainTools("during choice Discussion");
+await extensionTools.get("cancel_session_consultation").execute("choice-cancel", { consultation_id: choiceDiscussion.consultation_id }, undefined, undefined, ctx);
+assert.equal(readFileSync(configPath, "utf8"), choiceBytes, "native choice and real SDK consultants never persist the per-call selection");
+for (let i = 0; i < managers.length; i++) assert.equal(readFileSync(managers[i].getSessionFile()!, "utf8"), choiceSourceBytes[i], "choice consultation leaves original JSONL unchanged");
 configure(enabled);
 mainAgent.dispose();
 

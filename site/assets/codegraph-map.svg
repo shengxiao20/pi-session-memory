@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1010" viewBox="0 0 1200 1010" role="img" aria-labelledby="title description">
   <title id="title">CodeGraph Map: pi-session-memory source architecture</title>
-  <desc id="description">One Pi entry point imports nine source module groups containing 35 TypeScript files. Each card lists all cross-domain dependencies. Arrows show selected dependencies, not runtime sequence. The recall-to-relevance import is type-only. Consultation dynamically imports history, verified in source. Contracts, history, and settings do not depend on other source domains.</desc>
+  <desc id="description">One Pi entry point imports nine source module groups containing 43 TypeScript files. File counts are source-reviewed for configuration editor 2.0.3, recall modes 2.0.9, and shared evidence contracts; relationship counts retain the original CodeGraph Map baseline. Each card lists all cross-domain dependencies. Arrows show selected dependencies, not runtime sequence. The recall-to-relevance import is type-only. Consultation dynamically imports history, verified in source. Contracts, history, and settings do not depend on other source domains.</desc>
   <defs>
     <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#81aa98"/></marker>
     <marker id="type-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#91b7dd"/></marker>
@@ -22,7 +22,7 @@
   </defs>
   <rect width="1200" height="1010" rx="20" fill="#111a1d"/>
   <text x="40" y="42" class="section">IMPLEMENTATION ARCHITECTURE · CODEGRAPH MAP</text>
-  <text x="40" y="78" font-size="27" font-weight="600">9 source module groups. 35 TypeScript files.</text>
+  <text x="40" y="78" font-size="27" font-weight="600">9 source module groups. 43 TypeScript files.</text>
   <text x="40" y="104" class="uses">Redrawn from declared Map relations. Types count as dependencies; arrows are not a runtime trace.</text>
 
   <g data-module="extensions/index.ts" data-files="1" data-dependencies="consultation contracts history knowledge presentation recall relevance settings setup">
@@ -52,16 +52,16 @@
     <text x="64" y="373" class="uses">presentation, settings;</text>
     <text x="64" y="394" class="uses">history via verified dynamic import</text>
   </g>
-  <g data-module="src/recall" data-files="4" data-dependencies="contracts history relevance settings">
+  <g data-module="src/recall" data-files="5" data-dependencies="contracts history relevance settings">
     <rect x="430" y="258" width="340" height="154" rx="12" class="card"/>
-    <text x="454" y="292" class="name mono">recall</text><text x="740" y="290" text-anchor="end" class="count">4 files</text>
+    <text x="454" y="292" class="name mono">recall</text><text x="740" y="290" text-anchor="end" class="count">5 files</text>
     <text x="454" y="322" class="body">Global → project literal search</text>
     <text x="454" y="352" class="uses">Uses: contracts, history, settings,</text>
     <text x="454" y="373" class="uses">relevance types (reviewer callback)</text>
   </g>
-  <g data-module="src/setup" data-files="3" data-dependencies="knowledge settings">
+  <g data-module="src/setup" data-files="5" data-dependencies="knowledge settings">
     <rect x="820" y="258" width="340" height="154" rx="12" class="card"/>
-    <text x="844" y="292" class="name mono">setup</text><text x="1130" y="290" text-anchor="end" class="count">3 files</text>
+    <text x="844" y="292" class="name mono">setup</text><text x="1130" y="290" text-anchor="end" class="count">5 files</text>
     <text x="844" y="322" class="body">Guide reads and approved saves</text>
     <text x="844" y="352" class="uses">Uses: knowledge, settings</text>
     <text x="844" y="383" class="uses">No transcript import or service startup</text>
@@ -82,9 +82,9 @@
     <text x="454" y="586" class="uses">Uses: contracts, settings</text>
     <text x="454" y="616" class="uses">Ollama management requires opt-in</text>
   </g>
-  <g data-module="src/knowledge" data-files="5" data-dependencies="contracts settings">
+  <g data-module="src/knowledge" data-files="9" data-dependencies="contracts settings">
     <rect x="820" y="492" width="340" height="154" rx="12" class="card"/>
-    <text x="844" y="526" class="name mono">knowledge</text><text x="1130" y="524" text-anchor="end" class="count">5 files</text>
+    <text x="844" y="526" class="name mono">knowledge</text><text x="1130" y="524" text-anchor="end" class="count">9 files</text>
     <text x="844" y="556" class="body">Saved OKF inspection and storage</text>
     <text x="844" y="586" class="uses">Uses: contracts, settings</text>
     <text x="844" y="616" class="uses">No consultation runtime dependency</text>
@@ -97,9 +97,9 @@
     <text x="64" y="812" class="body">SQLite and native Pi transcripts</text>
     <text x="64" y="842" class="uses">Parsing, import, writes, and cleanup</text>
   </g>
-  <g data-module="src/contracts" data-files="2" data-dependencies="">
+  <g data-module="src/contracts" data-files="3" data-dependencies="">
     <rect x="430" y="748" width="340" height="130" rx="12" class="foundation"/>
-    <text x="454" y="782" class="name mono">contracts</text><text x="740" y="780" text-anchor="end" class="count">2 files</text>
+    <text x="454" y="782" class="name mono">contracts</text><text x="740" y="780" text-anchor="end" class="count">3 files</text>
     <text x="454" y="812" class="body">Shared transcript and review types</text>
     <text x="454" y="842" class="uses">Types only; no runtime implementation</text>
   </g>
@@ -114,5 +114,5 @@
   <path d="M370 918H409" class="type-edge"/><text x="422" y="923" class="uses">Type-only dependency</text>
   <path d="M750 918H789" class="dynamic-edge"/><text x="802" y="923" class="uses">Source-verified dynamic import</text>
   <text x="40" y="958" class="uses">Cards list every cross-domain import. Only selected arrows are drawn; the entry imports all nine domains.</text>
-  <text x="40" y="981" class="uses">Map scope: extensions + src · tests omitted from this view · no module cycles reported · raw guesses excluded</text>
+  <text x="40" y="981" class="uses">Map scope: extensions + src · tests and prompts omitted · no module cycles reported · raw guesses excluded</text>
 </svg>

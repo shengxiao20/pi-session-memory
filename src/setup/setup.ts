@@ -1,5 +1,6 @@
 import { Value } from "typebox/value";
 import { setupConfigurationSchema } from "./setup-schema.ts";
+import { CONFIG_FIELDS, ENVIRONMENT_INPUTS } from "./config-fields.ts";
 import { randomUUID } from "node:crypto";
 import { readFileSync, mkdirSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -7,14 +8,13 @@ import { fileURLToPath } from "node:url";
 import { getMemoryConfigPath, validateMemoryConfig } from "../settings/config.ts";
 import { resolveKnowledgePath } from "../knowledge/knowledge-storage.ts";
 
-const GUIDE_PATH = fileURLToPath(new URL("../../setup.md", import.meta.url));
-export const SETUP_NOTICE = "Use setup_memory when the user asks how pi-session-memory works, how to use this plugin, or asks to run setup. Read setup.md and ask one configuration question per reply in its stated order. General usage questions do not authorize writes. Call configure_memory only after the user approves the final proposed settings. Setup is not historical review and does not run import, cleanup or service startup. The /pi-session-memory command provides direct setup, Pi history import, and indexed-tool-turn cleanup actions; transcript search uses Agent tools.";
-export const SETUP_REQUEST = "Run pi-session-memory setup. Call setup_memory to read setup.md and the current configuration. Explain each optional feature and ask one question at a time in the guide's order. Wait for every answer. Show the proposed changes, then write the plugin configuration with configure_memory only after I approve saving.";
+const GUIDE_PATH = fileURLToPath(new URL("../../prompts/setup.md", import.meta.url));
+export { SETUP_NOTICE, SETUP_REQUEST } from "../../prompts/guidance.ts";
 
 /** Load the packaged guide and raw current settings. Only an explicitly missing file is a new setup. */
 export function readMemorySetup() {
   const config_path = getMemoryConfigPath();
-  return { guide_path: GUIDE_PATH, config_path, configuration: _readConfiguration(config_path), guide: readFileSync(GUIDE_PATH, "utf8") };
+  return { guide_path: GUIDE_PATH, config_path, configuration: _readConfiguration(config_path), fields: CONFIG_FIELDS, environment_inputs: ENVIRONMENT_INPUTS, guide: readFileSync(GUIDE_PATH, "utf8") };
 }
 
 /** Validate and atomically save approved settings without starting services or touching the transcript index. */
@@ -22,8 +22,14 @@ export function configureMemory(configuration: Record<string, unknown>) {
   if (!Value.Check(setupConfigurationSchema, configuration)) throw new Error("Invalid setup configuration: supply supported JSON settings only, including a positive recallLimit; credentials and environment-only inputs are not configuration keys.");
   const config_path = getMemoryConfigPath();
   const current = _readConfiguration(config_path);
-  // Retain unrelated top-level settings; supplied nested objects are complete replacements.
-  const proposed = { ...current, ...configuration };
+  // Complete supported settings replace the old settings; unrelated top-level keys remain.
+  const proposed: Record<string, unknown> = { ...current };
+  for (const key of Object.keys(setupConfigurationSchema.properties)) delete proposed[key];
+  // Remove retired top-level keys only during an explicitly approved save. Never infer a knowledge path.
+  delete proposed.enableDiscussion;
+  delete proposed.obsidianExportEnabled;
+  delete proposed.obsidianVaultPath;
+  Object.assign(proposed, configuration);
   const normalized = validateMemoryConfig(proposed, config_path);
   resolveKnowledgePath(normalized);
   mkdirSync(dirname(config_path), { recursive: true });

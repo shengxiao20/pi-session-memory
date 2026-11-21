@@ -1,8 +1,18 @@
-import { mkdirSync, writeFileSync, existsSync, appendFileSync, readFileSync, renameSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import type { ConsultationRecord } from "../contracts/consultation.ts";
+import type { EvidenceRecord } from "../contracts/knowledge.ts";
+import { knowledgePath, listMeetingLocations, requireSummary, validateMeetingId, validateTopicPath, type TopicSummary } from "./knowledge-layout.ts";
+import { escapeMarkdown, planKnowledgeIndexes, renderDirectoryIndex, type IndexEntry } from "./knowledge-index.ts";
+import { publishKnowledge } from "./knowledge-publication.ts";
+import { renderConcept } from "./okf-frontmatter.ts";
+
+const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
 
 export interface MeetingConclusion {
+  title: string;
+  topic_path: string;
+  topic_summaries: TopicSummary[];
+  tags: string[];
   description: string;
   findings: string;
   decisions: string;
@@ -12,58 +22,97 @@ export interface MeetingConclusion {
   actions: string;
 }
 
-/** Save draft OKF v0.2 minutes and portable evidence. Do not claim verification. */
+interface EvidenceDocument {
+  id: string;
+  title: string;
+  type: "Transcript Evidence" | "Consultation Evidence";
+  body: string;
+  evidence: EvidenceRecord["evidence"];
+}
+
+/** Save transcript evidence once, without synthetic consultation answers. */
+export function writeTranscriptMinutes(record: EvidenceRecord, conclusion: MeetingConclusion) {
+  return _writeMeetingMinutes(record, conclusion, () => [...new Set(record.evidence.map(turn => turn.session_id))].map((sessionId, index) => {
+    const evidence = record.evidence.filter(turn => turn.session_id === sessionId);
+    return {
+      id: `transcript-${index + 1}`, title: `Transcript evidence from ${sessionId}`, type: "Transcript Evidence",
+      body: `# Question\n\n${record.question}\n\n# Indexed historical evidence\n\n${_renderEvidence(evidence)}`, evidence,
+    };
+  }));
+}
+
+/** Save private consultation answers and their supporting historical evidence. */
 export function writeMeetingMinutes(record: ConsultationRecord, conclusion: MeetingConclusion) {
+  return _writeMeetingMinutes(record, conclusion, () => record.answers.map((answer, index) => {
+    const evidence = record.evidence.filter(turn => turn.session_id === answer.sessionId);
+    return {
+      id: `consultation-${index + 1}`, title: `Consultation answer from ${answer.sessionId}`, type: "Consultation Evidence",
+      body: `# Question\n\n${answer.question}\n\n# Answer\n\n${answer.answer}\n\n# Indexed historical evidence\n\n${_renderEvidence(evidence)}`, evidence,
+    };
+  }));
+}
+
+/** Validate and publish either evidence route through the same atomic writer. */
+function _writeMeetingMinutes(record: EvidenceRecord, conclusion: MeetingConclusion, documents: () => EvidenceDocument[]) {
   const required: Array<keyof MeetingConclusion> = ["description", "findings", "decisions", "unverified_inferences", "disagreements", "open_questions", "actions"];
   for (const key of required) {
     const value = conclusion?.[key];
     if (typeof value !== "string" || !value.trim()) throw new Error(`${key} must be non-empty; use None when absent`);
   }
+  requireSummary(conclusion.title, "title");
+  requireSummary(conclusion.description, "description");
+  if (!Array.isArray(conclusion.tags) || conclusion.tags.some(tag => typeof tag !== "string" || !tag.trim())) throw new Error("tags must be a list of non-empty strings; use [] when absent");
+  const parts = validateTopicPath(conclusion.topic_path, conclusion.topic_summaries);
+  validateMeetingId(record.id);
   if (conclusion.description.trim() === record.question.trim()) throw new Error("OKF description must summarize the content instead of copying the review question");
-  const now = new Date().toISOString();
   const root = record.knowledgePath;
-  const destination = join(root, "meetings", record.id);
-  const directory = join(root, "meetings", `.${record.id}.pending`);
-  mkdirSync(join(root, "meetings"), { recursive: true });
-  mkdirSync(directory);
-  try {
-    _writeMeetingFiles(directory, record, conclusion);
-    renameSync(directory, destination);
-  } catch (error) {
-    rmSync(directory, { recursive: true });
-    throw error;
+  if (listMeetingLocations(root).some(location => location.meeting_id === record.id)) throw new Error(`Duplicate meeting_id: ${record.id}`);
+  const relativeDirectory = ["meetings", ...parts, record.id].join("/");
+  const destination = knowledgePath(root, relativeDirectory);
+  if (existsSync(destination)) throw new Error(`Knowledge meeting destination already exists: ${destination}`);
+  for (let index = 1; index <= parts.length; index++) {
+    if (existsSync(knowledgePath(root, ["meetings", ...parts.slice(0, index), "minutes.md"].join("/")))) throw new Error("topic_path cannot descend into an existing meeting");
   }
-  const index = join(root, "index.md");
-  if (!existsSync(index)) writeFileSync(index, "# Session memory knowledge\n", { flag: "wx" });
-  appendFileSync(index, `\n- [${record.id}](meetings/${record.id}/minutes.md)\n`);
-  const log = join(root, "log.md");
-  const previous = existsSync(log) ? readFileSync(log, "utf8") : "# Knowledge update log\n";
-  const heading = "# Knowledge update log\n";
-  if (!previous.startsWith(heading)) throw new Error("Knowledge log has an unexpected heading");
-  writeFileSync(log, `${heading}\n## ${now.slice(0, 10)}\n\n- ${now}: Added draft meeting [${record.id}](/meetings/${record.id}/minutes.md).\n${previous.slice(heading.length)}`);
-  return { meeting_id: record.id, path: join(destination, "minutes.md"), status: "draft", okf_version: "0.2", markdown: readFileSync(join(destination, "minutes.md"), "utf8") };
+  const now = new Date().toISOString();
+  const files = _meetingFiles(record, documents(), conclusion, now);
+  const updates = planKnowledgeIndexes(root, parts, conclusion.topic_summaries, record.id, conclusion.title, conclusion.description, now);
+  publishKnowledge(root, destination, files, updates);
+  const relative_path = `${relativeDirectory}/minutes.md`;
+  return { meeting_id: record.id, concept_id: relative_path.slice(0, -3), path: knowledgePath(root, relative_path), status: "draft", okf_version: "0.2", markdown: files.get("minutes.md")! };
 }
 
-function _writeMeetingFiles(directory: string, record: ConsultationRecord, conclusion: MeetingConclusion) {
-  const route = record.kind === "transcript" ? "transcript" : "consultation";
-  const sources = record.answers.map((answer, index) => ({ id: `${route}-${index + 1}`, resource: `/meetings/${record.id}/evidence-${index + 1}.md`, title: `${route === "transcript" ? "Transcript evidence" : "Consultation answer"} from ${answer.sessionId}` }));
-  for (const [index, answer] of record.answers.entries()) {
-    const evidence = record.evidence.filter(turn => turn.session_id === answer.sessionId);
-    const metadata = { description: `${sources[index].title} supporting ${conclusion.description.trim()}` };
-    const body = `# Question\n\n${answer.question}\n\n# Answer\n\n${answer.answer}\n\n# Indexed historical evidence\n\n${evidence.map(turn => `## ${turn.turn_id}\n\n${turn.user_text}\n\n${turn.reply_text}`).join("\n\n")}`;
-    writeFileSync(join(directory, `evidence-${index + 1}.md`), `${_frontmatter(metadata)}\n${body}\n`, { flag: "wx" });
+function _renderEvidence(evidence: EvidenceRecord["evidence"]): string {
+  return evidence.map(turn => `## ${turn.turn_id}\n\n${turn.user_text}\n\n${turn.reply_text}`).join("\n\n");
+}
+
+function _meetingFiles(record: EvidenceRecord, documents: EvidenceDocument[], conclusion: MeetingConclusion, now: string): Map<string, string> {
+  const sources = documents.map((document, index) => ({ id: document.id, resource: `./evidence-${index + 1}.md`, title: document.title }));
+  const sourceIds = new Set(sources.map(source => source.id));
+  for (const key of ["findings", "decisions", "unverified_inferences", "disagreements", "open_questions", "actions"] as const) {
+    for (const match of conclusion[key].matchAll(/\[\^([^\]\n]+)\]/g)) if (!sourceIds.has(match[1])) throw new Error(`Unknown OKF source citation: ${match[1]}`);
   }
-  const metadata = { description: conclusion.description.trim() };
+  const generated = { by: `pi-session-memory/${version}`, at: now };
+  const common = { status: "draft", tags: conclusion.tags.map(tag => tag.trim()), generated };
+  const files = new Map<string, string>();
+  const entries: IndexEntry[] = [{ target: "minutes.md", title: conclusion.title.trim(), description: conclusion.description.trim() }];
+  for (const [index, document] of documents.entries()) {
+    const { evidence, title, type, body } = document;
+    const description = `${title} supporting ${conclusion.description.trim()}`;
+    const metadata = {
+      type, title, description, ...common,
+      sources: evidence.map(turn => ({ id: turn.turn_id, resource: turn.turn_id, title: `Pi transcript turn ${turn.turn_id}` })),
+    };
+    const target = `evidence-${index + 1}.md`;
+    files.set(target, renderConcept(metadata, body));
+  }
+  const metadata = { type: "Meeting Minutes", title: conclusion.title.trim(), description: conclusion.description.trim(), ...common, sources };
   const sections = [
     ["Question", record.question], ["Findings", conclusion.findings], ["Decisions", conclusion.decisions],
     ["Unverified inferences", conclusion.unverified_inferences], ["Disagreements", conclusion.disagreements],
     ["Open questions", conclusion.open_questions], ["Actions", conclusion.actions],
   ];
-  const citations = sources.map((source, index) => `[^${source.id}]: [${source.title}](evidence-${index + 1}.md)`).join("\n");
-  const path = join(directory, "minutes.md");
-  writeFileSync(path, `${_frontmatter(metadata)}\n${sections.map(([heading, body]) => `# ${heading}\n\n${body}`).join("\n\n")}\n\n# Sources\n\n${sources.map(s => `- ${s.title}.[^${s.id}]`).join("\n")}\n\n${citations}\n`, { flag: "wx" });
-}
-
-function _frontmatter(value: Record<string, unknown>): string {
-  return `---\n${Object.entries(value).map(([key, item]) => `${key}: ${JSON.stringify(item)}`).join("\n")}\n---\n`;
+  const citations = sources.map((source, index) => `[^${source.id}]: [${escapeMarkdown(source.title)}](evidence-${index + 1}.md)`).join("\n");
+  files.set("minutes.md", renderConcept(metadata, `# ${escapeMarkdown(conclusion.title.trim())}\n\n${sections.map(([heading, body]) => `# ${heading}\n\n${body}`).join("\n\n")}\n\n# Sources\n\n${sources.map(source => `- ${source.title}.[^${source.id}]`).join("\n")}\n\n${citations}`));
+  files.set("index.md", renderDirectoryIndex({ title: conclusion.title.trim(), entries }));
+  return files;
 }

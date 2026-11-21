@@ -1,6 +1,6 @@
 {
   "name": "pi-session-memory",
-  "version": "1.1.2",
+  "version": "2.0.10",
   "description": "Find Pi conversation history with SQLite-backed search instead of relying on lossy summaries. Use multi-agent discussion for deeper analysis and save reusable, evidence-based knowledge.",
   "keywords": [
     "pi-package",
@@ -14,7 +14,7 @@
     "agent-discussion",
     "knowledge-management",
     "markdown",
-    "obsidian"
+    "okf"
   ],
   "repository": {
     "type": "git",
@@ -29,26 +29,33 @@
   "files": [
     "extensions/",
     "src/",
-    "docs/adr/",
-    "docs/architecture.md",
+    "prompts/",
     "site/assets/codegraph-map.svg",
     "site/assets/codegraph-map.json",
-    "CHANGELOG.md",
-    "setup.md"
+    "CHANGELOG.md"
   ],
   "scripts": {
-    "test": "tsx tests/architecture.test.ts && tsx tests/history-turns.test.ts && tsx tests/core.test.ts && tsx tests/fetch-turn-context.test.ts && tsx tests/memory-output.test.ts && tsx tests/memory-knowledge.test.ts && tsx tests/memory-context.test.ts && tsx tests/memory-index-policy.test.ts && tsx tests/memory-index-cleanup.test.ts && tsx tests/setup.test.ts && tsx tests/jev-filter.test.ts && tsx tests/jev-runtime.test.ts && tsx tests/primary-entity.test.ts && tsx tests/recall-workflow.test.ts && tsx tests/consultation.test.ts && tsx tests/tool-config-summary.test.ts && tsx tests/download-chart.test.ts && tsx tests/site.test.ts",
+    "lint": "eslint prompts/ --max-warnings=0 && prettier prompts/ --check",
+    "format": "prettier prompts/ --write",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && npm run lint && tsx tests/architecture.test.ts && tsx tests/publication.test.ts && tsx tests/prompts.test.ts && tsx tests/history-turns.test.ts && tsx tests/core.test.ts && tsx tests/fetch-turn-context.test.ts && tsx tests/memory-output.test.ts && tsx tests/memory-knowledge.test.ts && tsx tests/knowledge-index.test.ts && tsx tests/knowledge-storage.test.ts && tsx tests/memory-context.test.ts && tsx tests/memory-index-policy.test.ts && tsx tests/memory-index-cleanup.test.ts && tsx tests/setup.test.ts && tsx tests/config-editor.test.ts && tsx tests/jev-filter-semantics.test.ts && tsx tests/okf-publication-semantics.test.ts && tsx tests/jev-filter.test.ts && tsx tests/jev-runtime.test.ts && tsx tests/primary-entity.test.ts && tsx tests/recall-workflow.test.ts && tsx tests/recall-mode.test.ts && tsx tests/consultation.test.ts && tsx tests/tool-config-summary.test.ts && tsx tests/download-chart.test.ts && tsx tests/site.test.ts",
     "test:e2e": "tsx tests/e2e.test.ts",
     "test:all": "npm test && npm run test:e2e",
     "downloads:chart": "node scripts/generate-download-chart.mjs"
   },
   "devDependencies": {
-    "tsx": "^4.23.13"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@typescript-eslint/parser": "8.73.0",
+    "eslint": "9.39.4",
+    "prettier": "3.10.1",
+    "tsx": "^4.23.13",
+    "typescript": "6.0.3"
   },
   "pi": {
     "extensions": [
       "./extensions"
-    ]
+    ],
+    "prompts": []
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

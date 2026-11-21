@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Text, matchesKey, Key } from "@earendil-works/pi-tui";
+import { Text, matchesKey, Key, truncateToWidth } from "@earendil-works/pi-tui";
 import { cleanDisplayText } from "../presentation/consultation-presentation.ts";
 import type { RecallTurnResult } from "../contracts/recall.ts";
 
@@ -19,13 +19,21 @@ export async function selectConsultationParticipants(groups: RecallTurnResult[][
       capturesViewportInput: true,
       render(width: number) {
         const group = groups[cursor];
-        const header = new Text([
+        const intro = new Text([
           theme.fg("accent", "Select historical sessions to consult"),
           "No sessions open until you confirm. All candidates start selected.",
-          ...groups.map((turns, index) => `${index === cursor ? ">" : " "} [${checked.has(turns[0].session_id) ? "x" : " "}] Agent ${index + 1} | ${clean(turns[0].cwd)}`),
+        ].join("\n"), 0, 0).render(width);
+        const controls = new Text([
           "Up/Down: candidate | Space: toggle | PageUp/PageDown: evidence | Enter: confirm | Esc: cancel",
           `Selected: ${checked.size}/${groups.length} | Evidence for Agent ${cursor + 1}`,
         ].join("\n"), 0, 0).render(width);
+        const visibleCount = Math.min(groups.length, Math.max(1, Math.floor((tui.terminal.rows - intro.length - controls.length - 3) / 2)));
+        const start = Math.min(cursor, groups.length - visibleCount);
+        const candidates = groups.slice(start, start + visibleCount).map((turns, offset) => {
+          const index = start + offset;
+          return truncateToWidth(`${index === cursor ? ">" : " "} [${checked.has(turns[0].session_id) ? "x" : " "}] Agent ${index + 1} | ${turns.length} unique turns | ${clean(turns[0].cwd)}`, width);
+        });
+        const header = [...intro, ...candidates, ...controls];
         const preview = group.flatMap(turn => [
           ...new Text(theme.fg("searchMatchText", `Matched turn ${turn.turn_index} | ${new Date(turn.ts).toISOString()} | score ${turn.score}`), 1, 0,
             line => theme.bg("searchMatchBg", line)).render(width),
@@ -35,7 +43,7 @@ export async function selectConsultationParticipants(groups: RecallTurnResult[][
             line => theme.bg("customMessageBg", line)).render(width),
           "",
         ]);
-        const size = Math.max(3, Math.min(16, tui.terminal.rows - header.length - 5));
+        const size = Math.max(1, Math.min(16, tui.terminal.rows - header.length - 3));
         page = Math.min(page, Math.max(0, Math.ceil(preview.length / size) - 1));
         return [...header, "", ...preview.slice(page * size, (page + 1) * size), theme.fg("dim", `Evidence page ${page + 1}/${Math.max(1, Math.ceil(preview.length / size))}`)];
       },

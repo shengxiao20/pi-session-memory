@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { knowledgeFields } from "./helpers/knowledge-fixture.ts";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +9,9 @@ process.env.HOME = home; process.env.USERPROFILE = home;
 process.env.MEMORY_DB_PATH = join(home, "memory.db");
 const configRoot = join(home, ".pi", "agent", "pi-session-memory");
 mkdirSync(configRoot, { recursive: true });
-const configure = (discussion = false) => writeFileSync(join(configRoot, "config.json"), JSON.stringify({ recallLimit: 20, enableDiscussion: discussion, consultation: { timeoutMs: 5000 } }));
+// This lifecycle fixture has one returned hit; threshold boundaries have separate consultation tests.
+process.env.PI_SESSION_MEMORY_DISCUSSION_TURN_THRESHOLD = "0";
+const configure = (discussion = false) => writeFileSync(join(configRoot, "config.json"), JSON.stringify({ recallLimit: 20, recallMode: discussion ? "discussion" : "normal", consultation: { timeoutMs: 5000 } }));
 configure();
 const { MemoryContext, withMemoryContext } = await import("../src/presentation/memory-context.ts");
 const { SessionManager, ModelRuntime, DefaultResourceLoader, createAgentSession, SettingsManager } = await import("@earendil-works/pi-coding-agent");
@@ -71,7 +74,7 @@ let step = 0;
 let consultationId = "";
 let reuseId = "";
 const calls: Array<{ mode: string; step: number; context: any }> = [];
-const conclusion = (route: string) => ({ description: `${route} research findings and uncertainty`, findings: `Evidence supports a limited research conclusion [${route === "Transcript" ? "transcript" : "consultation"}-1].`, decisions: "None", unverified_inferences: "Implementation remains unverified.", disagreements: "None", open_questions: "None", actions: "None" });
+const conclusion = (route: string) => ({ ...knowledgeFields, description: `${route} research findings and uncertainty`, findings: `Evidence supports a limited research conclusion [${route === "Transcript" ? "transcript" : "consultation"}-1].`, decisions: "None", unverified_inferences: "Implementation remains unverified.", disagreements: "None", open_questions: "None", actions: "None" });
 const query = { entities: ["historytopic", "work"], primary_entity: "historytopic", question: "Review earlier historytopic work" };
 const provider: any = {
   id: model.provider, name: "Deterministic test", auth: { apiKey: { name: "Test", resolve: async () => ({ auth: { apiKey: "test" } }) } }, getModels: () => [model],
@@ -90,7 +93,8 @@ const provider: any = {
       let args: any;
       if (step === 0) { name = "inspect_memory_knowledge"; args = {}; }
       else if (mode === "reuse") {
-        if (step === 1) { assert.doesNotMatch(contextText, /SOURCE_ONLY_94ca8d|PRIVATE_ONLY_aa287d/); name = "read_memory_knowledge"; args = { meeting_id: reuseId }; }
+        if (step === 1) { name = "inspect_memory_knowledge"; args = { directory: `meetings/${knowledgeFields.topic_path}` }; }
+        else if (step === 2) { assert.doesNotMatch(contextText, /SOURCE_ONLY_94ca8d|PRIVATE_ONLY_aa287d/); name = "read_memory_knowledge"; args = { meeting_id: reuseId }; }
         else { assert.match(contextText, /Transcript research/); message = assistant("not the saved document"); }
       } else if (step === 1) { name = "recall_memory"; args = query; }
       else if (mode === "transcript") {
@@ -135,8 +139,8 @@ try {
   } as any });
   await session.prompt(query.question);
   assert.equal(step, 6, JSON.stringify({ calls: calls.map(call => ({ mode: call.mode, step: call.step })), messages: session.messages }, null, 2));
-  const minutesRoot = join(configRoot, "knowledge", "meetings");
-  const transcriptIds = readdirSync(minutesRoot);
+  const minutesRoot = join(configRoot, "knowledge", "meetings", knowledgeFields.topic_path);
+  const transcriptIds = readdirSync(minutesRoot).filter(name => name !== "index.md");
   assert.equal(transcriptIds.length, 1);
   reuseId = transcriptIds[0];
   const transcriptMarkdown = readFileSync(join(minutesRoot, reuseId, "minutes.md"), "utf8");
@@ -153,7 +157,7 @@ try {
   mode = "reuse"; step = 0;
   await session.prompt("Review the saved research conclusion");
   assert.equal((session.messages.at(-1) as any).content[0].text, transcriptMarkdown);
-  assert.deepEqual(readdirSync(minutesRoot), transcriptIds);
+  assert.deepEqual(readdirSync(minutesRoot).filter(name => name !== "index.md"), transcriptIds);
   mode = "discussion"; step = 0; configure(true);
   await session.prompt("Review unresolved historical evidence");
   const discussionMarkdown = readFileSync(join(minutesRoot, consultationId, "minutes.md"), "utf8");

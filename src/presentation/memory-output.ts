@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { MessageEndEvent } from "@earendil-works/pi-coding-agent";
 import type { RecallTurnResult } from "../contracts/recall.ts";
-import type { ConsultationRecord } from "../contracts/consultation.ts";
 import { resolveKnowledgePath } from "../knowledge/knowledge-storage.ts";
-import { writeMeetingMinutes, type MeetingConclusion } from "../knowledge/meeting-minutes.ts";
+import { writeTranscriptMinutes, type MeetingConclusion } from "../knowledge/meeting-minutes.ts";
 
 export type FinalAssistantMessage = Extract<MessageEndEvent["message"], { role: "assistant" }>;
 
-export const OKF_OUTPUT_NOTICE = "Only after retrieving transcripts or starting Discussion in this run, save your conclusion before the final answer: use finish_session_consultation for an active Discussion, or finish_memory_recall for transcript evidence. These finish tools are not needed for ordinary questions or when reusing saved OKF knowledge. Provide a short description that summarizes the OKF content without copying the user's question. Provide all conclusion sections; use None for absent sections. Cite consultation-N or transcript-N sources. Never treat agreement as verification. The extension replaces your final assistant message with the exact saved OKF document, including frontmatter. Do not add a separate summary. Missing saved output is an explicit error, not a storage fallback.";
+export { OKF_OUTPUT_NOTICE } from "../../prompts/guidance.ts";
 
 /** Track main-agent evidence and the canonical final document within one agent run. */
 export class MemoryOutput {
@@ -30,21 +29,13 @@ export class MemoryOutput {
   complete(markdown: string): void { this.markdown = markdown; this.discussion = false; }
   reset(): void { this.turns.clear(); this.transcriptRequested = false; this.discussion = false; this.markdown = undefined; }
 
-  save(question: string, conclusion: MeetingConclusion, owner: string) {
+  save(question: string, conclusion: MeetingConclusion) {
     if (this.discussion) throw new Error("Finish or cancel the active Discussion before saving transcript conclusions");
     if (!this.transcriptRequested) throw new Error("No recalled or fetched transcript request in this agent run");
     if (typeof question !== "string" || !question.trim()) throw new Error("question must be non-empty");
-    const evidence = [...this.turns.values()];
-    const sessions = [...new Set(evidence.map(turn => turn.session_id))];
-    const record: ConsultationRecord = {
-      id: randomUUID(), owner, question, knowledgePath: resolveKnowledgePath(), timeoutMs: 0, kind: "transcript", evidence,
-      answers: sessions.map(sessionId => ({
-        sessionId, question,
-        answer: evidence.filter(turn => turn.session_id === sessionId).map(turn => `Turn ${turn.turn_id}\nUser: ${turn.user_text}\nAssistant: ${turn.reply_text}`).join("\n\n"),
-        messageIds: [],
-      })),
-    };
-    const result = writeMeetingMinutes(record, conclusion);
+    const result = writeTranscriptMinutes({
+      id: randomUUID(), question, knowledgePath: resolveKnowledgePath(), evidence: [...this.turns.values()],
+    }, conclusion);
     this.complete(result.markdown);
     return result;
   }

@@ -5,19 +5,20 @@ import { writeTurn } from "../src/history/writer.ts";
 import { getHistoryStats } from "../src/history/db.ts";
 import { fetchTurnContext } from "../src/history/fetch-turn-context.ts";
 import { formatRecallResults, recallTurns } from "../src/recall/retriever.ts";
+import { selectRecallMode } from "../src/recall/recall-mode.ts";
 import { MemoryOutput, OKF_OUTPUT_NOTICE } from "../src/presentation/memory-output.ts";
 import { MemoryContext, withMemoryContext } from "../src/presentation/memory-context.ts";
-import { KNOWLEDGE_FIRST_NOTICE } from "../src/knowledge/memory-knowledge.ts";
 import { registerMemoryKnowledgeTools } from "../src/knowledge/memory-knowledge-tools.ts";
 import { meetingConclusionSchema } from "../src/knowledge/meeting-conclusion-schema.ts";
 import { registerSetupTools } from "../src/setup/setup-tools.ts";
+import { editMemoryConfiguration } from "../src/setup/config-editor.ts";
 import { SETUP_REQUEST } from "../src/setup/setup.ts";
 import { recallSequentially } from "../src/recall/recall-workflow.ts";
 import { backfillAll, syncChangedHistory, type BackfillStats } from "../src/history/backfill.ts";
 import { notifyMemoryToolCleanup, registerMemoryCleanupTools } from "../src/history/memory-index-cleanup-tools.ts";
 import { formatProjectRecallResults, recallProjectMemory } from "../src/recall/project-retriever.ts";
 import { validateRecallQuery } from "../src/recall/recall-query.ts";
-import { getSessionMemoryConfig, getEnabledConsultation } from "../src/settings/config.ts";
+import { getSessionMemoryConfig, getDiscussionConfiguration } from "../src/settings/config.ts";
 import { ConsultationRuntime } from "../src/consultation/consultation-runtime.ts";
 import { registerConsultationTools } from "../src/consultation/consultation-tools.ts";
 import { ConsultationPresentation } from "../src/presentation/consultation-presentation.ts";
@@ -26,6 +27,8 @@ import { CONFIG_SUMMARY_PREFIX, withConfigSummary } from "../src/presentation/to
 import { JevRuntime } from "../src/relevance/jev-runtime.ts";
 import { filterRecallWithJev, type JevFilterStats, type JevFilteredOutTurn } from "../src/relevance/jev-filter.ts";
 import type { RecallTurnResult } from "../src/contracts/recall.ts";
+import { COMMAND_DESCRIPTION, TOOL_PROMPTS } from "../prompts/tools.ts";
+import { PARAMETER_HELP } from "../prompts/parameters.ts";
 
 /** Register local Pi cross-session transcript retrieval features. */
 export default function (pi: ExtensionAPI) {
@@ -73,7 +76,7 @@ export default function (pi: ExtensionAPI) {
   registerMemoryKnowledgeTools(registerTool, output);
 
   pi.registerCommand("pi-session-memory", {
-    description: "Open setup, Pi history import, or indexed-tool-turn cleanup. Transcript search is handled by Agent tools.",
+    description: COMMAND_DESCRIPTION,
     handler: async (args, ctx) => {
       if (args.trim()) throw new Error("/pi-session-memory accepts no arguments");
       await _openSessionMemoryMenu(pi, ctx);
@@ -82,16 +85,16 @@ export default function (pi: ExtensionAPI) {
 
   registerTool({
     name: "recall_memory", label: "Recall History · Global → Project", executionMode: "sequential",
-    description: "Use only when the user explicitly asks to look back at earlier work or historical conversations, and inspect_memory_knowledge found no clearly matching saved document. Do not call for ordinary questions or merely because a topic appeared before. One call with 2-8 literal topic entities, a required primary_entity and the complete question automatically searches all indexed Pi turns globally, then uses those same entities to discover stored session CWD final-directory names and search only matched sessions. Each stage adds +10 once per turn for a case-insensitive literal match of primary_entity before ranking and limiting results. Retain a complete core phrase verbatim from the user question as primary_entity and include it in entities; do not split, translate or paraphrase it. Other unique entity matches add +1 each. Each stage keeps its existing limit and optional Jev filtering. After both stages finish, project results are deduplicated by the turn_id values actually returned globally; removed results are not refilled. Global and project results are displayed separately. No current Pi session, project, CWD, source, session, or time context is used to scope retrieval; no separate project recall call is needed. When enableDiscussion is true in configuration, show up to three native Pi candidate sessions and their indexed evidence in a TUI checklist. Resume only user-confirmed sessions for sequential private consultation, excluding the active main session. Return consultation answers instead of raw recall sections for this request only. Consultation uses in-memory copies of original sessions and never appends questions or answers to their JSONL files. Intermediate results reach the main model through temporary context; only lightweight tool records and final OKF text are persisted. Compare answers, optionally follow up privately, then save OKF minutes or cancel within this run. Remaining participants are released when the main agent settles. Do not automatically replace consultation with transcript fetching.",
-    promptSnippet: "For explicit user look-back requests only, after saved OKF descriptions show no clear match. Call once with literal entities, primary_entity and the complete question. Keep the complete core phrase verbatim. Global recall runs before entity-discovered project recall; never infer scope from the current session or CWD. Discussion uses user-confirmed sessions, not transcript fallback.",
-    promptGuidelines: [KNOWLEDGE_FIRST_NOTICE, OKF_OUTPUT_NOTICE],
+    description: TOOL_PROMPTS.recall_memory.description,
+    promptSnippet: TOOL_PROMPTS.recall_memory.promptSnippet,
+    promptGuidelines: TOOL_PROMPTS.recall_memory.promptGuidelines,
     parameters: Type.Object({
-      entities: Type.Array(Type.String({ minLength: 1, description: "Literal topic entities used for both global transcript search and stored session directory-name discovery, then transcript search in those discovered sessions." }), { minItems: 2, maxItems: 8 }),
-      primary_entity: Type.String({ minLength: 1, description: "Complete core name or phrase copied verbatim from question, not split, translated or paraphrased. Must also occur in entities. Its case-insensitive literal match adds +10 once per turn before ranking and LIMIT." }),
-      question: Type.String({ minLength: 1, description: "The complete user question containing primary_entity verbatim, also used by optional Jev filtering in both recall stages." }),
+      entities: Type.Array(Type.String({ minLength: 1, description: PARAMETER_HELP.recall.entities })),
+      primary_entity: Type.String({ minLength: 1, description: PARAMETER_HELP.recall.primaryEntity }),
+      question: Type.String({ minLength: 1, description: PARAMETER_HELP.recall.question }),
     }),
     async execute(_id, options, signal, update, ctx) {
-      const consultationConfig = getEnabledConsultation();
+      const configuredMode = getSessionMemoryConfig().recallMode;
       const { global, project } = await recallSequentially(
         options,
         (question, results, progress) => _reviewWithJev(jevRuntime, question, results, progress),
@@ -102,20 +105,25 @@ export default function (pi: ExtensionAPI) {
         ? formatProjectRecallResults(project, options)
         : "No additional project turns returned after the existing project search, optional Jev review, and exact turn_id deduplication.";
       const projectText = _recallStageText(`Project recall · new turns: ${project.results.length} · duplicates removed: ${project.duplicatesRemoved}`, project.stats, projectResultsText);
-      if (consultationConfig) {
+      const mode = await selectRecallMode(configuredMode, { global: global.results.length, project: project.results.length }, ctx, signal);
+      if (mode === undefined) return {
+        content: [{ type: "text", text: "Recall mode selection cancelled. No transcripts were added and no historical agents were opened." }],
+        details: { mode: "cancelled", configuredMode, returnedResults: 0 },
+      };
+      if (mode === "discussion") {
         const consultation = await consultationRuntime.start([...global.results, ...project.results], options.question, ctx, signal);
         consultationPresentation.remember(consultation);
         if (consultation.consultation_id !== null) output.startDiscussion();
         return {
           content: [{ type: "text" as const, text: `## Private historical-session consultation\n${JSON.stringify(consultation, null, 2)}\n${consultationGuidance(consultation.consultation_id)}` }],
-          details: { mode: "consultation", consultation },
+          details: { mode: "consultation", configuredMode, recallMode: mode, consultation },
         };
       }
       output.addTranscript([...global.results, ...project.results]);
       return {
         content: [{ type: "text" as const, text: globalText }, { type: "text" as const, text: `${projectText}\n\n${OKF_OUTPUT_NOTICE}\nSources: ${JSON.stringify(output.sourceIds())}` }],
         details: {
-          mode: "transcript",
+          mode: "transcript", configuredMode, recallMode: mode,
           returnedResults: global.results.length + project.results.length,
           global: { returnedResults: global.results.length, results: global.results, jev: global.stats, jevFilteredOut: global.filteredOut },
           project: { totalSessions: project.sessions.length, returnedResults: project.results.length, sessions: project.sessions, results: project.results, duplicatesRemoved: project.duplicatesRemoved, jev: project.stats, jevFilteredOut: project.filteredOut },
@@ -124,7 +132,7 @@ export default function (pi: ExtensionAPI) {
     },
     renderResult(result, { expanded, isPartial }, theme, context) {
       const { isError } = context;
-      if ((result.details as { mode?: string } | undefined)?.mode === "consultation" || (isError && getEnabledConsultation())) {
+      if ((result.details as { mode?: string } | undefined)?.mode === "consultation" || (isError && getDiscussionConfiguration())) {
         return consultationPresentation.render("recall_memory", result, { expanded, isPartial }, theme, {}, isError);
       }
       const text = result.content.filter((block) => block.type === "text").map((block) =>
@@ -136,12 +144,12 @@ export default function (pi: ExtensionAPI) {
   });
   registerTool({
     name: "review_jev_filtered", label: "Review Jev-Filtered Recall Evidence", executionMode: "sequential",
-    description: "Use only within an explicit user-requested historical review, after recall_memory, to audit possible Jev false negatives. Re-run global and entity-discovered project-session literal recall and display only turns Jev filtered out, with each turn's maximum Jev noul relevance. Use to audit possible Jev false negatives after recall; supply the same entities, primary_entity and question. Available to the main agent regardless of Discussion configuration. Do not invoke automatically as a consultation fallback. Uses the same +10 complete primary phrase bonus before the result limit.",
-    promptSnippet: "During an explicit historical review only: inspect possible Jev false negatives after recall. Reuse the original entities, primary_entity and complete question; no runtime or project parameter is available. Discussion does not disable this tool for the main agent. Do not automatically replace consultation with this audit.",
+    description: TOOL_PROMPTS.review_jev_filtered.description,
+    promptSnippet: TOOL_PROMPTS.review_jev_filtered.promptSnippet,
     parameters: Type.Object({
-      entities: Type.Array(Type.String({ minLength: 1 }), { minItems: 2, maxItems: 8 }),
-      primary_entity: Type.String({ minLength: 1, description: "Reuse primary_entity from recall_memory: a verbatim core phrase from question also included in entities; complete phrase hits add +10 once per turn." }),
-      question: Type.String({ minLength: 1, description: "The complete original user question used for Jev relevance judgment." }),
+      entities: Type.Array(Type.String({ minLength: 1 })),
+      primary_entity: Type.String({ minLength: 1, description: PARAMETER_HELP.recall.reviewPrimaryEntity }),
+      question: Type.String({ minLength: 1, description: PARAMETER_HELP.recall.reviewQuestion }),
     }),
     async execute(_id, options, _signal, update) {
       validateRecallQuery(options);
@@ -156,10 +164,10 @@ export default function (pi: ExtensionAPI) {
   });
   registerTool({
     name: "fetch_session",  label: "Fetch Session", executionMode: "sequential",
-    description: "Use only within an explicit user-requested historical review when a recalled excerpt lacks context. Fetch ordered persisted transcript context around an exact turn_id returned by recall_memory or review_jev_filtered. Use when an excerpt lacks necessary context. Available to the main agent regardless of Discussion configuration; do not invoke automatically as a consultation fallback. Copy the exact Fetch turn ID and request the smallest useful before/after window. Zero for both reads only the target turn. This is read-only and never creates a memory.",
-    promptSnippet: "During an explicit historical review only: expand an insufficient recall excerpt with its exact Fetch turn ID and the smallest useful before/after window. Never infer turn indexes from ID suffixes. This reads source evidence only. Discussion does not disable this tool for the main agent. Do not automatically replace consultation with transcript fetching.",
-    promptGuidelines: [OKF_OUTPUT_NOTICE],
-    parameters: Type.Object({ turn_id: Type.String({ minLength: 1, description: "Exact Fetch turn ID returned by recall_memory or review_jev_filtered. Copy the full value; do not parse its suffix." }), before: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description: "Number of turn-index positions before the target. Use 0 for no preceding context." }), after: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description: "Number of turn-index positions after the target. Use 0 for no following context." }) }),
+    description: TOOL_PROMPTS.fetch_session.description,
+    promptSnippet: TOOL_PROMPTS.fetch_session.promptSnippet,
+    promptGuidelines: TOOL_PROMPTS.fetch_session.promptGuidelines,
+    parameters: Type.Object({ turn_id: Type.String({ minLength: 1, description: PARAMETER_HELP.recall.fetchTurnId }), before: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description: PARAMETER_HELP.recall.fetchBefore }), after: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description: PARAMETER_HELP.recall.fetchAfter }) }),
     async execute(_id, { turn_id, before, after }) {
       const { stored, target, fromTurnIndex, toTurnIndex } = fetchTurnContext(turn_id, before, after);
       output.addTranscript(stored.turns.map(turn => ({ ...turn, source: stored.session.source, cwd: stored.session.cwd, score: 0 })));
@@ -170,38 +178,43 @@ export default function (pi: ExtensionAPI) {
   });
   registerTool({
     name: "finish_memory_recall", label: "Save Recall OKF Conclusion", executionMode: "sequential",
-    description: "Save a conclusion only after retrieving transcripts for an explicit user look-back request in this run. Do not call for ordinary questions or when reusing saved OKF knowledge. Use after comparing the retrieved evidence and before the final answer. Provide the complete question, a short content description that does not copy that question, and all conclusion sections; use None for absent sections. Cite transcript-N IDs returned with the evidence. Saves draft OKF v0.2 minutes and portable evidence to the default knowledge root, or the configured Obsidian vault when enabled. The final assistant message uses the exact saved document. For active Discussion, use finish_session_consultation instead.",
-    promptGuidelines: [OKF_OUTPUT_NOTICE],
+    description: TOOL_PROMPTS.finish_memory_recall.description,
+    promptGuidelines: TOOL_PROMPTS.finish_memory_recall.promptGuidelines,
     parameters: Type.Object({ question: Type.String({ minLength: 1 }), conclusion: meetingConclusionSchema }),
-    async execute(_id, params, _signal, _update, ctx) {
-      const result = output.save(params.question, params.conclusion, ctx.sessionManager.getSessionId());
+    async execute(_id, params) {
+      const result = output.save(params.question, params.conclusion);
       return { content: [{ type: "text", text: result.markdown }], details: result };
     },
   });
   registerTool({
     name: "get_memory_stats", label: "Get History Storage Statistics",
-    description: "Report locally indexed Pi transcript storage totals. Use when the user asks how much Pi history is stored.",
-    promptSnippet: "Use when the user asks for locally indexed history totals.", parameters: Type.Object({}),
+    description: TOOL_PROMPTS.get_memory_stats.description,
+    promptSnippet: TOOL_PROMPTS.get_memory_stats.promptSnippet, parameters: Type.Object({}),
     async execute() { const stats = getHistoryStats(); return { content: [{ type: "text" as const, text: _historyStatsSummary(stats) }], details: stats }; },
   });
   registerTool({
     name: "backfill_memory", label: "Import Historical Sessions",
-    description: "Import all historical Pi transcript sessions into the local index. Use only when the user explicitly asks to import, backfill, or rescan history.",
-    promptSnippet: "Use only for an explicit request to import, backfill, or rescan historical conversation data.", parameters: Type.Object({}),
+    description: TOOL_PROMPTS.backfill_memory.description,
+    promptSnippet: TOOL_PROMPTS.backfill_memory.promptSnippet, parameters: Type.Object({}),
     async execute() { const stats = backfillAll(); return { content: [{ type: "text" as const, text: _backfillSummary(stats, "imported") }], details: stats }; },
   });
   registerMemoryCleanupTools(registerTool);
 }
 const SESSION_MEMORY_ACTIONS = {
-  setup: "Setup — explain optional features and save approved configuration",
-  clean: "Clean indexed tool turns — back up SQLite and remove complete package-tool turns",
-  backfill: "Import historical sessions — rescan Pi history",
+  setup: "Agentic setup",
+  edit: "Edit configuration",
+  clean: "Clean indexed tool turns",
+  backfill: "Import history",
 } as const;
 
 /** Open the operations that users can start directly from the command menu. */
 async function _openSessionMemoryMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
   const selection = await ctx.ui.select("pi-session-memory", Object.values(SESSION_MEMORY_ACTIONS));
   if (!selection) return;
+  if (selection === SESSION_MEMORY_ACTIONS.edit) {
+    await editMemoryConfiguration(ctx);
+    return;
+  }
   if (selection === SESSION_MEMORY_ACTIONS.setup) {
     pi.sendUserMessage(SETUP_REQUEST);
     return;
@@ -210,6 +223,7 @@ async function _openSessionMemoryMenu(pi: ExtensionAPI, ctx: ExtensionCommandCon
     _notifyBackfill(ctx, backfillAll(), "imported");
     return;
   }
+  if (selection !== SESSION_MEMORY_ACTIONS.clean) throw new Error("Unknown pi-session-memory menu selection");
   notifyMemoryToolCleanup(ctx);
 }
 

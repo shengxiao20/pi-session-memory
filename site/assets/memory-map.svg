@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 480" fill="none">
   <title>Multi-agent historical review routing</title>
-  <desc>One current main agent routes one recall request to transcript evidence or up to three user-confirmed historical Pi agents. The main agent can independently use fetch_session to verify persisted source context.</desc>
+  <desc>One current main agent routes one recall request to transcript evidence or all user-confirmed historical Pi agents above the unique returned-turn threshold (default 5), without a session-count cap. recallMode supports normal, discussion, and choice (default). Choice asks after retrieval and applies only to this request. The main agent can independently use fetch_session to verify persisted source context.</desc>
   <defs>
     <marker id="arrow-mint" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#98c8b3"/></marker>
     <marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#efbc71"/></marker>
@@ -23,7 +23,7 @@
     <rect x="28" y="185" width="214" height="126" rx="11" fill="#192628" stroke="#435b51"/>
     <text x="48" y="208" fill="#98c8b3" font-size="9">TRANSCRIPT ROUTE</text>
     <text x="48" y="234" fill="#edf0e8" font-size="14">Ranked excerpts</text>
-    <text x="48" y="254" fill="#adbab6" font-size="10">Discussion off</text>
+    <text x="48" y="254" fill="#adbab6" font-size="10">normal mode</text>
     <rect x="48" y="272" width="174" height="22" rx="4" fill="#98c8b312"/>
     <text x="60" y="287" fill="#b8d6bd" font-size="9">direct evidence review</text>
 
@@ -38,7 +38,7 @@
       <rect x="474" y="252" width="78" height="37" rx="7" fill="#1d2a2b" stroke="#5b7368"/>
       <text x="317" y="274" fill="#c2d0c8" font-size="10" text-anchor="middle">Agent 1</text>
       <text x="415" y="274" fill="#c2d0c8" font-size="10" text-anchor="middle">Agent 2</text>
-      <text x="513" y="274" fill="#c2d0c8" font-size="10" text-anchor="middle">Agent 3</text>
+      <text x="513" y="274" fill="#c2d0c8" font-size="10" text-anchor="middle">Agent N</text>
       <path d="M356 270h17M454 270h17" stroke="#efbc71" marker-end="url(#arrow-amber)"/>
     </g>
     <text x="415" y="303" fill="#adbab6" font-size="8" text-anchor="middle">user-confirmed · sequential · private · tool-free</text>

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { knowledgeFields } from "./helpers/knowledge-fixture.ts";
 import { requestContextTool } from "./helpers/request-context-tool.ts";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import type { TObject } from "typebox";
 
 // Theme stub supplies distinct ANSI colors and rejects use of the wrong semantic role.
 function resultTheme(foreground: string) {
@@ -17,6 +19,8 @@ const renderTheme = resultTheme("\x1b[38;2;238;238;238m");
 const dbPath = join(tmpdir(), `pi-session-memory-e2e-${process.pid}.db`);
 const historyHome = join(tmpdir(), `pi-session-memory-e2e-home-${process.pid}`);
 process.env.MEMORY_DB_PATH = dbPath;
+// Admit the single-hit picker fixture; default-threshold behavior has dedicated consultation tests.
+process.env.PI_SESSION_MEMORY_DISCUSSION_TURN_THRESHOLD = "0";
 process.env.HOME = historyHome;
 process.env.USERPROFILE = historyHome; // isolate Windows home too.
 
@@ -28,7 +32,7 @@ cleanup();
 const obsidianVault = join(historyHome, "obsidian-vault");
 mkdirSync(join(historyHome, ".pi", "agent", "pi-session-memory"), { recursive: true });
 mkdirSync(obsidianVault, { recursive: true });
-writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2, obsidianExportEnabled: true, obsidianVaultPath: obsidianVault }));
+writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2, recallMode: "normal", knowledgePath: join(obsidianVault, "pi-session-memory") }));
 
 const extension = (await import("../extensions/index.ts")).default;
 const events: Array<{ event: string; handler: (...args: any[]) => unknown }> = [];
@@ -37,7 +41,7 @@ interface RegisteredTool {
   name: string;
   description: string;
   promptSnippet?: string;
-  parameters: unknown;
+  parameters: TObject;
   execute: (...args: any[]) => Promise<{ content: Array<{ type: string; text: string }>; details: any }>;
   renderResult?: (...args: any[]) => { render(width: number): string[] };
 }
@@ -65,7 +69,7 @@ for (const description of [...commands.map(({ options }) => options.description)
 }
 
 const notices: Array<{ message: string; level: string }> = [];
-const selections: string[] = ["Setup — explain optional features and save approved configuration"];
+const selections: string[] = ["Agentic setup"];
 const menuOptions: string[][] = [];
 const ctx = { sessionManager: {
   getBranch() { return []; },
@@ -92,18 +96,19 @@ assert.equal(notices.length, 0);
 assert.equal(sentUserMessages.length, 1);
 assert.match(sentUserMessages[0]!, /Run pi-session-memory setup/);
 assert.deepEqual(menuOptions[0], [
-  "Setup — explain optional features and save approved configuration",
-  "Clean indexed tool turns — back up SQLite and remove complete package-tool turns",
-  "Import historical sessions — rescan Pi history",
+  "Agentic setup",
+  "Edit configuration",
+  "Clean indexed tool turns",
+  "Import history",
 ]);
 assert.ok(menuOptions[0]!.every((option) => !/[\u4e00-\u9fff]/.test(option)), "menu descriptions must be English only");
 assert.ok(menuOptions[0]!.every((option) => !/search|help|status|knowledge|consultation|conclusion/i.test(option)), "Agent-handled review actions must not appear in the direct-operation menu");
 (await import("../src/history/db.ts")).getDb();
-selections.push("Clean indexed tool turns — back up SQLite and remove complete package-tool turns");
+selections.push("Clean indexed tool turns");
 await menu.options.handler("", ctx);
 assert.match(notices.at(-1)!.message, /SQLite cleanup removed 0 package-tool turns/);
 assert.match(notices.at(-1)!.message, /Backup:/);
-selections.push("Import historical sessions — rescan Pi history");
+selections.push("Import history");
 await menu.options.handler("", ctx);
 assert.match(notices.at(-1)!.message, /\[session-memory\] imported/);
 notices.length = 0;
@@ -180,7 +185,7 @@ const updates: any[] = [];
 const recallResult = await recall.execute("call", options, undefined, (update: any) => updates.push(update));
 const recallText = recallResult.content.map((block) => block.text).join("\n\n");
 assert.equal(recallResult.content.length, 3, "global, project and the two-line configuration summary must be separate blocks");
-assert.match(recallResult.content[2]!.text, /^Config · Jev=off \(nimble\) · Obsidian=on · manageOllama=on · limit=2\nEnv · MEMORY_DB_PATH=set · API key=local-placeholder · OLLAMA_HOST=/);
+assert.match(recallResult.content[2]!.text, /^Config · Jev=off \(nimble\) · manageOllama=on · limit=2 · recallMode=normal\nEnv · MEMORY_DB_PATH=set · API key=local-placeholder · OLLAMA_HOST=/);
 assert.equal(recallResult.content[2]!.text.split("\n").length, 2);
 assert.ok(recallResult.content[0]!.text.startsWith("# Global recall"));
 assert.ok(recallResult.content[1]!.text.startsWith("# Project recall"));
@@ -280,7 +285,7 @@ db.upsertSession({ session_id: nativeId, source: "pi", cwd: native.getCwd(), sta
 db.insertTurn({ turn_id: `${nativeId}:candidate`, session_id: nativeId, turn_index: 0, ts: 40, user_text: "jev filter native candidate", reply_text: "native evidence", tool_names: null, user_message_id: nativeUserId });
 const configPath = join(historyHome, ".pi", "agent", "pi-session-memory", "config.json");
 const originalConfig = readFileSync(configPath, "utf8");
-writeFileSync(configPath, JSON.stringify({ ...JSON.parse(originalConfig), enableDiscussion: true, consultation: { knowledgePath: join(historyHome, "knowledge"), timeoutMs: 1000 } }));
+writeFileSync(configPath, JSON.stringify({ ...JSON.parse(originalConfig), recallMode: "discussion", knowledgePath: join(historyHome, "knowledge"), consultation: { timeoutMs: 1000 } }));
 let shown = 0;
 const selectionCtx = { mode: "tui", sessionManager: { getSessionId() { return "main"; } }, ui: {
   async custom(build: any) {
@@ -304,7 +309,7 @@ const exportBeforeSelection = readdirSync(obsidianVault).length;
 const selectionResult = await recall.execute("selection", options, undefined, () => {}, selectionCtx);
 assert.equal(shown, 1);
 assert.equal(selectionResult.details.mode, "consultation");
-assert.match(selectionResult.content.at(-1)!.text, /Discussion=on/);
+assert.match(selectionResult.content.at(-1)!.text, /recallMode=discussion \(recall only; main tools unchanged\)/);
 assert.doesNotMatch(selectionResult.content.at(-1)!.text, /Jev=|Ollama/);
 assert.equal(selectionResult.details.consultation.consultation_id, null);
 assert.equal(selectionResult.details.global, undefined);
@@ -361,10 +366,10 @@ for (const foreground of ["\x1b[38;2;238;238;238m", "\x1b[38;2;32;32;32m", "\x1b
 assert.equal(JSON.stringify(renderCases), displaySnapshot, "rendering must not mutate model-visible results or structured evidence");
 assert.doesNotMatch(nonEmptyText, /\x1b/, "theme ANSI codes must remain display-only, outside model text and exports");
 
-writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 0, obsidianExportEnabled: true, obsidianVaultPath: obsidianVault }));
+writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 0, knowledgePath: join(obsidianVault, "pi-session-memory") }));
 await assert.rejects(recall.execute("invalid-config", options, undefined, () => {}), /recallLimit/);
 assert.equal(readdirSync(obsidianVault).length, 0, "failed workflows must not export raw or partial success notes");
-writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2, jevEnable: true, obsidianExportEnabled: true, obsidianVaultPath: obsidianVault }));
+writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2, recallMode: "normal", jevEnable: true, knowledgePath: join(obsidianVault, "pi-session-memory") }));
 
 // Mock only the runtime boundary: execute the unchanged Jev filter inside both tool stages.
 const { JevRuntime } = await import("../src/relevance/jev-runtime.ts");
@@ -440,7 +445,7 @@ try {
     return new Response(JSON.stringify({ model: body.model, answers: Object.fromEntries(Object.keys(body.questions).map((key) => [key, { type: "noul", noul: 0.9 }])) }), { headers: { "Content-Type": "application/json" } });
   };
   for (const [baseURL, model] of [["https://api.typesafe.ai", "jev-latest"], ["https://workspace.ap-southeast-1.maas.aliyuncs.com/compatible-mode", "decision-model-preview"]]) {
-    writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2, jevEnable: true, model, jevConnection: { baseURL, apiKeyEnv: "PI_MEMORY_E2E_DECISION_KEY", contextWindow: 8_192, manageOllama: false }, obsidianExportEnabled: true, obsidianVaultPath: obsidianVault }));
+    writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2, recallMode: "normal", jevEnable: true, model, jevConnection: { baseURL, apiKeyEnv: "PI_MEMORY_E2E_DECISION_KEY", contextWindow: 8_192, manageOllama: false }, knowledgePath: join(obsidianVault, "pi-session-memory") }));
     const beforeCalls = remoteCalls.length;
     const remoteResult = await freshRecall().execute("remote", options, undefined, () => {});
     assert.equal(remoteCalls.length - beforeCalls, 2, "both recall stages use the same remote System One client");
@@ -451,7 +456,6 @@ try {
     assert.equal(remoteResult.details.global.jev.contextWindow, 8_192);
     assert.equal(remoteResult.details.project.duplicatesRemoved, 2);
     assert.deepEqual(remoteResult.details.project.results, []);
-    const text = remoteResult.content.slice(0, 2).map((block) => block.text).join("\n\n");
     assert.doesNotMatch(JSON.stringify(remoteResult), /isolated-e2e-secret|api\.typesafe\.ai|maas\.aliyuncs/);
     assert.match(remoteResult.content[2]!.text, /PI_MEMORY_E2E_DECISION_KEY=set/);
     assert.equal(readdirSync(obsidianVault).length, 0, "remote filtering must not add raw results before finalization");
@@ -506,11 +510,11 @@ const finalContext = { ...ctx, sessionManager: { ...ctx.sessionManager, getSessi
 const settle = events.find(({ event }) => event === "agent_settled")!;
 const messageEnd = events.find(({ event }) => event === "message_end")!;
 const finalMessage = { role: "assistant", content: [{ type: "text", text: "Different summary" }], stopReason: "stop", timestamp: 1 };
-const finalConclusion = { description: "Historical evidence findings and open questions", findings: "Historical evidence.[^transcript-1]", decisions: "None", unverified_inferences: "None", disagreements: "None", open_questions: "None", actions: "None" };
+const finalConclusion = { ...knowledgeFields, description: "Historical evidence findings and open questions", findings: "Historical evidence.[^transcript-1]", decisions: "None", unverified_inferences: "None", disagreements: "None", open_questions: "None", actions: "None" };
 const fetchTool = tools.find(tool => tool.name === "fetch_session")!;
-for (const obsidianEnabled of [false, true]) {
+for (const customRootEnabled of [false, true]) {
   await settle.handler({}, finalContext);
-  writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2, obsidianExportEnabled: obsidianEnabled, ...(obsidianEnabled ? { obsidianVaultPath: obsidianVault } : {}) }));
+  writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2, ...(customRootEnabled ? { knowledgePath: join(obsidianVault, "pi-session-memory") } : {}) }));
   const defaultRoot = join(historyHome, ".pi", "agent", "pi-session-memory", "knowledge");
   const defaultMeetingsBefore = existsSync(join(defaultRoot, "meetings")) ? readdirSync(join(defaultRoot, "meetings")) : [];
   const sourceTurn = (await import("../src/recall/retriever.ts")).recallTurns({ entities: options.entities })[0]!;
@@ -518,13 +522,14 @@ for (const obsidianEnabled of [false, true]) {
   assert.match(fetched.content[0]!.text, /Storage action:\*\* none/);
   assert.equal((await messageEnd.handler({ message: finalMessage }, finalContext) as any).message.stopReason, "error");
   const saved = await finishRecall.execute("finish-recall", { question: options.question, conclusion: finalConclusion }, undefined, undefined, finalContext);
-  const root = obsidianEnabled ? obsidianVault : defaultRoot;
-  assert.equal(saved.details.path, join(root, "meetings", saved.details.meeting_id, "minutes.md"));
+  const root = customRootEnabled ? join(obsidianVault, "pi-session-memory") : defaultRoot;
+  assert.equal(saved.details.path, join(root, "meetings", finalConclusion.topic_path, saved.details.meeting_id, "minutes.md"));
+  assert.equal(saved.details.concept_id, `meetings/${finalConclusion.topic_path}/${saved.details.meeting_id}/minutes`);
   const finalResult = await messageEnd.handler({ message: finalMessage }, finalContext) as any;
   assert.equal(finalResult.message.content[0].text, readFileSync(saved.details.path, "utf8"));
   assert.equal(finalResult.message.content.length, 1, "final OKF must not include a separate summary or config footer");
   assert.equal(saved.content[0]!.text, saved.details.markdown);
-  if (obsidianEnabled) assert.deepEqual(readdirSync(join(defaultRoot, "meetings")), defaultMeetingsBefore);
+  if (customRootEnabled) assert.deepEqual(readdirSync(join(defaultRoot, "meetings")), defaultMeetingsBefore);
 }
 await settle.handler({}, finalContext);
 assert.deepEqual((await messageEnd.handler({ message: finalMessage }, finalContext) as any).message, finalMessage);
@@ -533,8 +538,12 @@ await assert.rejects(finishRecall.execute("without-evidence", { question: option
 // Reuse the saved vault document through the metadata-first route, with no new meeting.
 const inspectKnowledge = tools.find(tool => tool.name === "inspect_memory_knowledge")!;
 const readKnowledge = tools.find(tool => tool.name === "read_memory_knowledge")!;
-const meetingsBeforeReuse = readdirSync(join(obsidianVault, "meetings"));
-const catalogue = await inspectKnowledge.execute("metadata", {});
+const vaultMeetings = join(obsidianVault, "pi-session-memory", "meetings", finalConclusion.topic_path);
+const meetingsBeforeReuse = readdirSync(vaultMeetings).filter(name => name !== "index.md");
+const rootCatalogue = await inspectKnowledge.execute("metadata-root", {});
+assert.equal(rootCatalogue.details.meetings.length, 0);
+assert.deepEqual(rootCatalogue.details.directories.map((entry: any) => entry.directory), ["meetings"]);
+const catalogue = await inspectKnowledge.execute("metadata", { directory: `meetings/${finalConclusion.topic_path}` });
 assert.equal(catalogue.details.meetings.length, meetingsBeforeReuse.length);
 assert.ok(catalogue.details.meetings.every((entry: any) => typeof entry.frontmatter.description === "string" && entry.frontmatter.description.length));
 assert.ok(catalogue.details.meetings.every((entry: any) => !("markdown" in entry)), "metadata-first inspection does not expose bodies");
@@ -543,7 +552,7 @@ const chosen = catalogue.details.meetings[0];
 const reused = await readKnowledge.execute("reuse", { meeting_id: chosen.meeting_id });
 assert.equal((await messageEnd.handler({ message: finalMessage }, finalContext) as any).message.content[0].text, readFileSync(chosen.path, "utf8"));
 assert.equal(reused.content[0]!.text, readFileSync(chosen.path, "utf8"));
-assert.deepEqual(readdirSync(join(obsidianVault, "meetings")), meetingsBeforeReuse);
+assert.deepEqual(readdirSync(vaultMeetings).filter(name => name !== "index.md"), meetingsBeforeReuse);
 await settle.handler({}, finalContext);
 assert.deepEqual((await messageEnd.handler({ message: finalMessage }, finalContext) as any).message, finalMessage);
 for (const name of ["inspect_memory_knowledge", "read_memory_knowledge", "recall_memory", "fetch_session", "review_jev_filtered", "finish_memory_recall"]) {
@@ -551,7 +560,7 @@ for (const name of ["inspect_memory_knowledge", "read_memory_knowledge", "recall
   assert.match(tool.description, /explicit/);
   assert.doesNotMatch(`${tool.description}\n${tool.promptSnippet}`, /Use for any question|For every prior-conversation/);
 }
-assert.match(recall.promptSnippet!, /after saved OKF descriptions show no clear match/);
+assert.match(recall.promptSnippet!, /after relevant saved OKF directory branches show no clear match/);
 (await import("../src/history/db.ts")).getDb().close();
 cleanup();
 console.log("e2e.test.ts: passed");
