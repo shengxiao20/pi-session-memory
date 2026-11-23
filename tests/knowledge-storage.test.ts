@@ -14,7 +14,7 @@ const { resolveKnowledgePath } = await import("../src/knowledge/knowledge-storag
 const { setupConfigurationSchema } = await import("../src/setup/setup-schema.ts");
 const { CONFIG_FIELDS, createConfigDraft } = await import("../src/setup/config-fields.ts");
 const { configureMemory, readMemorySetup } = await import("../src/setup/setup.ts");
-const { writeMeetingMinutes, writeTranscriptMinutes } = await import("../src/knowledge/meeting-minutes.ts");
+const { writeContextMinutes, writeMeetingMinutes, writeTranscriptMinutes } = await import("../src/knowledge/meeting-minutes.ts");
 const { inspectMemoryKnowledge, readMemoryKnowledge } = await import("../src/knowledge/memory-knowledge.ts");
 const path = getMemoryConfigPath();
 const defaultRoot = join(dirname(path), "knowledge");
@@ -58,16 +58,16 @@ try {
 
   // Existing knowledge is reusable in place, independent of consultation settings.
   const saved = new Map<string, string>();
-  for (const kind of ["transcript", "consultation"] as const) {
+  for (const kind of ["context", "transcript", "consultation"] as const) {
     const record = { id: `unified-${kind}`, question: "Review storage", knowledgePath: resolveKnowledgePath(), evidence: [knowledgeTurn()] };
-    const result = kind === "transcript" ? writeTranscriptMinutes(record, conclusion) : writeMeetingMinutes({ ...record, owner: "main", timeoutMs: 1000,
+    const result = kind === "context" ? writeContextMinutes({ ...record, context: "The current task requires one knowledge root." }, conclusion) : kind === "transcript" ? writeTranscriptMinutes(record, conclusion) : writeMeetingMinutes({ ...record, owner: "main", timeoutMs: 1000,
       answers: [{ sessionId: record.evidence[0].session_id, question: "Question", answer: "Original evidence", messageIds: [] }],
     }, conclusion);
     assert.equal(result.path, join(custom, "meetings", conclusion.topic_path, `unified-${kind}`, "minutes.md"));
     for (const name of readdirSync(dirname(result.path))) saved.set(join(dirname(result.path), name), readFileSync(join(dirname(result.path), name), "utf8"));
     assert.equal(readMemoryKnowledge(`unified-${kind}`).markdown, result.markdown);
   }
-  assert.ok(!existsSync(defaultRoot), "both output routes use one custom root, without duplicate output");
+  assert.ok(!existsSync(defaultRoot), "all output routes use one custom root, without duplicate output");
   const legacy = { ...base, consultation: { timeoutMs: 300000 }, jevEnable: false, unrelated: { keep: true }, obsidianExportEnabled: true, obsidianVaultPath: dirname(custom) };
   (legacy.consultation as any).knowledgePath = join(home, "inactive-root");
   writeFileSync(path, JSON.stringify(legacy));
@@ -106,5 +106,5 @@ try {
   writeFileSync(defaultRoot, "not a directory");
   assert.throws(() => resolveKnowledgePath(), /not an existing file/);
   assert.ok(!existsSync(process.env.MEMORY_DB_PATH!), "configuration and knowledge operations do not initialize the transcript database");
-  console.log("knowledge-storage tests passed: independent root, all modes, both OKF routes, in-place legacy repair, omitted values, no migration/duplicate writes/fallback, read-only resolution and explicit storage errors");
+  console.log("knowledge-storage tests passed: independent root, all modes, all three OKF routes, in-place legacy repair, omitted values, no migration/duplicate writes/fallback, read-only resolution and explicit storage errors");
 } finally { rmSync(home, { recursive: true, force: true }); }

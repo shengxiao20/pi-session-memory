@@ -215,7 +215,7 @@ try {
       setupRequests.push(message);
     },
   } as any);
-  assert.equal(commands.length, 1); assert.equal(tools.length, 14);
+  assert.equal(commands.length, 1); assert.equal(tools.length, 15);
   assert.match(commands[0].options.description, /required\/optional/);
   rmSync(path);
   const menuSteps = [{ method: "select", answer: "Edit configuration", check: (_title: string, rows?: string[]) => assert.deepEqual(rows, ["Agentic setup", "Edit configuration", "Clean indexed tool turns", "Import history"]) }, select()] as Step[];

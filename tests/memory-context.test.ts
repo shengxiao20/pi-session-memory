@@ -91,7 +91,10 @@ const provider: any = {
       const contextText = JSON.stringify(context.messages);
       let name: string | undefined;
       let args: any;
-      if (step === 0) { name = "inspect_memory_knowledge"; args = {}; }
+      if (mode === "context") {
+        if (step === 0) { name = "write_okf"; args = { question: "Save the current task as OKF without searching history", context: "The current task requires an independent OKF tool with shared publication logic.", conclusion: { ...conclusion("Current context"), findings: "Use the shared publication writer.[^context-1]" } }; }
+        else { assert.match(contextText, /Current context research/); message = assistant("not the saved document"); }
+      } else if (step === 0) { name = "inspect_memory_knowledge"; args = {}; }
       else if (mode === "reuse") {
         if (step === 1) { name = "inspect_memory_knowledge"; args = { directory: `meetings/${knowledgeFields.topic_path}` }; }
         else if (step === 2) { assert.doesNotMatch(contextText, /SOURCE_ONLY_94ca8d|PRIVATE_ONLY_aa287d/); name = "read_memory_knowledge"; args = { meeting_id: reuseId }; }
@@ -127,7 +130,7 @@ const extension = (await import("../extensions/index.ts")).default;
 const settings = SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false, keepRecentTokens: 0 } });
 const resources = new DefaultResourceLoader({ cwd: home, agentDir: join(home, ".pi", "agent"), settingsManager: settings, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true, extensionFactories: [extension], systemPrompt: "You are the main coding agent." });
 await resources.reload();
-const { session } = await createAgentSession({ cwd: home, model, modelRuntime, sessionManager: mainManager, resourceLoader: resources, settingsManager: settings, tools: ["inspect_memory_knowledge", "read_memory_knowledge", "recall_memory", "fetch_session", "review_jev_filtered", "finish_memory_recall", "follow_up_session", "finish_session_consultation"], thinkingLevel: "off" });
+const { session } = await createAgentSession({ cwd: home, model, modelRuntime, sessionManager: mainManager, resourceLoader: resources, settingsManager: settings, tools: ["inspect_memory_knowledge", "read_memory_knowledge", "recall_memory", "fetch_session", "review_jev_filtered", "finish_memory_recall", "write_okf", "follow_up_session", "finish_session_consultation"], thinkingLevel: "off" });
 const { KeybindingsManager, TUI_KEYBINDINGS } = await import("@earendil-works/pi-tui");
 try {
   await session.bindExtensions({ mode: "tui", onError(error) { throw new Error(JSON.stringify(error)); }, uiContext: {
@@ -171,6 +174,24 @@ try {
   assert.equal(indexedMain.turns.length, 1);
   assert.equal(indexedMain.turns[0].user_text, "Explain a general programming concept");
   assert.doesNotMatch(JSON.stringify(indexedMain.turns), /Transcript research|Discussion research/, "entire package-tool turns, including their final OKF text, must stay outside SQLite");
+  const idsBeforeContext = readdirSync(minutesRoot);
+  mode = "context"; step = 0;
+  await session.prompt("Save the current task as OKF without searching history");
+  assert.equal(step, 2, "current-context writing needs only write_okf and the final answer");
+  assert.deepEqual(calls.filter(call => call.mode === "context").map(call => call.step), [0, 1]);
+  const contextId = readdirSync(minutesRoot).find(id => !idsBeforeContext.includes(id))!;
+  assert.ok(contextId);
+  const contextMarkdown = readFileSync(join(minutesRoot, contextId, "minutes.md"), "utf8");
+  assert.equal((session.messages.at(-1) as any).content[0].text, contextMarkdown);
+  const contextEntry = [...mainManager.getEntries()].reverse().find((entry: any) => entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "write_okf") as any;
+  assert.equal(contextEntry.message.details.memory_context, "transient");
+  assert.doesNotMatch(JSON.stringify(contextEntry.message), /Current context research|Meeting Minutes/);
+  const contextRequest = calls.find(call => call.mode === "context" && call.step === 1)!;
+  const modelResult = contextRequest.context.messages.findLast((message: any) => message.role === "toolResult" && message.toolName === "write_okf");
+  assert.equal(modelResult.content[0].text, contextMarkdown, "the model receives the complete saved document in temporary context");
+  assert.equal(readFileSync(historical.getSessionFile()!, "utf8"), originalBytes);
+  assert.equal(getSession(`pi:${mainManager.getSessionId()}`).turns.length, 1, "write_okf turns must stay outside SQLite");
+  assertClean(readFileSync(mainManager.getSessionFile()!, "utf8"));
   mode = "compaction";
   await session.compact();
   assert.ok(calls.some(call => call.mode === "compaction"));
@@ -178,5 +199,5 @@ try {
   mode = "ordinary";
   await session.prompt("An unrelated question after compaction");
   assert.equal(session.getLastAssistantText(), "ordinary answer");
-  console.log("memory-context tests passed: real SDK tool/context boundaries, JSONL isolation, original-file immutability, final OKF persistence, indexing and compaction");
+  console.log("memory-context tests passed: real SDK tool/context boundaries, JSONL isolation, original-file immutability, independent current-context writing, final OKF persistence, indexing and compaction");
 } finally { session.dispose(); getDb().close(); rmSync(home, { recursive: true, force: true }); }

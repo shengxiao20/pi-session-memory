@@ -60,7 +60,7 @@ try {
   assert.doesNotMatch(formatConsultationSummary(discussionConfig), /Jev|Ollama|knowledgePath/);
   assert.match(formatConsultationSummary(discussionConfig), /recall only; main tools unchanged/);
   writeFileSync(configPath, JSON.stringify(discussionConfig));
-  for (const name of ["recall_memory", "follow_up_session", "finish_session_consultation", "cancel_session_consultation"]) {
+  for (const name of ["recall_memory", "follow_up_session", "finish_session_consultation", "cancel_session_consultation", "finish_memory_recall", "write_okf"]) {
     const discussionTool = withConfigSummary({ name, label: name, description: "Test consultation summary", parameters: {} as any, async execute() { return original; } });
     const output = await discussionTool.execute("call", {}, undefined, undefined, context);
     assert.match((output.content.at(-1) as any).text, /recallMode=discussion/);

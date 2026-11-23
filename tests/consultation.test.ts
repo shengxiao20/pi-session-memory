@@ -551,6 +551,7 @@ await assert.rejects(() => cleanupRuntime.cancel(cleanupMeeting.consultation_id!
 assert.ok(!existsSync(join(configDirectory, "consultation-locks")));
 
 const { writeMeetingMinutes } = await import("../src/knowledge/meeting-minutes.ts");
-assert.throws(() => writeMeetingMinutes({} as any, {} as any), /description must be non-empty/);
+assert.throws(() => writeMeetingMinutes({} as any, {} as any), /question must be non-empty/);
+assert.throws(() => writeMeetingMinutes({ question: "Save the consultation conclusion" } as any, {} as any), /description must be non-empty/);
 rmSync(root, { recursive: true, force: true });
 console.log("consultation tests passed (real SDK, deterministic provider; no live sessions modified)");

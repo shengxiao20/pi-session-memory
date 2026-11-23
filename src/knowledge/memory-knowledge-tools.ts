@@ -3,9 +3,15 @@ import { TOOL_PROMPTS } from "../../prompts/tools.ts";
 import { PARAMETER_HELP } from "../../prompts/parameters.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { inspectMemoryKnowledge, readMemoryKnowledge, KNOWLEDGE_FIRST_NOTICE } from "./memory-knowledge.ts";
-interface SavedKnowledgeOutput { reuse(markdown: string): void; }
+import { meetingConclusionSchema } from "./meeting-conclusion-schema.ts";
+import type { MeetingConclusion, writeTranscriptMinutes } from "./meeting-minutes.ts";
+interface SavedKnowledgeOutput {
+  reuse(markdown: string): void;
+  save(question: string, conclusion: MeetingConclusion): ReturnType<typeof writeTranscriptMinutes>;
+  saveContext(question: string, context: string, conclusion: MeetingConclusion): ReturnType<typeof writeTranscriptMinutes>;
+}
 
-/** Expose the OKF-first route without changing transcript tools or starting a consultation. */
+/** Expose metadata-first reading and OKF writing through the shared publication module. */
 export function registerMemoryKnowledgeTools(registerTool: ExtensionAPI["registerTool"], output: SavedKnowledgeOutput): void {
   registerTool({
     name: "inspect_memory_knowledge", label: "Inspect Saved OKF Directory", executionMode: "sequential",
@@ -25,7 +31,30 @@ export function registerMemoryKnowledgeTools(registerTool: ExtensionAPI["registe
     async execute(_id, params) {
       const result = readMemoryKnowledge(params.meeting_id);
       output.reuse(result.markdown);
-      return { content: [{ type: "text", text: result.markdown }], details: result };
+      return _documentResult(result);
     },
   });
+  registerTool({
+    name: "finish_memory_recall", label: "Save Recall OKF Conclusion", executionMode: "sequential",
+    description: TOOL_PROMPTS.finish_memory_recall.description,
+    promptGuidelines: TOOL_PROMPTS.finish_memory_recall.promptGuidelines,
+    parameters: Type.Object({ question: Type.String({ minLength: 1 }), conclusion: meetingConclusionSchema }),
+    async execute(_id, params) { return _documentResult(output.save(params.question, params.conclusion)); },
+  });
+  registerTool({
+    name: "write_okf", label: "Save Current Context as OKF", executionMode: "sequential",
+    description: TOOL_PROMPTS.write_okf.description,
+    promptSnippet: TOOL_PROMPTS.write_okf.promptSnippet,
+    promptGuidelines: TOOL_PROMPTS.write_okf.promptGuidelines,
+    parameters: Type.Object({
+      question: Type.String({ minLength: 1, description: PARAMETER_HELP.knowledge.writeQuestion }),
+      context: Type.String({ minLength: 1, description: PARAMETER_HELP.knowledge.writeContext }),
+      conclusion: meetingConclusionSchema,
+    }),
+    async execute(_id, params) { return _documentResult(output.saveContext(params.question, params.context, params.conclusion)); },
+  });
+}
+
+function _documentResult<T extends { markdown: string }>(result: T) {
+  return { content: [{ type: "text" as const, text: result.markdown }], details: result };
 }

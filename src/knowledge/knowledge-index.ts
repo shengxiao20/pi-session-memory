@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { knowledgePath, requireSummary, type TopicSummary } from "./knowledge-layout.ts";
-import { parseMetadata, readConceptMetadata, type OkfSource } from "./okf-frontmatter.ts";
+import { MEETING_EVIDENCE_TYPES, parseMetadata, readConceptMetadata, type OkfSource } from "./okf-frontmatter.ts";
 
 export interface IndexEntry { title: string; description: string; target: string; }
 export interface DirectoryIndex { title: string; entries: IndexEntry[]; }
@@ -109,7 +109,7 @@ function _meetingEvidenceTargets(root: string, directory: string, indexedTargets
     if (!existsSync(path)) throw new Error(`Meeting evidence source is missing: ${path}`);
     if (!statSync(path).isFile()) throw new Error(`Meeting evidence source has the wrong file type: ${path}`);
     const evidence = readConceptMetadata(readFileSync(path, "utf8"), path);
-    if (evidence.type !== "Transcript Evidence" && evidence.type !== "Consultation Evidence") {
+    if (!(MEETING_EVIDENCE_TYPES as readonly unknown[]).includes(evidence.type)) {
       throw new Error(`Meeting evidence source has the wrong concept type: ${path}`);
     }
     targets.add(target);

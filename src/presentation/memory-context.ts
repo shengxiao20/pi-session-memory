@@ -11,7 +11,7 @@ interface TransientResult { tool: string; callId: string; result: AgentToolResul
 
 const TRANSIENT_TOOLS = new Set([
   "inspect_memory_knowledge", "read_memory_knowledge", "recall_memory", "fetch_session", "review_jev_filtered",
-  "follow_up_session", "finish_session_consultation", "finish_memory_recall", "cancel_session_consultation",
+  "follow_up_session", "finish_session_consultation", "finish_memory_recall", "write_okf", "cancel_session_consultation",
 ]);
 
 /** Keep evidence outside the canonical session tree and restore it only for main-model requests. */
@@ -87,7 +87,7 @@ function _assistantKey(message: AssistantMessage, callId: string): string {
   return `${message.timestamp}:${callId}`;
 }
 
-/** Apply temporary evidence handling to history tools while keeping unrelated tools and progress unchanged. */
+/** Apply temporary evidence handling to knowledge tools while keeping unrelated tools and progress unchanged. */
 export function withMemoryContext<TParams extends TSchema, TDetails, TState>(tool: ToolDefinition<TParams, TDetails, TState>, memory: MemoryContext): ToolDefinition<TParams, unknown, TState> {
   return {
     ...tool,
@@ -98,7 +98,7 @@ export function withMemoryContext<TParams extends TSchema, TDetails, TState>(too
     },
     renderResult(result, options, theme, context) {
       const displayed = memory.renderResult(result);
-      if (!displayed) return new Text(theme.fg("toolOutput", "Temporary history content is no longer available. Session JSONL contains only the lightweight tool record."), 0, 0);
+      if (!displayed) return new Text(theme.fg("toolOutput", "Temporary pi-session-memory content is no longer available. Session JSONL contains only the lightweight tool record."), 0, 0);
       if (tool.renderResult) return tool.renderResult(displayed as AgentToolResult<TDetails>, options, theme, context);
       return new Text(displayed.content.filter(block => block.type === "text").map(block => theme.fg("toolOutput", block.text)).join("\n\n"), 0, 0);
     },

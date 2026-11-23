@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { PARAMETER_HELP } from "../../prompts/parameters.ts";
 
-/** Required main-agent conclusion fields shared by both OKF finish tools. */
+/** Required main-agent conclusion fields shared by every OKF writing tool. */
 export const meetingConclusionSchema = Type.Object({
   title: Type.String({ minLength: 1, description: PARAMETER_HELP.meeting.title }),
   topic_path: Type.String({ minLength: 1, description: PARAMETER_HELP.meeting.topicPath }),

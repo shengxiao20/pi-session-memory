@@ -14,7 +14,7 @@ export function formatConfigSummary(config: SessionMemoryConfig, env: NodeJS.Pro
   return `${CONFIG_SUMMARY_PREFIX}Jev=${_switch(config.jevEnable)} (${config.model.replace(/\s+/g, " ")}) · manageOllama=${_switch(connection.manageOllama)} · limit=${config.recallLimit} · recallMode=${config.recallMode}\nEnv · MEMORY_DB_PATH=${_envState(env.MEMORY_DB_PATH)} · ${key} · OLLAMA_HOST=${host}`;
 }
 
-/** Show only settings used by private consultation tools; never expose paths. */
+/** Show knowledge output and consultation settings; never expose paths. */
 export function formatConsultationSummary(config: SessionMemoryConfig): string {
   return `${CONFIG_SUMMARY_PREFIX}recallMode=${config.recallMode} (recall only; main tools unchanged) · timeoutMs=${config.consultation?.timeoutMs ?? "not configured"}\nKnowledge · location=${config.knowledgePath === undefined ? "default" : "custom"} · output=draft OKF v0.2 (typed metadata; topic indexes; chat = saved file)`;
 }
@@ -25,8 +25,8 @@ export function withConfigSummary<TParams extends TSchema, TDetails, TState>(too
     ...tool,
     async execute(id, params, signal, onUpdate, ctx) {
       const config = getSessionMemoryConfig();
-      const consultationTool = ["follow_up_session", "finish_session_consultation", "cancel_session_consultation", "finish_memory_recall"].includes(tool.name);
-      const summary = consultationTool || (tool.name === "recall_memory" && config.recallMode === "discussion")
+      const knowledgeTool = ["follow_up_session", "finish_session_consultation", "cancel_session_consultation", "finish_memory_recall", "write_okf"].includes(tool.name);
+      const summary = knowledgeTool || (tool.name === "recall_memory" && config.recallMode === "discussion")
         ? formatConsultationSummary(config)
         : formatConfigSummary(config);
       const result = await tool.execute(id, params, signal, onUpdate && ((update) => onUpdate(_appendSummary(update, summary))), ctx);

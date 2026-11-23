@@ -51,6 +51,12 @@ export const PARAMETER_HELP = {
       "following context.",
   },
   knowledge: {
+    writeQuestion:
+      "The complete user request to save the current context as OKF.",
+    writeContext:
+      "A faithful snapshot of the current visible context that " +
+      "supports the conclusion. This is agent-supplied evidence, " +
+      "not a retrieved historical transcript. Cite it as context-1.",
     directory:
       "Omit or use an empty string for the bundle root. Otherwise " +
       "copy directory from a previous catalogue. Paths are " +

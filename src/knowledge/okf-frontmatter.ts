@@ -2,6 +2,8 @@ import { parseDocument, stringify } from "yaml";
 
 export interface OkfSource { id?: string; resource: string; title?: string; }
 
+export const MEETING_EVIDENCE_TYPES = ["Transcript Evidence", "Consultation Evidence", "Current Context Evidence"] as const;
+
 /** Parse a YAML mapping without removing producer-defined keys. */
 export function parseMetadata(text: string, path: string): Record<string, unknown> {
   const document = parseDocument(text);

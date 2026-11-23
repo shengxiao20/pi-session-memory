@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { readDirectoryIndex } from "../src/knowledge/knowledge-index.ts";
 import { readConceptMetadata } from "../src/knowledge/okf-frontmatter.ts";
 import type { ConsultationRecord } from "../src/contracts/consultation.ts";
+import type { MeetingConclusion } from "../src/knowledge/meeting-minutes.ts";
 
 const home = mkdtempSync(join(tmpdir(), "okf-diagram-semantics-"));
 process.env.HOME = home;
@@ -13,13 +15,21 @@ const configRoot = join(home, ".pi", "agent", "pi-session-memory");
 mkdirSync(configRoot, { recursive: true });
 writeFileSync(join(configRoot, "config.json"), JSON.stringify({ recallLimit: 5 }));
 const root = join(configRoot, "knowledge");
-const { writeMeetingMinutes, writeTranscriptMinutes } = await import("../src/knowledge/meeting-minutes.ts");
+const { writeContextMinutes, writeMeetingMinutes, writeTranscriptMinutes } = await import("../src/knowledge/meeting-minutes.ts");
 const { inspectMemoryKnowledge, readMemoryKnowledge } = await import("../src/knowledge/memory-knowledge.ts");
 const { resolveKnowledgePath } = await import("../src/knowledge/knowledge-storage.ts");
 const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 try {
   assert.equal(resolveKnowledgePath(), root);
+  const conclusion: MeetingConclusion = {
+    title: "OKF publication semantics", description: "Publication, evidence references and progressive reading",
+    topic_path: "diagrams/okf", tags: ["diagram"], topic_summaries: [
+      { title: "Diagrams", description: "Source-grounded diagram verification" },
+      { title: "OKF", description: "OKF publication and reuse verification" },
+    ],
+    findings: "None", decisions: "None", unverified_inferences: "None", disagreements: "None", open_questions: "None", actions: "None",
+  };
   for (const kind of ["transcript", "discussion"] as const) {
     const route = kind === "transcript" ? "transcript" : "consultation";
     const turnId = "pi:historical:user-1";
@@ -35,16 +45,10 @@ try {
     };
     if (kind === "transcript") record.evidence.push({ ...record.evidence[0], turn_id: "pi:second:user-1", session_id: "pi:second",
       user_text: "SECOND_HISTORICAL_USER_BODY", reply_text: "SECOND_HISTORICAL_REPLY_BODY" });
-    const conclusion = {
-      title: "OKF publication semantics", description: "Publication, evidence references and progressive reading",
-      topic_path: "diagrams/okf", tags: ["diagram"], topic_summaries: [
-        { title: "Diagrams", description: "Source-grounded diagram verification" },
-        { title: "OKF", description: "OKF publication and reuse verification" },
-      ],
+    const routeConclusion = { ...conclusion,
       findings: `${kind === "transcript" ? "Each session has one transcript evidence file." : "The initial answer and follow-up are separate evidence files."}[^${route}-1][^${route}-2]`,
-      decisions: "None", unverified_inferences: "None", disagreements: "None", open_questions: "None", actions: "None",
     };
-    const result = kind === "transcript" ? writeTranscriptMinutes(record, conclusion) : writeMeetingMinutes(record, conclusion);
+    const result = kind === "transcript" ? writeTranscriptMinutes(record, routeConclusion) : writeMeetingMinutes(record, routeConclusion);
     assert.equal(result.okf_version, "0.2");
     assert.equal(result.status, "draft");
     const directory = dirname(result.path);
@@ -102,12 +106,77 @@ try {
       assert.ok(result.markdown.includes(`# ${heading}\n`));
     }
   }
+  const context = "CURRENT_CONTEXT_BODY\nUse the shared writer and preserve source boundaries.";
+  const contextRecord = { id: "diagram-context", question: "Save the current context as OKF", knowledgePath: root, context };
+  const contextSaved = writeContextMinutes(contextRecord, { ...conclusion, findings: "One writer supports every route.[^context-1]" });
+  const contextDirectory = dirname(contextSaved.path);
+  assert.deepEqual(readdirSync(contextDirectory).sort(), ["evidence-1.md", "index.md", "minutes.md"]);
+  const contextMetadata = readConceptMetadata(contextSaved.markdown, contextSaved.path);
+  const contextEvidencePath = join(contextDirectory, "evidence-1.md");
+  const contextEvidence = readFileSync(contextEvidencePath, "utf8");
+  const contextEvidenceMetadata = readConceptMetadata(contextEvidence, contextEvidencePath);
+  assert.equal(contextEvidenceMetadata.type, "Current Context Evidence");
+  assert.equal(contextEvidenceMetadata.status, "draft");
+  assert.deepEqual(contextEvidenceMetadata.generated, contextMetadata.generated);
+  assert.deepEqual(contextEvidenceMetadata.sources, []);
+  assert.match(contextEvidence, /not a retrieved historical transcript/);
+  assert.ok(contextEvidence.includes(context));
+  assert.deepEqual(readDirectoryIndex(root, "meetings/diagrams/okf/diagram-context").entries.map(entry => entry.target), ["minutes.md"]);
+  for (const scope of [undefined, "meetings", "meetings/diagrams", "meetings/diagrams/okf", "meetings/diagrams/okf/diagram-context"]) {
+    assert.doesNotMatch(JSON.stringify(inspectMemoryKnowledge(scope)), /CURRENT_CONTEXT_BODY/);
+  }
+  assert.equal(readMemoryKnowledge(contextRecord.id).markdown, contextSaved.markdown);
+
+  function snapshot(directory: string): Array<[string, string]> {
+    return readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).flatMap(entry => {
+      const path = join(directory, entry.name);
+      return entry.isDirectory() ? snapshot(path) : [[path, readFileSync(path, "utf8")] as [string, string]];
+    });
+  }
+  const originalFiles = snapshot(root);
+  const writers = [
+    (id: string, next: MeetingConclusion) => writeContextMinutes({ ...contextRecord, id }, next),
+    (id: string, next: MeetingConclusion) => writeTranscriptMinutes({ ...contextRecord, id, evidence: [] }, next),
+    (id: string, next: MeetingConclusion) => writeMeetingMinutes({ ...contextRecord, id, evidence: [], answers: [], owner: "main", timeoutMs: 1000 }, next),
+  ];
+  const invalidConclusions: Array<[MeetingConclusion, RegExp]> = [
+    [{ ...conclusion, actions: " " }, /actions must be non-empty/],
+    [{ ...conclusion, tags: [""] }, /tags must be a list/],
+    [{ ...conclusion, topic_path: "../escape" }, /topic_path/],
+    [{ ...conclusion, description: contextRecord.question }, /instead of copying/],
+    [{ ...conclusion, findings: "Invalid.[^context-99]" }, /Unknown OKF source citation/],
+    [{ ...conclusion, topic_summaries: [{ title: "Changed title", description: "Changed summary" }, conclusion.topic_summaries[1]] }, /conflicts with its existing index/],
+  ];
+  for (const [index, write] of writers.entries()) {
+    for (const [next, pattern] of invalidConclusions) {
+      assert.throws(() => write(`invalid-${index}`, next), pattern);
+      assert.deepEqual(snapshot(root), originalFiles, "every route validates without partial output or index repair");
+    }
+    const rename = fs.renameSync;
+    const failure = Object.assign(new Error("Injected second index publication failure"), { code: "EACCES" });
+    let failures = 0;
+    try {
+      Object.assign(fs, { renameSync(from: fs.PathLike, to: fs.PathLike) {
+        if (String(from).endsWith("update-1")) { failures++; throw failure; }
+        return rename(from, to);
+      } });
+      syncBuiltinESMExports();
+      assert.throws(() => write(`rollback-${index}`, conclusion), error => error === failure);
+    } finally { Object.assign(fs, { renameSync: rename }); syncBuiltinESMExports(); }
+    assert.equal(failures, 1, "a storage failure is not retried");
+    assert.deepEqual(snapshot(root), originalFiles, "all three routes roll back published minutes and index updates");
+    assert.ok(!existsSync(join(root, "meetings/diagrams/okf", `rollback-${index}`)));
+    assert.ok(!readdirSync(configRoot).some(name => name.startsWith(".pi-session-memory-pending-")));
+  }
+  assert.throws(() => writeContextMinutes(contextRecord, conclusion), /Duplicate meeting_id/);
+  assert.deepEqual(snapshot(root), originalFiles);
   assert.match(readFileSync(join(root, "index.md"), "utf8"), /^---\nokf_version: "0\.2"\n---/);
   const log = readFileSync(join(root, "log.md"), "utf8");
   assert.ok(log.includes("diagram-transcript/minutes.md"));
   assert.ok(log.includes("diagram-consultation/minutes.md"));
-  assert.equal(readDirectoryIndex(root, "meetings/diagrams/okf").entries.length, 2);
-  console.log("OKF publication semantics passed: distinct transcript sessions and consultation follow-ups, draft metadata, source references, nested indexes, logs and unchanged raw reads.");
+  assert.ok(log.includes("diagram-context/minutes.md"));
+  assert.equal(readDirectoryIndex(root, "meetings/diagrams/okf").entries.length, 3);
+  console.log("OKF publication semantics passed: all three evidence routes, shared validation and rollback, source references, nested indexes, logs and unchanged raw reads.");
 } finally {
   rmSync(home, { recursive: true, force: true });
 }

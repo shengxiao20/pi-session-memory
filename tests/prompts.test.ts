@@ -6,6 +6,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { TObject } from "typebox";
 import extension from "../extensions/index.ts";
 import * as guidance from "../prompts/guidance.ts";
 import * as models from "../prompts/models.ts";
@@ -64,7 +65,13 @@ extension({
   registerTool(tool: ToolDefinition) { tools.push(metadata(tool)); },
   registerCommand(name: string, options: { description: string }) { commands.push({ name, description: options.description }); },
 } as unknown as ExtensionAPI);
-assert.equal(tools.length, 14);
+assert.equal(tools.length, 15);
+const conclusionSchemas = ["write_okf", "finish_memory_recall", "finish_session_consultation"].map(name => (tools.find(tool => tool.name === name)!.parameters as TObject).properties.conclusion);
+for (const schema of conclusionSchemas) assert.deepEqual(schema, conclusionSchemas[0], "all OKF tools share the complete conclusion schema");
+const writeOkf = tools.find(tool => tool.name === "write_okf")!;
+assert.match(writeOkf.description, /No historical review or prior tool call is required/);
+assert.match(writeOkf.description, /context-1/);
+assert.match(writeOkf.description, /does not retrieve history, run Jev or open historical agents/);
 assert.deepEqual(tools.map(tool => tool.name).sort(), Object.keys(fixture.tools).sort());
 for (const tool of tools) assert.equal(fingerprint(tool), fixture.tools[tool.name], `${tool.name}: full public metadata and schema`);
 assert.equal(fingerprint(commands), fixture.commands);
@@ -152,5 +159,5 @@ try {
   assert.notEqual(missingModule.status, 0, "missing static prompt module must fail");
   assert.match(missingModule.stderr, /ERR_MODULE_NOT_FOUND/);
   assert.match(missingModule.stderr, /prompts\/tools\.ts/);
-  console.log(`prompt contract tests passed: 14 complete tool schemas, all shared help, unchanged model/response formats, actual ${pack.version} archive (${archivePaths.length} files), installed imports, no extra prompts, explicit missing-resource errors`);
+  console.log(`prompt contract tests passed: 15 complete tool schemas, all shared help, unchanged model/response formats, actual ${pack.version} archive (${archivePaths.length} files), installed imports, no extra prompts, explicit missing-resource errors`);
 } finally { rmSync(temporary, { recursive: true, force: true }); }

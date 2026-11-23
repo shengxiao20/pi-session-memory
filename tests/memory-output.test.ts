@@ -8,6 +8,7 @@ import type { FinalAssistantMessage as AssistantMessage } from "../src/presentat
 
 const home = mkdtempSync(join(tmpdir(), "pi-okf-output-"));
 process.env.HOME = home; process.env.USERPROFILE = home;
+process.env.MEMORY_DB_PATH = join(home, "untouched.db");
 const configRoot = join(home, ".pi", "agent", "pi-session-memory");
 mkdirSync(configRoot, { recursive: true });
 const configure = (extra = {}) => writeFileSync(join(configRoot, "config.json"), JSON.stringify({ recallLimit: 20, ...extra }));
@@ -120,5 +121,52 @@ try {
   assert.equal(output.finalize(aborted), aborted);
   output.reset(); output.startDiscussion(); output.cancelDiscussion();
   assert.equal(output.finalize(final), final, "explicit cancellation without transcript work does not fabricate minutes");
-  console.log("memory-output tests passed: exact OKF chat/file equality, both storage targets, strict errors and lifecycle isolation");
+  const context = "The current task is independent OKF writing.\n共享写入器，保持来源真实性。";
+  const contextConclusion = { ...conclusion, description: "Current-context OKF writing and source boundaries", findings: "Use one publication writer.[^context-1]" };
+  for (const customRootEnabled of [false, true]) {
+    configure(customRootEnabled ? { knowledgePath: vaultKnowledge } : {});
+    output.reset();
+    const contextSaved = output.saveContext("Save the current context as OKF", context, contextConclusion);
+    const root = customRootEnabled ? vaultKnowledge : defaultRoot;
+    assert.equal(contextSaved.path, join(root, "meetings", conclusion.topic_path, contextSaved.meeting_id, "minutes.md"));
+    assert.equal((output.finalize(final).content[0] as any).text, readFileSync(contextSaved.path, "utf8"));
+    assert.deepEqual(output.sourceIds(), [], "current context does not create transcript sources");
+    const contextMetadata = readConceptMetadata(contextSaved.markdown, contextSaved.path);
+    assert.deepEqual(contextMetadata.sources, [{ id: "context-1", resource: "./evidence-1.md", title: "Current context supplied by the main agent" }]);
+    const contextEvidencePath = join(root, "meetings", conclusion.topic_path, contextSaved.meeting_id, "evidence-1.md");
+    const contextEvidence = readFileSync(contextEvidencePath, "utf8");
+    const evidenceMetadata = readConceptMetadata(contextEvidence, contextEvidencePath);
+    assert.equal(evidenceMetadata.type, "Current Context Evidence");
+    assert.deepEqual(evidenceMetadata.sources, [], "no historical turn identity is invented");
+    assert.deepEqual(evidenceMetadata.generated, contextMetadata.generated);
+    assert.equal(contextEvidence.split(context).length - 1, 1);
+    assert.match(contextEvidence, /agent-supplied snapshot/);
+    assert.match(contextEvidence, /not independently verified/);
+    assert.doesNotMatch(`${contextSaved.markdown}\n${contextEvidence}`, /transcript-\d|consultation-\d|verified:/);
+    assert.throws(() => output.reuse(contextSaved.markdown), /before starting/);
+    assert.throws(() => output.saveContext("Save again", context, { ...contextConclusion, findings: "Invalid.[^transcript-1]" }), /Unknown OKF source citation/);
+    assert.equal(output.finalize(final).stopReason, "error", "a failed replacement must not emit the previously saved document");
+    assert.throws(() => output.saveContext("Save again", " ", contextConclusion), /context must be non-empty/);
+    assert.throws(() => output.saveContext(" ", context, contextConclusion), /question must be non-empty/);
+    assert.throws(() => output.saveContext("Save again", context, { ...contextConclusion, actions: " " }), /actions must be non-empty/);
+    output.reset(); output.addTranscript([]);
+    assert.throws(() => output.saveContext("Save again", context, contextConclusion), /Use finish_session_consultation or finish_memory_recall/);
+    assert.equal(output.finalize(final).stopReason, "error");
+    output.reset(); output.startDiscussion();
+    assert.throws(() => output.saveContext("Save again", context, contextConclusion), /Use finish_session_consultation or finish_memory_recall/);
+    output.cancelDiscussion();
+    assert.throws(() => output.saveContext("Save after cancellation", context, contextConclusion), /Use finish_session_consultation or finish_memory_recall/);
+    assert.equal(output.finalize(final), final, "cancellation still permits an ordinary answer, but not a historical finish bypass");
+    output.reset(); output.startDiscussion(); output.complete(contextSaved.markdown);
+    assert.throws(() => output.saveContext("Save after Discussion finish", context, contextConclusion), /Use finish_session_consultation or finish_memory_recall/);
+    assert.equal((output.finalize(final).content[0] as any).text, contextSaved.markdown);
+  }
+  configure({ knowledgePath: join(configRoot, "config.json") });
+  output.reset();
+  assert.throws(() => output.saveContext("Save current context", context, contextConclusion), /not an existing file/);
+  assert.equal(output.finalize(final).stopReason, "error", "context storage failure must not publish success");
+  output.reset();
+  assert.equal(output.finalize(final), final, "current-context state ends when the agent settles");
+  assert.ok(!existsSync(process.env.MEMORY_DB_PATH!), "knowledge writing must not create transcript storage");
+  console.log("memory-output tests passed: all three OKF routes, exact chat/file equality, both storage targets, source integrity, strict errors and lifecycle isolation");
 } finally { rmSync(home, { recursive: true, force: true }); }

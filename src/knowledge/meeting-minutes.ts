@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { ConsultationRecord } from "../contracts/consultation.ts";
-import type { EvidenceRecord } from "../contracts/knowledge.ts";
+import type { ContextRecord, EvidenceRecord, MeetingRecord } from "../contracts/knowledge.ts";
 import { knowledgePath, listMeetingLocations, requireSummary, validateMeetingId, validateTopicPath, type TopicSummary } from "./knowledge-layout.ts";
 import { escapeMarkdown, planKnowledgeIndexes, renderDirectoryIndex, type IndexEntry } from "./knowledge-index.ts";
 import { publishKnowledge } from "./knowledge-publication.ts";
-import { renderConcept } from "./okf-frontmatter.ts";
+import { renderConcept, type MEETING_EVIDENCE_TYPES } from "./okf-frontmatter.ts";
 
 const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
 
@@ -25,9 +25,18 @@ export interface MeetingConclusion {
 interface EvidenceDocument {
   id: string;
   title: string;
-  type: "Transcript Evidence" | "Consultation Evidence";
+  type: typeof MEETING_EVIDENCE_TYPES[number];
   body: string;
   evidence: EvidenceRecord["evidence"];
+}
+
+/** Save an agent-supplied current-context snapshot without historical retrieval. */
+export function writeContextMinutes(record: ContextRecord, conclusion: MeetingConclusion) {
+  if (typeof record.context !== "string" || !record.context.trim()) throw new Error("context must be non-empty");
+  return _writeMeetingMinutes(record, conclusion, () => [{
+    id: "context-1", title: "Current context supplied by the main agent", type: "Current Context Evidence",
+    body: `# Question\n\n${record.question}\n\n# Current context\n\n${record.context}\n\n# Provenance\n\nThis is an agent-supplied snapshot of the current context, not a retrieved historical transcript. It is not independently verified.`, evidence: [],
+  }]);
 }
 
 /** Save transcript evidence once, without synthetic consultation answers. */
@@ -52,8 +61,9 @@ export function writeMeetingMinutes(record: ConsultationRecord, conclusion: Meet
   }));
 }
 
-/** Validate and publish either evidence route through the same atomic writer. */
-function _writeMeetingMinutes(record: EvidenceRecord, conclusion: MeetingConclusion, documents: () => EvidenceDocument[]) {
+/** Validate and publish every evidence route through the same atomic writer. */
+function _writeMeetingMinutes(record: MeetingRecord, conclusion: MeetingConclusion, documents: () => EvidenceDocument[]) {
+  if (typeof record.question !== "string" || !record.question.trim()) throw new Error("question must be non-empty");
   const required: Array<keyof MeetingConclusion> = ["description", "findings", "decisions", "unverified_inferences", "disagreements", "open_questions", "actions"];
   for (const key of required) {
     const value = conclusion?.[key];
@@ -85,7 +95,7 @@ function _renderEvidence(evidence: EvidenceRecord["evidence"]): string {
   return evidence.map(turn => `## ${turn.turn_id}\n\n${turn.user_text}\n\n${turn.reply_text}`).join("\n\n");
 }
 
-function _meetingFiles(record: EvidenceRecord, documents: EvidenceDocument[], conclusion: MeetingConclusion, now: string): Map<string, string> {
+function _meetingFiles(record: MeetingRecord, documents: EvidenceDocument[], conclusion: MeetingConclusion, now: string): Map<string, string> {
   const sources = documents.map((document, index) => ({ id: document.id, resource: `./evidence-${index + 1}.md`, title: document.title }));
   const sourceIds = new Set(sources.map(source => source.id));
   for (const key of ["findings", "decisions", "unverified_inferences", "disagreements", "open_questions", "actions"] as const) {

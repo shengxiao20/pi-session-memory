@@ -58,7 +58,7 @@ extension({
 assert.deepEqual(events.map(({ event }) => event), ["context", "message_end", "session_start", "agent_settled", "session_shutdown", "session_before_switch"]);
 assert.equal(commands.length, 1);
 assert.deepEqual(commands.map(({ name }) => name), ["pi-session-memory"]);
-assert.equal(tools.length, 14);
+assert.equal(tools.length, 15);
 const { SESSION_MEMORY_TOOL_NAMES } = await import("../src/history/memory-index-policy.ts");
 assert.ok(tools.every(tool => (SESSION_MEMORY_TOOL_NAMES as readonly string[]).includes(tool.name)), "every registered package tool must be covered by SQLite turn exclusion");
 assert.ok(!tools.some((tool) => tool.name === "recall_project_memory"), "the agent must have only one sequential recall entry point");
@@ -566,6 +566,40 @@ for (const customRootEnabled of [false, true]) {
 await settle.handler({}, finalContext);
 assert.deepEqual((await messageEnd.handler({ message: finalMessage }, finalContext) as any).message, finalMessage);
 await assert.rejects(finishRecall.execute("without-evidence", { question: options.question, conclusion: finalConclusion }, undefined, undefined, finalContext), /No recalled or fetched/);
+
+// Current-context writing is independent of recall mode, Jev and TUI selection.
+const writeOkf = tools.find(tool => tool.name === "write_okf")!;
+const contextConclusion = { ...finalConclusion, description: "Independent current-context writing with shared publication", findings: "Use the shared OKF writer.[^context-1]" };
+const contextParams = { question: "Save current context as OKF without historical retrieval", context: "The current task requires an independent writer and one publication pipeline.", conclusion: contextConclusion };
+const configFile = join(historyHome, ".pi", "agent", "pi-session-memory", "config.json");
+const historyBeforeContext = db.getHistoryStats();
+try {
+  runtimePrototype.ensureReady = async () => { throw new Error("write_okf must not initialize Jev"); };
+  for (const customRootEnabled of [false, true]) {
+    await settle.handler({}, finalContext);
+    writeFileSync(configFile, JSON.stringify({ recallLimit: 2, recallMode: "discussion", consultation: { timeoutMs: 1000 }, jevEnable: true, ...(customRootEnabled ? { knowledgePath: join(obsidianVault, "pi-session-memory") } : {}) }));
+    const configBeforeContext = readFileSync(configFile, "utf8");
+    const noTuiContext = { ...finalContext, mode: "json", ui: { custom() { throw new Error("write_okf must not open a selection menu"); } } };
+    const savedContext = await writeOkf.execute("write-current-context", contextParams, undefined, undefined, noTuiContext);
+    const root = customRootEnabled ? join(obsidianVault, "pi-session-memory") : join(historyHome, ".pi", "agent", "pi-session-memory", "knowledge");
+    assert.equal(savedContext.details.path, join(root, "meetings", contextConclusion.topic_path, savedContext.details.meeting_id, "minutes.md"));
+    assert.equal(savedContext.content[0]!.text, readFileSync(savedContext.details.path, "utf8"));
+    assert.match(savedContext.content.at(-1)!.text, /Knowledge · location=/);
+    assert.doesNotMatch(savedContext.content.at(-1)!.text, /Jev=|Ollama/);
+    const currentFinal = await messageEnd.handler({ message: finalMessage }, noTuiContext) as any;
+    assert.equal(currentFinal.message.content[0].text, savedContext.details.markdown);
+    assert.equal(currentFinal.message.content.length, 1);
+    assert.equal(currentFinal.message.stopReason, "stop");
+    assert.match(savedContext.details.markdown, /id: context-1/);
+    assert.doesNotMatch(savedContext.details.markdown, /id: transcript-|id: consultation-|verified:/);
+    assert.equal(readFileSync(configFile, "utf8"), configBeforeContext, "writing does not change configuration");
+    await assert.rejects(writeOkf.execute("write-invalid-context", { ...contextParams, context: " " }, undefined, undefined, noTuiContext), /context must be non-empty/);
+    assert.equal((await messageEnd.handler({ message: finalMessage }, noTuiContext) as any).message.stopReason, "error", "failed writing cannot emit a stale saved document");
+  }
+} finally { Object.assign(runtimePrototype, originalRuntime); }
+assert.deepEqual(db.getHistoryStats(), historyBeforeContext, "write_okf does not change indexed transcript storage");
+await settle.handler({}, finalContext);
+assert.deepEqual((await messageEnd.handler({ message: finalMessage }, finalContext) as any).message, finalMessage);
 
 // Reuse the saved vault document through the metadata-first route, with no new meeting.
 const inspectKnowledge = tools.find(tool => tool.name === "inspect_memory_knowledge")!;

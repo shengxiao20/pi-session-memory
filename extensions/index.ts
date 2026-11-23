@@ -9,7 +9,6 @@ import { selectRecallMode } from "../src/recall/recall-mode.ts";
 import { MemoryOutput, OKF_OUTPUT_NOTICE } from "../src/presentation/memory-output.ts";
 import { MemoryContext, withMemoryContext } from "../src/presentation/memory-context.ts";
 import { registerMemoryKnowledgeTools } from "../src/knowledge/memory-knowledge-tools.ts";
-import { meetingConclusionSchema } from "../src/knowledge/meeting-conclusion-schema.ts";
 import { registerSetupTools } from "../src/setup/setup-tools.ts";
 import { editMemoryConfiguration } from "../src/setup/config-editor.ts";
 import { SETUP_REQUEST } from "../src/setup/setup.ts";
@@ -180,16 +179,6 @@ export default function (pi: ExtensionAPI) {
       const header = `## Source transcript session ${stored.session.session_id}\n**Source:** ${stored.session.source} · **Project:** \`${stored.session.cwd}\`\n**Target turn ID:** \`${turn_id}\` · **Target turn index:** ${target.turn_index}\n**Requested turn-index range:** ${fromTurnIndex}–${toTurnIndex} (inclusive)\n**Turns fetched:** ${stored.turns.length}\n**Storage action:** none. This is read-only source evidence.`;
       const turns = stored.turns.length ? stored.turns.map((turn) => [`### Turn ${turn.turn_index} · ${new Date(turn.ts).toLocaleString()}`, `**Source turn ID:** \`${turn.turn_id}\``, `**You:** ${turn.user_text}`, turn.reply_text ? `**Assistant:** ${turn.reply_text}` : ""].filter(Boolean).join("\n")).join("\n\n") : "No persisted turns in the requested range.";
       return { content: [{ type: "text" as const, text: `${header}\n\n${turns}\n\n${OKF_OUTPUT_NOTICE}\nSources: ${JSON.stringify(output.sourceIds())}` }], details: { turn_id, before, after, session_id: stored.session.session_id, target_turn_index: target.turn_index, from_turn_index: fromTurnIndex, to_turn_index: toTurnIndex, turnCount: stored.turns.length, fetchedTurnIds: stored.turns.map((turn) => turn.turn_id) } };
-    },
-  });
-  registerTool({
-    name: "finish_memory_recall", label: "Save Recall OKF Conclusion", executionMode: "sequential",
-    description: TOOL_PROMPTS.finish_memory_recall.description,
-    promptGuidelines: TOOL_PROMPTS.finish_memory_recall.promptGuidelines,
-    parameters: Type.Object({ question: Type.String({ minLength: 1 }), conclusion: meetingConclusionSchema }),
-    async execute(_id, params) {
-      const result = output.save(params.question, params.conclusion);
-      return { content: [{ type: "text", text: result.markdown }], details: result };
     },
   });
   registerTool({

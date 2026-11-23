@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { MessageEndEvent } from "@earendil-works/pi-coding-agent";
 import type { RecallTurnResult } from "../contracts/recall.ts";
 import { resolveKnowledgePath } from "../knowledge/knowledge-storage.ts";
-import { writeTranscriptMinutes, type MeetingConclusion } from "../knowledge/meeting-minutes.ts";
+import { writeContextMinutes, writeTranscriptMinutes, type MeetingConclusion } from "../knowledge/meeting-minutes.ts";
 
 export type FinalAssistantMessage = Extract<MessageEndEvent["message"], { role: "assistant" }>;
 
@@ -12,6 +12,8 @@ export { OKF_OUTPUT_NOTICE } from "../../prompts/guidance.ts";
 export class MemoryOutput {
   private turns = new Map<string, RecallTurnResult>();
   private transcriptRequested = false;
+  private contextRequested = false;
+  private discussionRequested = false;
   private discussion = false;
   private markdown?: string;
 
@@ -20,19 +22,28 @@ export class MemoryOutput {
     for (const turn of turns) this.turns.set(turn.turn_id, turn);
     this.markdown = undefined;
   }
-  startDiscussion(): void { this.discussion = true; this.markdown = undefined; }
+  startDiscussion(): void { this.discussionRequested = true; this.discussion = true; this.markdown = undefined; }
   cancelDiscussion(): void { this.discussion = false; }
   reuse(markdown: string): void {
-    if (this.discussion || this.transcriptRequested) throw new Error("Read saved OKF knowledge before starting transcript recall or Discussion");
+    if (this.discussion || this.transcriptRequested || this.contextRequested) throw new Error("Read saved OKF knowledge before starting transcript recall or Discussion or current-context OKF writing");
     this.complete(markdown);
   }
   complete(markdown: string): void { this.markdown = markdown; this.discussion = false; }
-  reset(): void { this.turns.clear(); this.transcriptRequested = false; this.discussion = false; this.markdown = undefined; }
+  reset(): void { this.turns.clear(); this.transcriptRequested = false; this.contextRequested = false; this.discussionRequested = false; this.discussion = false; this.markdown = undefined; }
+
+  saveContext(question: string, context: string, conclusion: MeetingConclusion) {
+    if (this.discussionRequested || this.transcriptRequested) throw new Error("Use finish_session_consultation or finish_memory_recall for historical evidence in this agent run");
+    this.contextRequested = true;
+    this.markdown = undefined;
+    const result = writeContextMinutes({ id: randomUUID(), question, context, knowledgePath: resolveKnowledgePath() }, conclusion);
+    this.complete(result.markdown);
+    return result;
+  }
 
   save(question: string, conclusion: MeetingConclusion) {
     if (this.discussion) throw new Error("Finish or cancel the active Discussion before saving transcript conclusions");
     if (!this.transcriptRequested) throw new Error("No recalled or fetched transcript request in this agent run");
-    if (typeof question !== "string" || !question.trim()) throw new Error("question must be non-empty");
+    this.markdown = undefined;
     const result = writeTranscriptMinutes({
       id: randomUUID(), question, knowledgePath: resolveKnowledgePath(), evidence: [...this.turns.values()],
     }, conclusion);
@@ -47,8 +58,8 @@ export class MemoryOutput {
   finalize(message: FinalAssistantMessage): FinalAssistantMessage {
     if (message.content.some(part => part.type === "toolCall") || ["error", "aborted"].includes(message.stopReason)) return message;
     if (this.markdown !== undefined) return { ...message, content: [{ type: "text", text: this.markdown }] };
-    if (this.discussion || this.transcriptRequested) {
-      return { ...message, content: [], stopReason: "error", errorMessage: "OKF conclusion was not saved. Call finish_session_consultation or finish_memory_recall before the final answer." };
+    if (this.discussion || this.transcriptRequested || this.contextRequested) {
+      return { ...message, content: [], stopReason: "error", errorMessage: "OKF conclusion was not saved. Call write_okf, finish_session_consultation or finish_memory_recall before the final answer." };
     }
     return message;
   }

@@ -252,6 +252,28 @@ export const TOOL_PROMPTS = {
       "active Discussion, use finish_session_consultation instead.",
     promptGuidelines: [OKF_OUTPUT_NOTICE],
   },
+  write_okf: {
+    description:
+      "Save draft OKF from the current visible context only when " +
+      "the user explicitly asks to write or save it. No historical " +
+      "review or prior tool call is required. Provide the complete " +
+      "user request, a faithful context snapshot and all conclusion " +
+      "fields. Cite context-1 for that agent-supplied snapshot; do " +
+      "not invent transcript-N or consultation-N sources. The " +
+      "snapshot is not independently verified. This tool does not " +
+      "retrieve history, run Jev or open historical agents. It " +
+      "shares the finish tools' schema, validation, atomic writer " +
+      "and directory indexes. Use knowledgePath or the default " +
+      "knowledge root. Reuse existing topic summaries exactly. " +
+      "Do not use this tool to replace a historical review's finish " +
+      "tool in the same run. Storage errors are raised without " +
+      "retry or fallback. The final assistant message is the exact " +
+      "saved OKF document, including frontmatter.",
+    promptSnippet:
+      "Use when the user explicitly asks to save current context " +
+      "as OKF without historical retrieval. No recall is required.",
+    promptGuidelines: [OKF_OUTPUT_NOTICE],
+  },
   get_memory_stats: {
     description:
       "Report locally indexed Pi transcript storage totals. Use when " +
