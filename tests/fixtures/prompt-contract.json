@@ -1,11 +1,11 @@
 {
-  "description": "Public text and complete schema contract. Recall/review inputs retain reviewed 2.0.8 changes; recall modes retain reviewed 2.0.9 changes and the one-call Normal fallback when Discussion has no eligible historical sessions. Storage help/schema/fields and the shared OKF path sentence reflect reviewed 2.0.10 storage unification. Complete metadata was compared with the earlier baseline using only these explicit transformations. Guide changes are limited to reviewed editor/storage sections, section numbering and the storage JSON field. The configuration command description and direct-editor guide also reflect reviewed now-value rows. The independent write_okf tool and shared OKF/transient guidance reflect current-context writing without historical retrieval. Other tools, notices, environment help, model and response formats retain earlier baselines. SHA-256 over canonical JSON. The default knowledge path is normalized for portability. No events or tools were executed.",
+  "description": "Public text and complete schema contract. Recall/review inputs retain reviewed 2.0.8 changes; recall modes retain reviewed 2.0.9 changes and the one-call Normal fallback when Discussion has no eligible historical sessions. Storage help/schema/fields and the shared OKF path sentence reflect reviewed 2.0.10 storage unification. Complete metadata was compared with the earlier baseline using only these explicit transformations. Guide changes include reviewed editor/storage sections, section numbering, the storage JSON field, removal of startup history synchronization, and the separately approved post-setup import step. The configuration command description and direct-editor guide also reflect reviewed now-value rows. The independent write_okf tool and shared OKF/transient guidance reflect current-context writing without historical retrieval. Setup tool metadata, setup notices, backfill approval help and the saved response include the separately approved post-setup import step. Other tools and notices, environment help, model text and the read response retain earlier baselines. SHA-256 over canonical JSON. The default knowledge path is normalized for portability. No events or tools were executed.",
   "tools": {
     "follow_up_session": "7ad654caec17a47eccc7e87808eb40d1fd7b0003d510c1b21ee9f12fec878163",
     "finish_session_consultation": "5defc04701f3e4535e69287f33a3bf5039cad23849697e907cf64e1fda15c5c5",
     "cancel_session_consultation": "c11d92accfa0ba7b4a60fc288ffa9f2600e3240ce4873a6982e03e83d26f739c",
-    "setup_memory": "fcf9219e67d4429842857351ff0e216db9179d4762c12bc7cade62c103ea0da6",
-    "configure_memory": "43ec7acb944ad3f00adff6a188a8066816512aaad6f13b019c53e6e6cb2f5d95",
+    "setup_memory": "56a321dd7467aaaafacb067207308e21b28b52d7c2c59f2aa51784ebe31af18c",
+    "configure_memory": "8a7ae9f0e351a271c19aa844c82b4bc1bc500a620b72164be382613746331b1c",
     "inspect_memory_knowledge": "bc0e05c6a4f4455923df47babde3cfbba8292955ba59637aa6e3da709afe40e1",
     "read_memory_knowledge": "b5844f72f401852f0b700f71e7dae36243faa0c4f9bed0f1af6fb6718bbbc0af",
     "recall_memory": "d91ef11dfa88c7d5704d438602e180ce65bfb344f81f0d233abc5bc752b17d57",
@@ -14,13 +14,14 @@
     "finish_memory_recall": "638f1b5983e2ba52d6afeeb8f13cfee5022506a10c230b8a27462ea7b8363005",
     "write_okf": "b0e9929d974bf25b339c51c1f20786c5b8e9573fc138c3c83a12b5766b0a1c72",
     "get_memory_stats": "cdf0ab0ea487d5978a45457c5d3f6982b1bfabff0176cb60a53485c3ff8ee93e",
-    "backfill_memory": "496b427d849b821b06110116e04cc859dd14bbf8564747b2677f32ba8e31b9e3",
+    "backfill_memory": "e9130947b5c597d16656e856d1fca3d4a831fb89d07c566e9c444d17bc1052f4",
     "clean_memory_tool_turns": "f75aa6567112e0f52ae4470acfb412ca32a87b73cb777b2f680ece4a183d6d8d"
   },
   "commands": "c10b925cc5a4fdc824d57e50d70c0aa582322c53b13526110ec42490fa1a1207",
   "notices": {
-    "SETUP_NOTICE": "4becb559054102d569bed922cd936bcae6dca0fbe3e16df7e34c7dfc73e5845a",
-    "SETUP_REQUEST": "daa2fa8a376a711409299442e8fe6abf8b16c47c5f896608e87dcdc90f76334e",
+    "SETUP_NOTICE": "0ad684ef6f6eeb384674b44a0b4e71eaa541516d7e11960085cd7a0e815a65ed",
+    "SETUP_REQUEST": "2c47b1d0b237fbbc8a2df2e0ef7fe13236896637fc0c82e288bff63a7ce5e8cd",
+    "POST_SETUP_IMPORT_NOTICE": "ea78f77bf2eef88c3cff2bd24cb95b98bd1423d5d600f0f9de51c030a3a231e3",
     "KNOWLEDGE_FIRST_NOTICE": "e2730e2f49716a6c7719acd44080ccb926459a92d043de3409b1a732d70c87ed",
     "OKF_OUTPUT_NOTICE": "c809bcb2f490db4146b53e12649951594f8a6c12e607a7635349c5d681a7a1e2",
     "MAIN_AGENT_NOTICE": "19d3dc4b3d53e4c411f678f0b1bfd2889151b1fa565d62fe47886e85f780d479",
@@ -31,8 +32,8 @@
   },
   "fields": "0e4257f70b1a32e372e2767530ba0c9e8568191bedb6489b6c20d68806d4afac",
   "environment": "a3b21e8a0e9fdbb6b31ff6d6aef6873fc5acb096b915a96e98b2de06c4f2a911",
-  "guide": "467dab46272aa38e04560c36d8d4829b0ef09ec603c450dcf7dc15467aa96825",
-  "guideWording": "9de9cc66e132a72f0d19caacc8895bab32fca873d4a30cbd4b42697330031f5f",
+  "guide": "01ba48cd29f827a656c03a928b9108f14857b3e77df0f38216f683d6d0c882c8",
+  "guideWording": "9fe57c2941882ff7a28782c02f544bed62e3da0590378993b2f740699b57f5ad",
   "models": {
     "consultantSystem": "1cc630636eb678f8a0527c5dd11114948f9f8d2b0d14a648118b285214e87b10",
     "evidence": "f0c9d5f2e15a23eab33bc189eb834ee85709a9ec4fe2018a5ce58bb7a2e6c5ec",
@@ -44,6 +45,6 @@
   },
   "responses": {
     "read": "1906bb8b4f7cf45635fc93809c7a70841454cef19e07d7d3aa729c3ec23afe25",
-    "saved": "66b3bd5e61182abf88366224796dcbf979d8cc1a2162f746450d139d3e1c21d0"
+    "saved": "6a87ce602370ee5ff704e034d4fc64209f75a24b58828436f65e18ee9971fea7"
   }
 }

@@ -6,18 +6,32 @@ export const TRANSIENT_NOTICE =
   "or private answers in intermediate tool arguments. Save only " +
   "the final OKF conclusion.";
 
+export const POST_SETUP_IMPORT_NOTICE =
+  "For guided setup only, after configure_memory succeeds, finish " +
+  "configuration setup and offer one optional history import as a " +
+  "separate step. Pi startup does not import history. Warn that " +
+  "full import can restore sessions manually deleted from SQLite. " +
+  "Ask one question: Import all existing Pi history now? Wait for " +
+  "separate explicit approval. Configuration approval is not import " +
+  "approval. Only after import approval, call backfill_memory once. " +
+  "If the user declines, does not answer, or cancels, do not import. " +
+  "The saved configuration remains unchanged. Report import errors " +
+  "without retry or fallback. Do not offer import for general usage " +
+  "questions or direct configuration editing.";
+
 export const SETUP_NOTICE =
   "Use setup_memory when the user asks how pi-session-memory " +
   "works, how to use this plugin, or asks to run setup. Read " +
   "setup.md and ask one configuration question per reply in its " +
   "stated order. General usage questions do not authorize " +
   "writes. Call configure_memory only after the user approves " +
-  "the final proposed settings. Setup is not historical review " +
-  "and does not run import, cleanup or service startup. The " +
+  "the final proposed settings. Configuration setup is not " +
+  "historical review and does not run import, cleanup or service " +
+  "startup. The " +
   "/pi-session-memory command provides direct configuration " +
   "editing, guided setup, Pi history import, and " +
   "indexed-tool-turn cleanup actions; transcript search uses " +
-  "Agent tools.";
+  `Agent tools. ${POST_SETUP_IMPORT_NOTICE}`;
 
 export const SETUP_REQUEST =
   "Run pi-session-memory setup. Call setup_memory to read " +
@@ -25,7 +39,9 @@ export const SETUP_REQUEST =
   "feature and ask one question at a time in the guide's order. " +
   "Wait for every answer. Show the proposed changes, then write " +
   "the plugin configuration with configure_memory only after I " +
-  "approve saving.";
+  "approve saving. After a successful save, follow the guide's " +
+  "separate optional history-import step and wait for my explicit " +
+  "import approval.";
 
 export const KNOWLEDGE_FIRST_NOTICE =
   "Use history tools only when the user explicitly asks to look " +

@@ -77,7 +77,7 @@ for (const tool of tools) assert.equal(fingerprint(tool), fixture.tools[tool.nam
 assert.equal(fingerprint(commands), fixture.commands);
 const notices = { SETUP_NOTICE, SETUP_REQUEST, KNOWLEDGE_FIRST_NOTICE, OKF_OUTPUT_NOTICE, MAIN_AGENT_NOTICE,
   CONSULTATION_CLOSED_NOTICE, closed: consultationGuidance(null), active: consultationGuidance("sample"),
-  TRANSIENT_NOTICE: guidance.TRANSIENT_NOTICE };
+  TRANSIENT_NOTICE: guidance.TRANSIENT_NOTICE, POST_SETUP_IMPORT_NOTICE: guidance.POST_SETUP_IMPORT_NOTICE };
 for (const [key, value] of Object.entries(notices)) assert.equal(fingerprint(value), fixture.notices[key], `notice: ${key}`);
 assert.equal(SETUP_NOTICE, guidance.SETUP_NOTICE);
 assert.equal(KNOWLEDGE_FIRST_NOTICE, guidance.KNOWLEDGE_FIRST_NOTICE);
@@ -92,7 +92,7 @@ assert.equal(fingerprint(ENVIRONMENT_INPUTS), fixture.environment);
 const setup = readMemorySetup();
 assert.equal(setup.guide_path, join(root, "prompts/setup.md"));
 assert.equal(fingerprint(setup.guide), fixture.guide, "Markdown guide matches reviewed soft wrapping");
-assert.equal(fingerprint(setup.guide.replace(/\s+/g, " ")), fixture.guideWording, "guide wording matches the reviewed unified OKF storage update");
+assert.equal(fingerprint(setup.guide.replace(/\s+/g, " ")), fixture.guideWording, "guide wording matches reviewed storage and separately approved post-setup import");
 assert.ok(!existsSync(join(root, "setup.md")), "the guide has one canonical location");
 
 const question = "First line\n第二行🙂 `code` ${literal}";
@@ -159,5 +159,5 @@ try {
   assert.notEqual(missingModule.status, 0, "missing static prompt module must fail");
   assert.match(missingModule.stderr, /ERR_MODULE_NOT_FOUND/);
   assert.match(missingModule.stderr, /prompts\/tools\.ts/);
-  console.log(`prompt contract tests passed: 15 complete tool schemas, all shared help, unchanged model/response formats, actual ${pack.version} archive (${archivePaths.length} files), installed imports, no extra prompts, explicit missing-resource errors`);
+  console.log(`prompt contract tests passed: 15 complete tool schemas, all shared help, reviewed setup responses, unchanged model formats, actual ${pack.version} archive (${archivePaths.length} files), installed imports, no extra prompts, explicit missing-resource errors`);
 } finally { rmSync(temporary, { recursive: true, force: true }); }

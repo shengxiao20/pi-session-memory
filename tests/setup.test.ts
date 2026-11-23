@@ -4,6 +4,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { POST_SETUP_IMPORT_NOTICE } from "../prompts/guidance.ts";
 
 const home = mkdtempSync(join(tmpdir(), "pi-memory-setup-"));
 process.env.HOME = home; process.env.USERPROFILE = home;
@@ -25,6 +26,27 @@ try {
   assert.match(missing.guide, /Cancellation does not write anything/);
   assert.match(missing.guide, /Save these settings/);
   assert.match(SETUP_NOTICE, /General usage questions do not authorize writes/);
+  assert.ok(SETUP_NOTICE.endsWith(POST_SETUP_IMPORT_NOTICE), "setup tools share the post-save import boundary");
+  assert.equal([...POST_SETUP_IMPORT_NOTICE.matchAll(/\?/g)].length, 1, "post-setup import asks only one question");
+  assert.match(POST_SETUP_IMPORT_NOTICE, /Configuration approval is not import approval/);
+  assert.match(POST_SETUP_IMPORT_NOTICE, /Only after import approval, call backfill_memory once/);
+  const importHeading = missing.guide.indexOf("## Optional history import after setup");
+  assert.ok(importHeading > missing.guide.indexOf("### 7. Review and save"), "optional import follows the final configuration save");
+  const importGuide = missing.guide.slice(importHeading);
+  for (const required of [
+    /complete only after `configure_memory` succeeds/,
+    /Saving\s+configuration is not approval to import/,
+    /restore sessions that the\s+user manually deleted/,
+    /Ask one question: \*\*Import all existing Pi history now\?\*\*/,
+    /Wait for a separate\s+explicit answer/,
+    /Only after explicit import approval, call `backfill_memory` once/,
+    /declines, does not answer, or cancels, do not import/,
+    /Do not retry, use a fallback/,
+    /failure does not undo the saved\s+configuration/,
+    /general\s+usage questions, direct field editing, cancelled setup, or a failed save/,
+  ]) assert.match(importGuide, required);
+  assert.doesNotMatch(missing.guide, /startup\s+synchronization/);
+  assert.match(missing.guide, /Pi startup does not import history/);
   const headings = [...missing.guide.matchAll(/^### (\d+)\./gm)].map(match => Number(match[1]));
   assert.deepEqual(headings, [1, 2, 3, 4, 5, 6, 7], "guide has a fixed question order");
   assert.match(missing.guide, /does not require a timeout or a consultation object/);
@@ -86,13 +108,20 @@ try {
   const written = await tools[1].execute("save", { configuration: baseline });
   assert.equal(written.details.config_path, path);
   assert.match(written.content[0].text, /No history operations or service checks ran/);
+  assert.ok(written.content[0].text.endsWith(POST_SETUP_IMPORT_NOTICE), "successful saves return the same independent import instructions");
+  assert.doesNotMatch(written.content[0].text, /startup\s+synchronization/);
+  assert.ok(!existsSync(process.env.MEMORY_DB_PATH!), "offering import after a save does not import without separate approval");
   const savedBytes = readFileSync(path, "utf8");
   for (const operation of ["writeFileSync", "renameSync"] as const) {
     const original = fs[operation];
     try {
-      fs[operation] = () => { throw new Error(`Injected ${operation} failure`); };
+      let failureCalls = 0;
+      fs[operation] = () => { failureCalls++; throw new Error(`Injected ${operation} failure`); };
       syncBuiltinESMExports();
       assert.throws(() => configureMemory({ ...baseline, recallLimit: 99 }), new RegExp(`Injected ${operation} failure`));
+      assert.equal(failureCalls, 1, "failed configuration saves do not retry");
+      await assert.rejects(tools[1].execute("failed-save", { configuration: { ...baseline, recallLimit: 99 } }), new RegExp(`Injected ${operation} failure`));
+      assert.equal(failureCalls, 2, "the setup tool rejects once without returning a success or import offer");
     } finally {
       Object.assign(fs, { [operation]: original });
       syncBuiltinESMExports();

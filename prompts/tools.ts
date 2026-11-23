@@ -64,8 +64,9 @@ export const TOOL_PROMPTS = {
       "questions are not permission to write. Configuration saving " +
       "requires final user approval. Missing configuration is " +
       "reported as null; malformed JSON and storage errors are " +
-      "raised. Do not start historical review, services, import, " +
-      "migration or cleanup.",
+      "raised. This read does not start historical review, services, " +
+      "import, migration or cleanup. After guided setup is saved, " +
+      "optional history import requires separate explicit approval.",
     promptSnippet:
       "Read setup.md for plugin usage questions or sequential " +
       "configuration setup.",
@@ -84,9 +85,9 @@ export const TOOL_PROMPTS = {
       "unsupported keys. Validate the runtime schema and knowledge " +
       "directory before atomic file replacement. Return the " +
       "saved path and settings. Do not store credentials or " +
-      "environment-only options. Do not run history operations or " +
-      "service checks. Errors are raised; no retry or fallback is " +
-      "used.",
+      "environment-only options. This save does not run history " +
+      "operations or service checks. Errors are raised; no retry or " +
+      "fallback is used.",
     promptGuidelines: [SETUP_NOTICE],
   },
   inspect_memory_knowledge: {
@@ -284,7 +285,11 @@ export const TOOL_PROMPTS = {
     description:
       "Import all historical Pi transcript sessions into the local " +
       "index. Use only when the user explicitly asks to import, " +
-      "backfill, or rescan history.",
+      "backfill, or rescan history, including separate import approval " +
+      "after guided setup. Full import can restore sessions manually " +
+      "deleted from SQLite. Configuration approval is not import " +
+      "approval. Call once per approval; report failures without " +
+      "retry or fallback.",
     promptSnippet:
       "Use only for an explicit request to import, backfill, or " +
       "rescan historical conversation data.",

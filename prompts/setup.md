@@ -8,7 +8,9 @@ also includes field metadata with defaults and required conditions. The
 `/pi-session-memory` command provides direct configuration editing, guided
 setup, Pi history import, and indexed-tool-turn cleanup actions. This guide is
 for configuration, not historical review. Do not call inspect, recall,
-consultation, migration, import or cleanup tools during setup.
+consultation, migration, import or cleanup tools during configuration setup.
+After a successful guided setup save, offer the separate optional import step
+below. General usage questions and direct field editing do not offer import.
 
 ## Direct configuration editor
 
@@ -218,13 +220,37 @@ is `~/.pi/agent/pi-session-memory/config.json`, resolved against the current
 user's home directory. Ask: **Save these settings to this file?** Only after
 approval, call `configure_memory`. Report the saved path and explain:
 
-- Tools reread configuration on invocation. Restart Pi to rerun startup
-  synchronization and service readiness checks.
+- Tools reread configuration on invocation. Restart Pi to rerun service
+  readiness checks, not history import.
 - Enabling Jev does not prove that the service, model or credentials are ready.
-- Startup synchronization can update the index; configuration saving itself does
-  not run synchronization.
-- Setup does not modify JSONL or saved OKF, and does not run SQLite cleanup. Its
-  recorded tool turns remain excluded from SQLite like other package-tool turns.
+- Pi startup does not import history. Each completed Agent run writes the latest
+  current user turn. Existing history requires an explicit import.
+- Configuration saving does not modify JSONL or saved OKF, and does not import
+  history or run SQLite cleanup. Its recorded tool turns remain excluded from
+  SQLite like other package-tool turns.
+
+## Optional history import after setup
+
+Configuration setup is complete only after `configure_memory` succeeds. Then
+provide one optional history-import step outside configuration setup. Saving
+configuration is not approval to import. Do not offer this step for general
+usage questions, direct field editing, cancelled setup, or a failed save.
+
+1. Explain that Pi startup does not import existing history. Full import reads
+   all discovered Pi session files into SQLite. It can restore sessions that the
+   user manually deleted from the database. It does not modify source JSONL or
+   saved OKF documents.
+2. Ask one question: **Import all existing Pi history now?** Wait for a separate
+   explicit answer. Do not assume that approval to save settings means yes.
+3. Only after explicit import approval, call `backfill_memory` once. This is a
+   separate import operation, not part of `configure_memory`. Do not run recall,
+   Jev filtering, consultation, migration, cleanup or service checks for it.
+4. If the user declines, does not answer, or cancels, do not import. The saved
+   configuration remains unchanged. The user can later select **Import history**
+   from `/pi-session-memory` or explicitly ask the Agent to import.
+5. Report the import result and any failures. Do not retry, use a fallback, or
+   claim success for failed files. Import failure does not undo the saved
+   configuration.
 
 ## New-file proposal
 
