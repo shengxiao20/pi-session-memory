@@ -121,7 +121,7 @@ assert.deepEqual(menuOptions[0], [
 assert.ok(menuOptions[0]!.every((option) => !/[\u4e00-\u9fff]/.test(option)), "menu descriptions must be English only");
 assert.ok(menuOptions[0]!.every((option) => !/search|help|status|knowledge|consultation|conclusion/i.test(option)), "Agent-handled review actions must not appear in the direct-operation menu");
 const startupDb = await import("../src/history/db.ts");
-async function inspectDatabaseMenu(sessions: number, turns: number, selectedId?: string): Promise<void> {
+async function inspectDatabaseMenu(sessions: number, turns: number, distribution: readonly { turn_count: number; session_count: number }[]): Promise<void> {
   const beforeStats = startupDb.getHistoryStats();
   const beforeDb = readFileSync(dbPath);
   const beforeWal = existsSync(`${dbPath}-wal`) ? readFileSync(`${dbPath}-wal`) : undefined;
@@ -145,13 +145,16 @@ async function inspectDatabaseMenu(sessions: number, turns: number, selectedId?:
         const component = build({ terminal: { rows: 24 }, requestRender() {} }, { fg: (_role: string, text: string) => `\x1b[36m${text}\x1b[0m` }, getKeybindings(), () => { closed = true; });
         const lines = component.render(100);
         assert.ok(lines.every((line: string) => visibleWidth(line) <= 100));
-        const text = lines.map((line: string) => stripVTControlCharacters(line).trimEnd()).join("\n");
+        const text: string = lines.map((line: string) => stripVTControlCharacters(line).trimEnd()).join("\n");
         assert.match(text, /Database session management/);
-        assert.ok(text.includes(`${sessions} sessions | ${turns} turns | Read-only snapshot`));
-        if (selectedId) {
-          assert.ok(text.includes(`sessionId: ${selectedId}`));
-          assert.ok(text.includes("█"), "a populated index must show a native horizontal bar");
-        } else assert.ok(text.includes("No sessions are indexed."));
+        assert.ok(text.includes(`Sessions: ${sessions} | Turns: ${turns} | Groups: ${distribution.length} | Read-only snapshot`));
+        assert.doesNotMatch(text, /sessionId|pi:/, "the chart must not display individual sessions");
+        const chartRows = text.split("\n").filter(line => /^(?:→ |  )\s*\d+ /.test(line));
+        assert.deepEqual(chartRows.map(line => {
+          const match = line.match(/^.{2}\s*(\d+) (█+) (\d+)$/)!;
+          return { turn_count: Number(match[1]), session_count: Number(match[3]) };
+        }), distribution, "equal turn counts share one bar with the exact session frequency beside it");
+        if (!distribution.length) assert.ok(text.includes("No sessions are indexed."));
         component.handleInput("\x1b");
         assert.ok(closed, "Esc must close the view without selecting an operation");
       },
@@ -183,7 +186,7 @@ assert.match(postSetupSave.content[0].text, /Configuration approval is not impor
 assert.deepEqual(startupDb.getHistoryStats(), historyBeforeConfigurationSave, "saving setup and offering import must not import existing history");
 assert.equal(startupDb.getSourceFile(curatedPath), undefined, "setup save leaves source tracking unchanged while awaiting import approval");
 assert.equal(sentUserMessages.length, 1, "saving configuration does not request import automatically");
-await inspectDatabaseMenu(0, 0);
+await inspectDatabaseMenu(0, 0, []);
 selections.push("Clean indexed tool turns");
 await menu.options.handler("", ctx);
 assert.match(notices.at(-1)!.message, /SQLite cleanup removed 0 package-tool turns/);
@@ -192,7 +195,21 @@ selections.push("Import history");
 await menu.options.handler("", ctx);
 assert.match(notices.at(-1)!.message, /\[session-memory\] imported/);
 assert.equal(startupDb.getSession(curatedSessionId).turns[0].reply_text, "Curated historical answer", "manual Import must still index historical files");
-await inspectDatabaseMenu(1, 1, curatedSessionId);
+await inspectDatabaseMenu(1, 1, [{ turn_count: 1, session_count: 1 }]);
+const distributionSeed = startupDb.getSession(curatedSessionId);
+const distributionFixtures = [["pi:frequency-a", 1], ["pi:frequency-b", 1], ["pi:frequency-two", 2], ["pi:frequency-zero", 0]] as const;
+try {
+  for (const [sessionId, turnCount] of distributionFixtures) {
+    startupDb.upsertSession({ ...distributionSeed.session, session_id: sessionId, jsonl_path: join(curatedRoot, `${sessionId.slice(3)}.jsonl`) });
+    for (let index = 0; index < turnCount; index++) startupDb.upsertTurn({ ...distributionSeed.turns[0], session_id: sessionId, turn_id: `${sessionId}:turn:${index}`, turn_index: index });
+  }
+  await inspectDatabaseMenu(5, 5, [{ turn_count: 2, session_count: 1 }, { turn_count: 1, session_count: 3 }, { turn_count: 0, session_count: 1 }]);
+} finally {
+  for (const [sessionId] of distributionFixtures) {
+    startupDb.getDb().prepare("DELETE FROM turns WHERE session_id = ?").run(sessionId);
+    startupDb.getDb().prepare("DELETE FROM sessions WHERE session_id = ?").run(sessionId);
+  }
+}
 function deleteCuratedSession(): void {
   startupDb.getDb().prepare("DELETE FROM turns WHERE session_id = ?").run(curatedSessionId);
   startupDb.getDb().prepare("DELETE FROM sessions WHERE session_id = ?").run(curatedSessionId);
@@ -206,7 +223,7 @@ const noticesBeforeCuratedStartup = notices.length;
 await startup.handler({}, ctx);
 await startup.handler({}, ctx);
 assert.equal(notices.length, noticesBeforeCuratedStartup, "startup must not report history import activity");
-await inspectDatabaseMenu(0, 0);
+await inspectDatabaseMenu(0, 0, []);
 assert.equal(startupDb.getHistoryStats().sessions, 0, "startup must not restore deleted sessions even when source content and parser versions differ");
 assert.deepEqual(startupDb.getSourceFile(curatedPath), curatedSourceBeforeStartup, "startup must not update source tracking");
 selections.push("Import history");

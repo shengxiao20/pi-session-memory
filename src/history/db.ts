@@ -75,18 +75,22 @@ export interface TurnRow { turn_id: string; session_id: string; turn_index: numb
 export interface StoredSession { session: SessionRow; turns: TurnRow[]; }
 export interface SourceFileRow { jsonl_path: string; source: "pi"; size: number; mtime_ms: number; sha256: string; parser_version?: string; }
 export interface HistoryStats { sessions: number; turns: number; oldestTs: number | null; newestTs: number | null; sources: Array<{ source: "pi"; sessions: number; turns: number }>; }
-export interface SessionTurnCount { session_id: string; turn_count: number; }
+export interface SessionTurnFrequency { turn_count: number; session_count: number; }
 
-/** Count stored turns per session, including zero-turn sessions, without creating or migrating the index. */
-export function getSessionTurnCounts(): SessionTurnCount[] {
+/** Group stored sessions by turn count, including zero turns, without creating or migrating the index. */
+export function getSessionTurnDistribution(): SessionTurnFrequency[] {
   const db = new DatabaseSync(DB_PATH, { readOnly: true });
   try {
     return db.prepare(`
-      SELECT sessions.session_id, COUNT(turns.turn_id) AS turn_count
-      FROM sessions LEFT JOIN turns ON turns.session_id = sessions.session_id
-      GROUP BY sessions.session_id
-      ORDER BY turn_count DESC, sessions.session_id ASC
-    `).all() as unknown as SessionTurnCount[];
+      SELECT turn_count, COUNT(*) AS session_count
+      FROM (
+        SELECT COUNT(turns.turn_id) AS turn_count
+        FROM sessions LEFT JOIN turns ON turns.session_id = sessions.session_id
+        GROUP BY sessions.session_id
+      )
+      GROUP BY turn_count
+      ORDER BY turn_count DESC
+    `).all() as unknown as SessionTurnFrequency[];
   } finally {
     db.close();
   }

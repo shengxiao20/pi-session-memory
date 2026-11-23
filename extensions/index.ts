@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@e
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { writeTurn } from "../src/history/writer.ts";
-import { getHistoryStats, getSessionTurnCounts } from "../src/history/db.ts";
+import { getHistoryStats, getSessionTurnDistribution } from "../src/history/db.ts";
 import { fetchTurnContext } from "../src/history/fetch-turn-context.ts";
 import { formatRecallResults, recallTurns } from "../src/recall/retriever.ts";
 import { selectRecallMode } from "../src/recall/recall-mode.ts";
@@ -210,7 +210,7 @@ async function _openSessionMemoryMenu(pi: ExtensionAPI, ctx: ExtensionCommandCon
     return;
   }
   if (selection === SESSION_MEMORY_ACTIONS.database) {
-    await showDatabaseSessionManagement(ctx, getSessionTurnCounts);
+    await showDatabaseSessionManagement(ctx, getSessionTurnDistribution);
     return;
   }
   if (selection === SESSION_MEMORY_ACTIONS.backfill) {
