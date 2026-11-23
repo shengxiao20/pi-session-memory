@@ -25,7 +25,6 @@ function _ui(rows = 24) {
       return new Promise<void>(resolve => {
         component = build(tui, {
           fg: (_role: string, text: string) => `\x1b[${state.color}m${text}\x1b[0m`,
-          bold() { throw new Error("Selection must change bar fill instead of applying bold"); },
         }, getKeybindings(), () => { state.closed++; resolve(); });
       });
     },
@@ -33,12 +32,31 @@ function _ui(rows = 24) {
   } } as unknown as ExtensionContext;
   return { state, tui, context, view: () => component! };
 }
+function _sampledChart(context: ExtensionContext, readEntries: () => readonly Entry[], samples: readonly number[]) {
+  const original = Math.random;
+  let draws = 0;
+  Math.random = () => samples[draws++]!;
+  try {
+    const result = showDatabaseSessionManagement(context, readEntries);
+    return { result, draws };
+  } finally { Math.random = original; }
+}
 function _plain(view: Component, width = 100): string[] { return view.render(width).map(line => stripVTControlCharacters(line).trimEnd()); }
 function _chartLines(view: Component, width = 100) { return _plain(view, width).filter(line => /^(?:→ |  )\s*\d+ /.test(line)); }
 function _bars(view: Component, width = 100) {
   return _chartLines(view, width).map(line => {
-    const match = line.match(/^.{2}\s*(\d+) │( *)│ (\d+)$/)!;
+    const match = line.match(/^.{2}(\d+)\s+(█*) (\d+)$/)!;
     return { turns: Number(match[1]), sessions: Number(match[3]), cells: match[2].length };
+  });
+}
+function _shades(view: Component, width = 100) {
+  return view.render(width).filter(line => /^(?:→ |  )\d+ /.test(stripVTControlCharacters(line))).map(line => {
+    const rgb = line.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m█*\x1b\[39m/)!;
+    assert.ok(rgb, "each solid bar needs an explicit RGB foreground");
+    assert.equal(rgb[1], rgb[2]);
+    assert.equal(rgb[2], rgb[3]);
+    assert.ok(Number(rgb[1]) >= 0 && Number(rgb[1]) <= 255, "grayscale includes black through white");
+    return { turns: Number(stripVTControlCharacters(line).match(/^.{2}(\d+)/)![1]), shade: Number(rgb[1]) };
   });
 }
 function _selectedBar(view: Component) {
@@ -110,7 +128,8 @@ try {
   ]);
   const ui = _ui();
   let reads = 0;
-  const chart = showDatabaseSessionManagement(ui.context, () => { reads++; return raw; });
+  const { result: chart, draws } = _sampledChart(ui.context, () => { reads++; return raw; }, [0, 0.5, 1 - Number.EPSILON, 0.25]);
+  assert.equal(draws, raw.length, "sample one color per group when opening the chart");
   assert.equal(reads, 1);
   assert.equal(ui.state.builds, 1);
   const lines = _plain(ui.view());
@@ -118,26 +137,19 @@ try {
   assert.ok(lines.some(line => line.includes("Total sessions: 18 | Total turns: 1260 | Groups: 4 | Read-only snapshot")));
   const columnHeading = lines.find(line => line.includes("Turns per session") && line.includes("Session count"))!;
   assert.ok(columnHeading, "the numeric columns need explicit metric labels");
-  assert.equal(columnHeading.indexOf("Session count"), _chartLines(ui.view())[0].indexOf("│"), "the session-count heading aligns with its outlined bars");
+  const chartLines = _chartLines(ui.view());
+  assert.equal(columnHeading.indexOf("Turns per session"), 2, "the metric heading starts at the numeric column");
+  assert.ok(chartLines.every(line => /^.{2}\d+ /.test(line)), "numeric labels have no extra left indentation");
+  assert.ok(chartLines.every(line => line.indexOf("█") === columnHeading.indexOf("Session count")), "bars align with the session-count heading");
   const renderedRows = ui.view().render(100);
-  const styledRows = renderedRows.filter(line => /^(?:→ |  )\s*\d+ /.test(stripVTControlCharacters(line)));
-  assert.equal(styledRows.length, raw.length);
-  assert.ok(styledRows.every(line => line.includes("\x1b[38;2;0;0;0m")), "every bar has a fixed black outline");
-  assert.ok(styledRows[0].includes("\x1b[48;2;128;128;128m"), "the selected bar has gray fill");
-  assert.ok(styledRows.slice(1).every(line => line.includes("\x1b[48;2;255;255;255m")), "unselected bars have white fill");
-  assert.ok(styledRows.every(line => /\x1b\[31m\d+\x1b\[0m/.test(line)), "session-count annotations remain visible beside each outline");
-  assert.ok(!renderedRows.join("\n").includes("▓"), "the old texture is removed");
-  const plainRows = renderedRows.map(line => stripVTControlCharacters(line).trimEnd());
-  for (const [index, line] of plainRows.entries()) {
-    const body = line.match(/^.{2}\s*(\d+) │( *)│ (\d+)$/);
-    if (!body) continue;
-    const fill = line.startsWith("→ ") ? "128;128;128" : "255;255;255";
-    assert.equal(plainRows[index - 1].trim(), `┌${"─".repeat(body[2].length)}┐`);
-    assert.equal(plainRows[index + 1].trim(), `└${"─".repeat(body[2].length)}┘`);
-    assert.equal(plainRows[index - 1].indexOf("┌"), line.indexOf("│"));
-    assert.equal(plainRows[index + 1].indexOf("└"), line.indexOf("│"));
-    assert.ok([index - 1, index, index + 1].every(offset => renderedRows[offset].includes(`\x1b[48;2;${fill}m`)), "top, body and bottom share the correct selection fill");
-  }
+  const rowIndexes = renderedRows.flatMap((line, index) => /^(?:→ |  )\d+ /.test(stripVTControlCharacters(line)) ? [index] : []);
+  assert.equal(rowIndexes.length, raw.length);
+  assert.deepEqual(rowIndexes, [3, 4, 5, 6], "each group occupies one consecutive line without border rows or gaps");
+  assert.doesNotMatch(renderedRows.join("\n"), /[┌┐└┘│▓▒]|\x1b\[48;/, "solid bars have no outlines, texture or background fill");
+  assert.ok(rowIndexes.every(index => /\x1b\[31m\d+\x1b\[0m/.test(renderedRows[index])), "session-count annotations remain visible beside each bar");
+  const shades = _shades(ui.view());
+  assert.deepEqual(shades.map(row => row.shade), [0, 128, 255, 64], "sampled colors include black, gray, white and intermediate grayscale");
+  assert.deepEqual(_shades(ui.view()), shades, "repainting must preserve each group's sampled color");
   assert.ok(!lines.join("\n").includes("sessionId"));
   assert.deepEqual(_bars(ui.view()).map(row => row.turns), [100, 50, 10, 0]);
   assert.deepEqual(_bars(ui.view()).map(row => row.sessions), [10, 5, 1, 2], "the number immediately after each bar is the group session count");
@@ -148,9 +160,7 @@ try {
   assert.equal(bars[3].cells, Math.round(bars[0].cells / 5), "zero-turn groups have a bar for their session frequency, not a zero-length turn-count bar");
   ui.view().handleInput!("\x1b[B");
   assert.equal(_selectedBar(ui.view()).turns, 50);
-  const moved = ui.view().render(100).filter(line => /^(?:→ |  )\s*\d+ /.test(stripVTControlCharacters(line)));
-  assert.ok(moved[0].includes("\x1b[48;2;255;255;255m"), "the previous selection returns to white");
-  assert.ok(moved[1].includes("\x1b[48;2;128;128;128m"), "the newly selected bar turns gray");
+  assert.deepEqual(_shades(ui.view()), shades, "moving selection preserves all sampled colors");
   ui.view().handleInput!("\x1b[F");
   assert.equal(_selectedBar(ui.view()).turns, 0);
   ui.view().handleInput!("\x1b[H");
@@ -159,10 +169,18 @@ try {
   ui.view().handleInput!("\r");
   await chart;
   assert.equal(ui.state.closed, 1, "Enter only closes the view");
+  const reopened = _ui();
+  const fresh = _sampledChart(reopened.context, () => raw, raw.map(() => 0.75));
+  assert.equal(fresh.draws, raw.length);
+  assert.deepEqual(_shades(reopened.view()).map(row => row.shade), [192, 192, 192, 192], "reopening samples a fresh palette without changing the input");
+  assert.deepEqual(Object.keys(raw[0]), ["turn_count", "session_count"]);
+  reopened.view().handleInput!("\r");
+  await fresh.result;
 
   const many = Object.freeze(Array.from({ length: 100 }, (_, index) => Object.freeze({ turn_count: 100 - index, session_count: index % 5 + 1 })));
   const paged = _ui(18);
-  const pagination = showDatabaseSessionManagement(paged.context, () => many);
+  const { result: pagination, draws: pageDraws } = _sampledChart(paged.context, () => many, many.map((_, index) => index / 256));
+  assert.equal(pageDraws, many.length);
   assert.ok(_chartLines(paged.view()).length < many.length);
   paged.view().handleInput!("\x1b[6~");
   assert.notEqual(_selectedBar(paged.view()).turns, many[0].turn_count);
@@ -170,6 +188,7 @@ try {
   assert.equal(_selectedBar(paged.view()).turns, many[0].turn_count);
   for (let i = 0; i < many.length; i++) {
     assert.equal(_selectedBar(paged.view()).turns, many[i].turn_count, "every frequency group must remain reachable, without a recall limit");
+    assert.ok(_shades(paged.view()).every(row => row.shade === 100 - row.turns), "paging keeps the sampled shade for every group");
     paged.view().handleInput!("\x1b[B");
   }
   paged.view().handleInput!("\x1b[F");
@@ -178,6 +197,7 @@ try {
     assert.ok(rendered.every(line => visibleWidth(line) <= width), `native chart rows must fit ${width} columns`);
     assert.ok(rendered.length <= paged.tui.terminal.rows);
     assert.ok(_bars(paged.view(), width).every(row => row.sessions === many.find(entry => entry.turn_count === row.turns)!.session_count), "resizing preserves exact count annotations");
+    assert.ok(_shades(paged.view(), width).every(row => row.shade === 100 - row.turns), "resizing keeps each sampled shade");
   }
   assert.equal(_selectedBar(paged.view()).turns, many.at(-1)!.turn_count, "resizing must preserve the selected frequency group");
   paged.tui.terminal.rows = 12;
@@ -186,7 +206,7 @@ try {
   const themed = paged.view().render(100).join("\n");
   assert.ok(themed.includes("\x1b[32m"));
   assert.ok(!themed.includes("\x1b[31m"), "theme changes must not reuse old ANSI colors");
-  assert.ok(themed.includes("\x1b[38;2;0;0;0m") && themed.includes("\x1b[48;2;128;128;128m") && themed.includes("\x1b[48;2;255;255;255m"), "the requested border and fills remain fixed across themes");
+  assert.ok(_shades(paged.view()).every(row => row.shade === 100 - row.turns), "theme updates preserve the sampled RGB palette");
   paged.view().invalidate();
   paged.view().handleInput!("\x1b");
   await pagination;
@@ -257,7 +277,7 @@ try {
   broken.close();
   await assert.rejects(commands[0].handler("", menu.context), /no such table: turns/);
   assert.equal(menu.state.builds, 1, "invalid schemas fail without migration or reopening a stale view");
-  console.log("database session management tests passed: read-only grouped frequencies, equal turn counts merged, exact session-count annotations, frequency-based bars, explicit metric headings, black outlines, white/gray fills, three-line layout, zero-turn groups, no session IDs, weighted totals, pagination, resize, theme changes, menu routing, empty and error boundaries");
+  console.log("database session management tests passed: read-only grouped frequencies, equal turn counts merged, exact session-count annotations, frequency-based bars, explicit metric headings, compact solid bars, aligned numbers, random grayscale RGB, stable colors across redraw and paging, fresh colors on reopen, zero-turn groups, no session IDs, weighted totals, pagination, resize, theme changes, menu routing, empty and error boundaries");
 } finally {
   rmSync(home, { recursive: true, force: true });
 }

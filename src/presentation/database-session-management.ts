@@ -7,7 +7,7 @@ export async function showDatabaseSessionManagement(
   readEntries: () => readonly { turn_count: number; session_count: number }[],
 ): Promise<void> {
   if (ctx.mode !== "tui") throw new Error("Database session management requires Pi TUI mode");
-  const entries = readEntries();
+  const entries = readEntries().map(entry => ({ ...entry, shade: Math.floor(Math.random() * 256) }));
   const sessions = entries.reduce((sum, entry) => sum + entry.session_count, 0);
   const total = entries.reduce((sum, entry) => sum + entry.turn_count * entry.session_count, 0);
   const maxTurns = entries.reduce((max, entry) => Math.max(max, entry.turn_count), 0);
@@ -17,7 +17,6 @@ export async function showDatabaseSessionManagement(
   await ctx.ui.custom<void>((tui, theme, keys, done) => {
     let cursor = 0;
     let visibleRows = 1;
-    let outlines: { top: string; bottom: string }[] = [];
     const createList = () => {
       const view = new SelectList(items, visibleRows, {
         selectedPrefix: text => text,
@@ -26,11 +25,9 @@ export async function showDatabaseSessionManagement(
         scrollInfo: text => theme.fg("dim", text),
         noMatch: () => theme.fg("dim", "No sessions are indexed."),
       }, {
-        truncatePrimary: ({ item, maxWidth, isSelected }) => {
+        truncatePrimary: ({ item, maxWidth }) => {
           const entry = entries[positions.get(item.value)!];
-          const row = _chartRow(entry.turn_count, entry.session_count, maxWidth, maxTurns, maxSessions, isSelected, text => theme.fg("accent", text));
-          outlines.push(row);
-          return row.middle;
+          return _chartRow(entry.turn_count, entry.session_count, maxWidth, maxTurns, maxSessions, entry.shade, text => theme.fg("accent", text));
         },
       });
       view.setSelectedIndex(cursor);
@@ -44,18 +41,13 @@ export async function showDatabaseSessionManagement(
         const header = new Text([
           theme.fg("accent", "Database session management"),
           `Total sessions: ${sessions} | Total turns: ${total} | Groups: ${entries.length} | Read-only snapshot`,
-          `  ${theme.fg("muted", "Turns per session".padStart(_turnColumnWidth(width - 4, maxTurns)))} ${theme.fg("accent", "Session count")}`,
+          `  ${theme.fg("muted", "Turns per session".padEnd(_turnColumnWidth(width - 4, maxTurns)))} ${theme.fg("accent", "Session count")}`,
         ].join("\n"), 0, 0).render(width);
         const controls = new Text(theme.fg("dim", "↑/↓ move · PgUp/PgDn page · Home/End · Enter/Esc close"), 0, 0).render(width);
-        // Reserve one blank line and the native scroll indicator; each outlined bar occupies three lines.
-        visibleRows = Math.max(1, Math.floor((tui.terminal.rows - header.length - controls.length - 2) / 3));
+        // Reserve one blank line and the native list's optional scroll indicator.
+        visibleRows = Math.max(1, tui.terminal.rows - header.length - controls.length - 2);
         list = createList();
-        outlines = [];
-        const body = list.render(width).flatMap((line, index) => {
-          const outline = outlines[index];
-          return outline ? [`  ${outline.top}`, line, `  ${outline.bottom}`] : [line];
-        });
-        return [...header, ...body, "", ...controls].map(line => truncateToWidth(line, width, ""));
+        return [...header, ...list.render(width), "", ...controls].map(line => truncateToWidth(line, width, ""));
       },
       invalidate() { list.invalidate(); },
       handleInput(data: string) {
@@ -72,22 +64,16 @@ export async function showDatabaseSessionManagement(
   });
 }
 
-function _chartRow(turns: number, sessions: number, width: number, maxTurns: number, maxSessions: number, selected: boolean, colorSession: (text: string) => string): { top: string; middle: string; bottom: string } {
+function _chartRow(turns: number, sessions: number, width: number, maxTurns: number, maxSessions: number, shade: number, colorSession: (text: string) => string): string {
   const turnWidth = _turnColumnWidth(width, maxTurns);
-  const barWidth = Math.max(0, width - turnWidth - String(maxSessions).length - 4);
+  const barWidth = Math.max(0, width - turnWidth - String(maxSessions).length - 2);
   const filled = Math.min(barWidth, Math.max(1, Math.round(sessions / maxSessions * barWidth)));
-  const indent = " ".repeat(turnWidth + 1);
-  return {
-    top: `${indent}${_barStyle(`┌${"─".repeat(filled)}┐`, selected)}`,
-    middle: `${String(turns).padStart(turnWidth)} ${_barStyle(`│${" ".repeat(filled)}│`, selected)} ${colorSession(String(sessions))}`,
-    bottom: `${indent}${_barStyle(`└${"─".repeat(filled)}┘`, selected)}`,
-  };
+  return `${String(turns).padEnd(turnWidth)} ${_barStyle("█".repeat(filled), shade)} ${colorSession(String(sessions))}`;
 }
 
-/** Apply the requested fixed border and fill colors independently of the surrounding theme. */
-function _barStyle(text: string, selected: boolean): string {
-  const fill = selected ? "128;128;128" : "255;255;255";
-  return `\x1b[38;2;0;0;0m\x1b[48;2;${fill}m${text}\x1b[39;49m`;
+/** Use the group's sampled grayscale foreground without changing the terminal background. */
+function _barStyle(text: string, shade: number): string {
+  return `\x1b[38;2;${shade};${shade};${shade}m${text}\x1b[39m`;
 }
 
 /** Align wide views with the heading while reserving space for narrow-view count annotations. */

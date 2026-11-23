@@ -144,7 +144,6 @@ async function inspectDatabaseMenu(sessions: number, turns: number, distribution
         let closed = false;
         const component = build({ terminal: { rows: 24 }, requestRender() {} }, {
           fg: (_role: string, text: string) => `\x1b[36m${text}\x1b[0m`,
-          bold() { throw new Error("Outlined bar selection must use gray fill"); },
         }, getKeybindings(), () => { closed = true; });
         const lines: string[] = component.render(100);
         assert.ok(lines.every((line: string) => visibleWidth(line) <= 100));
@@ -153,17 +152,23 @@ async function inspectDatabaseMenu(sessions: number, turns: number, distribution
         assert.ok(text.includes(`Total sessions: ${sessions} | Total turns: ${turns} | Groups: ${distribution.length} | Read-only snapshot`));
         assert.ok(text.includes("Turns per session"));
         assert.ok(text.includes("Session count"));
-        const styledRows = lines.filter(line => /^(?:→ |  )\s*\d+ /.test(stripVTControlCharacters(line)));
-        assert.ok(styledRows.every(line => line.includes("\x1b[38;2;0;0;0m")), "all bar outlines must be black");
-        assert.ok(styledRows.slice(0, 1).every(line => line.includes("\x1b[48;2;128;128;128m")), "the selected bar must have gray fill");
-        assert.ok(styledRows.slice(1).every(line => line.includes("\x1b[48;2;255;255;255m")), "unselected bars must have white fill");
-        assert.equal(text.split("┌").length - 1, distribution.length);
-        assert.equal(text.split("└").length - 1, distribution.length);
-        assert.doesNotMatch(text, /[▓▒█]/, "the old textured and solid bars must be removed");
+        const colors = (rendered: string[]) => rendered.filter(line => /^(?:→ |  )\d+ /.test(stripVTControlCharacters(line))).map(line => {
+          const rgb = line.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m█+\x1b\[39m/)!;
+          assert.ok(rgb, "each compact solid bar must use RGB color");
+          assert.equal(rgb[1], rgb[2]);
+          assert.equal(rgb[2], rgb[3]);
+          assert.ok(Number(rgb[1]) >= 0 && Number(rgb[1]) <= 255, "each sampled color must be grayscale");
+          return Number(rgb[1]);
+        });
+        const sampled = colors(lines);
+        assert.equal(sampled.length, distribution.length);
+        assert.doesNotMatch(lines.join("\n"), /[┌┐└┘│▓▒]|\x1b\[48;/, "single-line solid bars must replace outlines and background fill");
+        component.handleInput("\x1b[B");
+        assert.deepEqual(colors(component.render(100)), sampled, "moving selection keeps the sampled palette");
         assert.doesNotMatch(text, /sessionId|pi:/, "the chart must not display individual sessions");
         const chartRows = text.split("\n").filter(line => /^(?:→ |  )\s*\d+ /.test(line));
         assert.deepEqual(chartRows.map(line => {
-          const match = line.match(/^.{2}\s*(\d+) │( *)│ (\d+)$/)!;
+          const match = line.match(/^.{2}(\d+)\s+(█+) (\d+)$/)!;
           return { turn_count: Number(match[1]), session_count: Number(match[3]) };
         }), distribution, "equal turn counts share one bar with the exact session frequency beside it");
         if (!distribution.length) assert.ok(text.includes("No sessions are indexed."));
