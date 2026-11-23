@@ -313,8 +313,9 @@ export const TOOL_PROMPTS = {
 >;
 
 export const COMMAND_DESCRIPTION =
-  "Open direct configuration editing, guided setup, Pi history " +
-  "import, or indexed-tool-turn cleanup. Field rows show " +
+  "Open direct configuration editing, guided setup, read-only " +
+  "database session management, Pi history import, or " +
+  "indexed-tool-turn cleanup. Field rows show " +
   "current values and required/optional labels. Unset fields " +
   "show defaults. Enter saves a valid field; Esc goes back. " +
   "Use this menu for plugin settings and " +

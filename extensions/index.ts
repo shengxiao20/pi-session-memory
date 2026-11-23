@@ -2,11 +2,12 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@e
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { writeTurn } from "../src/history/writer.ts";
-import { getHistoryStats } from "../src/history/db.ts";
+import { getHistoryStats, getSessionTurnCounts } from "../src/history/db.ts";
 import { fetchTurnContext } from "../src/history/fetch-turn-context.ts";
 import { formatRecallResults, recallTurns } from "../src/recall/retriever.ts";
 import { selectRecallMode } from "../src/recall/recall-mode.ts";
 import { MemoryOutput, OKF_OUTPUT_NOTICE } from "../src/presentation/memory-output.ts";
+import { showDatabaseSessionManagement } from "../src/presentation/database-session-management.ts";
 import { MemoryContext, withMemoryContext } from "../src/presentation/memory-context.ts";
 import { registerMemoryKnowledgeTools } from "../src/knowledge/memory-knowledge-tools.ts";
 import { registerSetupTools } from "../src/setup/setup-tools.ts";
@@ -191,6 +192,7 @@ export default function (pi: ExtensionAPI) {
 const SESSION_MEMORY_ACTIONS = {
   setup: "Agentic setup",
   edit: "Edit configuration",
+  database: "Database session management",
   clean: "Clean indexed tool turns",
   backfill: "Import history",
 } as const;
@@ -205,6 +207,10 @@ async function _openSessionMemoryMenu(pi: ExtensionAPI, ctx: ExtensionCommandCon
   }
   if (selection === SESSION_MEMORY_ACTIONS.setup) {
     pi.sendUserMessage(SETUP_REQUEST);
+    return;
+  }
+  if (selection === SESSION_MEMORY_ACTIONS.database) {
+    await showDatabaseSessionManagement(ctx, getSessionTurnCounts);
     return;
   }
   if (selection === SESSION_MEMORY_ACTIONS.backfill) {

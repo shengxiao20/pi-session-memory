@@ -649,7 +649,7 @@ The [standalone BGE-M3 experiment](scripts/rag-demo/README.md) builds a separate
 Run `python3 scripts/rag-demo query "your complete query"` from a repository checkout. The demo leaves plugin retrieval unchanged.
 Its code, dependencies, guide, and tests stay in `scripts/rag-demo/` and are excluded from the npm package.
 
-`extensions/index.ts` connects **9 source module groups and 43 TypeScript files**. The CodeGraph Map below shows implementation dependencies.
+`extensions/index.ts` connects **9 source module groups and 44 TypeScript files**. The CodeGraph Map below shows implementation dependencies.
 The [historical-review routing diagram](#architecture-decision-independent-evidence-routing) shows agent participation instead. These are separate views.
 
 [![CodeGraph Map of the Pi entry point and nine source module groups. Cards list cross-domain imports; selected arrows distinguish declared, type-only, and source-verified dynamic dependencies.](site/assets/codegraph-map.svg)](site/assets/codegraph-map.svg)

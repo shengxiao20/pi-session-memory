@@ -75,6 +75,22 @@ export interface TurnRow { turn_id: string; session_id: string; turn_index: numb
 export interface StoredSession { session: SessionRow; turns: TurnRow[]; }
 export interface SourceFileRow { jsonl_path: string; source: "pi"; size: number; mtime_ms: number; sha256: string; parser_version?: string; }
 export interface HistoryStats { sessions: number; turns: number; oldestTs: number | null; newestTs: number | null; sources: Array<{ source: "pi"; sessions: number; turns: number }>; }
+export interface SessionTurnCount { session_id: string; turn_count: number; }
+
+/** Count stored turns per session, including zero-turn sessions, without creating or migrating the index. */
+export function getSessionTurnCounts(): SessionTurnCount[] {
+  const db = new DatabaseSync(DB_PATH, { readOnly: true });
+  try {
+    return db.prepare(`
+      SELECT sessions.session_id, COUNT(turns.turn_id) AS turn_count
+      FROM sessions LEFT JOIN turns ON turns.session_id = sessions.session_id
+      GROUP BY sessions.session_id
+      ORDER BY turn_count DESC, sessions.session_id ASC
+    `).all() as unknown as SessionTurnCount[];
+  } finally {
+    db.close();
+  }
+}
 
 export function getSourceFile(jsonlPath: string): SourceFileRow | undefined { return getDb().prepare("SELECT jsonl_path, source, size, mtime_ms, sha256, parser_version FROM source_files WHERE jsonl_path = ?").get(jsonlPath) as SourceFileRow | undefined; }
 export function upsertSourceFile(row: SourceFileRow): void { getDb().prepare(`INSERT INTO source_files (jsonl_path, source, size, mtime_ms, sha256, parser_version) VALUES (?, ?, ?, ?, ?, ?)

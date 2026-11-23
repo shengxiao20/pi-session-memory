@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import { getKeybindings, visibleWidth } from "@earendil-works/pi-tui";
 import type { TObject } from "typebox";
 
 // Theme stub supplies distinct ANSI colors and rejects use of the wrong semantic role.
@@ -113,12 +114,60 @@ assert.match(sentUserMessages[0]!, /Run pi-session-memory setup/);
 assert.deepEqual(menuOptions[0], [
   "Agentic setup",
   "Edit configuration",
+  "Database session management",
   "Clean indexed tool turns",
   "Import history",
 ]);
 assert.ok(menuOptions[0]!.every((option) => !/[\u4e00-\u9fff]/.test(option)), "menu descriptions must be English only");
 assert.ok(menuOptions[0]!.every((option) => !/search|help|status|knowledge|consultation|conclusion/i.test(option)), "Agent-handled review actions must not appear in the direct-operation menu");
 const startupDb = await import("../src/history/db.ts");
+async function inspectDatabaseMenu(sessions: number, turns: number, selectedId?: string): Promise<void> {
+  const beforeStats = startupDb.getHistoryStats();
+  const beforeDb = readFileSync(dbPath);
+  const beforeWal = existsSync(`${dbPath}-wal`) ? readFileSync(`${dbPath}-wal`) : undefined;
+  const beforeSource = startupDb.getSourceFile(curatedPath);
+  const beforeHistory = readFileSync(curatedPath);
+  const configPath = join(historyHome, ".pi", "agent", "pi-session-memory", "config.json");
+  const beforeConfig = readFileSync(configPath);
+  const beforeMessages = sentUserMessages.length;
+  const beforeNotices = notices.length;
+  const jevPrototype = (await import("../src/relevance/jev-runtime.ts")).JevRuntime.prototype;
+  const originalReadiness = jevPrototype.ensureReady;
+  let readinessCalls = 0;
+  let builds = 0;
+  jevPrototype.ensureReady = async () => { readinessCalls++; throw new Error("Database viewing must not check Jev readiness"); };
+  try {
+    selections.push("Database session management");
+    await menu!.options.handler("", { ...ctx, mode: "tui", hasUI: true, ui: { ...ctx.ui,
+      async custom(build: any) {
+        builds++;
+        let closed = false;
+        const component = build({ terminal: { rows: 24 }, requestRender() {} }, { fg: (_role: string, text: string) => `\x1b[36m${text}\x1b[0m` }, getKeybindings(), () => { closed = true; });
+        const lines = component.render(100);
+        assert.ok(lines.every((line: string) => visibleWidth(line) <= 100));
+        const text = lines.map((line: string) => stripVTControlCharacters(line).trimEnd()).join("\n");
+        assert.match(text, /Database session management/);
+        assert.ok(text.includes(`${sessions} sessions | ${turns} turns | Read-only snapshot`));
+        if (selectedId) {
+          assert.ok(text.includes(`sessionId: ${selectedId}`));
+          assert.ok(text.includes("█"), "a populated index must show a native horizontal bar");
+        } else assert.ok(text.includes("No sessions are indexed."));
+        component.handleInput("\x1b");
+        assert.ok(closed, "Esc must close the view without selecting an operation");
+      },
+    } });
+  } finally { jevPrototype.ensureReady = originalReadiness; }
+  assert.equal(builds, 1);
+  assert.equal(readinessCalls, 0);
+  assert.deepEqual(startupDb.getHistoryStats(), beforeStats);
+  assert.deepEqual(readFileSync(dbPath), beforeDb, "viewing must not write database pages");
+  if (beforeWal) assert.deepEqual(readFileSync(`${dbPath}-wal`), beforeWal, "viewing must not write WAL records");
+  assert.deepEqual(startupDb.getSourceFile(curatedPath), beforeSource, "viewing must not change source tracking");
+  assert.deepEqual(readFileSync(curatedPath), beforeHistory);
+  assert.deepEqual(readFileSync(configPath), beforeConfig);
+  assert.equal(sentUserMessages.length, beforeMessages, "viewing must not start an Agent request or import confirmation");
+  assert.equal(notices.length, beforeNotices, "viewing must not produce import or service notices");
+}
 startupDb.getDb();
 assert.equal(startupDb.getHistoryStats().sessions, 0, "startup must leave newly discovered history unindexed");
 assert.equal(startupDb.getSourceFile(curatedPath), undefined);
@@ -134,6 +183,7 @@ assert.match(postSetupSave.content[0].text, /Configuration approval is not impor
 assert.deepEqual(startupDb.getHistoryStats(), historyBeforeConfigurationSave, "saving setup and offering import must not import existing history");
 assert.equal(startupDb.getSourceFile(curatedPath), undefined, "setup save leaves source tracking unchanged while awaiting import approval");
 assert.equal(sentUserMessages.length, 1, "saving configuration does not request import automatically");
+await inspectDatabaseMenu(0, 0);
 selections.push("Clean indexed tool turns");
 await menu.options.handler("", ctx);
 assert.match(notices.at(-1)!.message, /SQLite cleanup removed 0 package-tool turns/);
@@ -142,6 +192,7 @@ selections.push("Import history");
 await menu.options.handler("", ctx);
 assert.match(notices.at(-1)!.message, /\[session-memory\] imported/);
 assert.equal(startupDb.getSession(curatedSessionId).turns[0].reply_text, "Curated historical answer", "manual Import must still index historical files");
+await inspectDatabaseMenu(1, 1, curatedSessionId);
 function deleteCuratedSession(): void {
   startupDb.getDb().prepare("DELETE FROM turns WHERE session_id = ?").run(curatedSessionId);
   startupDb.getDb().prepare("DELETE FROM sessions WHERE session_id = ?").run(curatedSessionId);
@@ -155,6 +206,7 @@ const noticesBeforeCuratedStartup = notices.length;
 await startup.handler({}, ctx);
 await startup.handler({}, ctx);
 assert.equal(notices.length, noticesBeforeCuratedStartup, "startup must not report history import activity");
+await inspectDatabaseMenu(0, 0);
 assert.equal(startupDb.getHistoryStats().sessions, 0, "startup must not restore deleted sessions even when source content and parser versions differ");
 assert.deepEqual(startupDb.getSourceFile(curatedPath), curatedSourceBeforeStartup, "startup must not update source tracking");
 selections.push("Import history");
