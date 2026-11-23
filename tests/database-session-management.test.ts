@@ -15,7 +15,7 @@ const { getSessionTurnDistribution } = await import("../src/history/db.ts");
 type Entry = { turn_count: number; session_count: number };
 
 function _ui(rows = 24) {
-  const state = { closed: 0, renders: 0, builds: 0, color: "31", foreground: [] as { role: string; text: string }[], options: [] as string[][], selection: "Database session management" as string | undefined };
+  const state = { closed: 0, renders: 0, builds: 0, color: "31", options: [] as string[][], selection: "Database session management" as string | undefined };
   let component: Component;
   const tui = { terminal: { rows }, requestRender() { state.renders++; } };
   const context = { mode: "tui", hasUI: true, ui: {
@@ -24,8 +24,8 @@ function _ui(rows = 24) {
       state.builds++;
       return new Promise<void>(resolve => {
         component = build(tui, {
-          fg(role: string, text: string) { state.foreground.push({ role, text }); return `\x1b[${state.color}m${text}\x1b[0m`; },
-          bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+          fg: (_role: string, text: string) => `\x1b[${state.color}m${text}\x1b[0m`,
+          bold() { throw new Error("Selection must change bar fill instead of applying bold"); },
         }, getKeybindings(), () => { state.closed++; resolve(); });
       });
     },
@@ -37,7 +37,7 @@ function _plain(view: Component, width = 100): string[] { return view.render(wid
 function _chartLines(view: Component, width = 100) { return _plain(view, width).filter(line => /^(?:→ |  )\s*\d+ /.test(line)); }
 function _bars(view: Component, width = 100) {
   return _chartLines(view, width).map(line => {
-    const match = line.match(/^.{2}\s*(\d+) ([▓▒]*) (\d+)$/)!;
+    const match = line.match(/^.{2}\s*(\d+) │( *)│ (\d+)$/)!;
     return { turns: Number(match[1]), sessions: Number(match[3]), cells: match[2].length };
   });
 }
@@ -118,14 +118,26 @@ try {
   assert.ok(lines.some(line => line.includes("Total sessions: 18 | Total turns: 1260 | Groups: 4 | Read-only snapshot")));
   const columnHeading = lines.find(line => line.includes("Turns per session") && line.includes("Session count"))!;
   assert.ok(columnHeading, "the numeric columns need explicit metric labels");
-  assert.equal(columnHeading.indexOf("Session count"), _chartLines(ui.view())[0].indexOf("▓"), "the session-count heading aligns with its colored bars");
-  const styledRows = ui.view().render(100).filter(line => /^(?:→ |  )\s*\d+ /.test(stripVTControlCharacters(line)));
+  assert.equal(columnHeading.indexOf("Session count"), _chartLines(ui.view())[0].indexOf("│"), "the session-count heading aligns with its outlined bars");
+  const renderedRows = ui.view().render(100);
+  const styledRows = renderedRows.filter(line => /^(?:→ |  )\s*\d+ /.test(stripVTControlCharacters(line)));
   assert.equal(styledRows.length, raw.length);
-  assert.ok(styledRows.every(line => /\x1b\[31m[▓▒]+\x1b\[0m/.test(line)), "every bar is colored, including unselected rows");
-  assert.ok(styledRows.every(line => /\x1b\[31m\d+\x1b\[0m/.test(line)), "session counts use the same metric color as the bars");
-  assert.ok(styledRows[0].includes("\x1b[1m"), "selection adds bold without replacing bar color");
-  assert.ok(styledRows[0].includes("▓▒"), "bars include alternating texture");
-  assert.ok(ui.state.foreground.filter(call => /^[▓▒]+$/.test(call.text)).every(call => call.role === "accent"), "bar colors use the theme accent, not severity colors");
+  assert.ok(styledRows.every(line => line.includes("\x1b[38;2;0;0;0m")), "every bar has a fixed black outline");
+  assert.ok(styledRows[0].includes("\x1b[48;2;128;128;128m"), "the selected bar has gray fill");
+  assert.ok(styledRows.slice(1).every(line => line.includes("\x1b[48;2;255;255;255m")), "unselected bars have white fill");
+  assert.ok(styledRows.every(line => /\x1b\[31m\d+\x1b\[0m/.test(line)), "session-count annotations remain visible beside each outline");
+  assert.ok(!renderedRows.join("\n").includes("▓"), "the old texture is removed");
+  const plainRows = renderedRows.map(line => stripVTControlCharacters(line).trimEnd());
+  for (const [index, line] of plainRows.entries()) {
+    const body = line.match(/^.{2}\s*(\d+) │( *)│ (\d+)$/);
+    if (!body) continue;
+    const fill = line.startsWith("→ ") ? "128;128;128" : "255;255;255";
+    assert.equal(plainRows[index - 1].trim(), `┌${"─".repeat(body[2].length)}┐`);
+    assert.equal(plainRows[index + 1].trim(), `└${"─".repeat(body[2].length)}┘`);
+    assert.equal(plainRows[index - 1].indexOf("┌"), line.indexOf("│"));
+    assert.equal(plainRows[index + 1].indexOf("└"), line.indexOf("│"));
+    assert.ok([index - 1, index, index + 1].every(offset => renderedRows[offset].includes(`\x1b[48;2;${fill}m`)), "top, body and bottom share the correct selection fill");
+  }
   assert.ok(!lines.join("\n").includes("sessionId"));
   assert.deepEqual(_bars(ui.view()).map(row => row.turns), [100, 50, 10, 0]);
   assert.deepEqual(_bars(ui.view()).map(row => row.sessions), [10, 5, 1, 2], "the number immediately after each bar is the group session count");
@@ -136,6 +148,9 @@ try {
   assert.equal(bars[3].cells, Math.round(bars[0].cells / 5), "zero-turn groups have a bar for their session frequency, not a zero-length turn-count bar");
   ui.view().handleInput!("\x1b[B");
   assert.equal(_selectedBar(ui.view()).turns, 50);
+  const moved = ui.view().render(100).filter(line => /^(?:→ |  )\s*\d+ /.test(stripVTControlCharacters(line)));
+  assert.ok(moved[0].includes("\x1b[48;2;255;255;255m"), "the previous selection returns to white");
+  assert.ok(moved[1].includes("\x1b[48;2;128;128;128m"), "the newly selected bar turns gray");
   ui.view().handleInput!("\x1b[F");
   assert.equal(_selectedBar(ui.view()).turns, 0);
   ui.view().handleInput!("\x1b[H");
@@ -171,6 +186,7 @@ try {
   const themed = paged.view().render(100).join("\n");
   assert.ok(themed.includes("\x1b[32m"));
   assert.ok(!themed.includes("\x1b[31m"), "theme changes must not reuse old ANSI colors");
+  assert.ok(themed.includes("\x1b[38;2;0;0;0m") && themed.includes("\x1b[48;2;128;128;128m") && themed.includes("\x1b[48;2;255;255;255m"), "the requested border and fills remain fixed across themes");
   paged.view().invalidate();
   paged.view().handleInput!("\x1b");
   await pagination;
@@ -241,7 +257,7 @@ try {
   broken.close();
   await assert.rejects(commands[0].handler("", menu.context), /no such table: turns/);
   assert.equal(menu.state.builds, 1, "invalid schemas fail without migration or reopening a stale view");
-  console.log("database session management tests passed: read-only grouped frequencies, equal turn counts merged, exact session-count annotations, frequency-based bars, explicit metric headings, colored textured bars, zero-turn groups, no session IDs, weighted totals, pagination, resize, theme changes, menu routing, empty and error boundaries");
+  console.log("database session management tests passed: read-only grouped frequencies, equal turn counts merged, exact session-count annotations, frequency-based bars, explicit metric headings, black outlines, white/gray fills, three-line layout, zero-turn groups, no session IDs, weighted totals, pagination, resize, theme changes, menu routing, empty and error boundaries");
 } finally {
   rmSync(home, { recursive: true, force: true });
 }
