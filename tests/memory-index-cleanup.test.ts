@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, statSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -7,9 +7,11 @@ import { DatabaseSync } from "node:sqlite";
 const home = mkdtempSync(join(tmpdir(), "pi-memory-cleanup-"));
 const databasePath = join(home, "memory.db");
 process.env.HOME = home; process.env.USERPROFILE = home; process.env.MEMORY_DB_PATH = databasePath;
-const { cleanMemoryToolTurns, formatMemoryToolCleanup } = await import("../src/history/memory-index-cleanup.ts");
+const { cleanMemoryToolTurns, deleteSessionsAtOrBelowTurnCount, formatMemoryToolCleanup } = await import("../src/history/memory-index-cleanup.ts");
 const { registerMemoryCleanupTools } = await import("../src/history/memory-index-cleanup-tools.ts");
 const { SESSION_MEMORY_TOOL_NAMES } = await import("../src/history/memory-index-policy.ts");
+for (const invalid of [-1, 0.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1]) assert.throws(() => deleteSessionsAtOrBelowTurnCount(invalid), /non-negative safe integer/);
+assert.throws(() => deleteSessionsAtOrBelowTurnCount(0), /ENOENT/);
 assert.throws(() => cleanMemoryToolTurns(), /ENOENT/);
 assert.equal(existsSync(databasePath), false, "cleanup must not create an empty database for a missing index");
 const legacy = new DatabaseSync(databasePath);
@@ -110,5 +112,99 @@ try {
   assert.equal(readFileSync(okfPath, "utf8"), okfBytes);
   assert.deepEqual(legacy.prepare("SELECT * FROM sessions").all(), sessionsBefore);
   assert.deepEqual(legacy.prepare("SELECT * FROM source_files").all(), trackingBefore);
-  console.log("memory-index-cleanup tests passed: pre-purge WAL snapshot, exact whole-turn removal, unchanged metadata/JSONL/OKF, old writers, idempotence, backup failure, rollback, invalid metadata, menu and tool");
+  // Session deletion shares backup verification but leaves exclusion policy and source tracking unchanged.
+  const insertSession = legacy.prepare("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)");
+  for (const [id, count] of [["zero", 0], ["one", 1], ["two-a", 2], ["two-b", 2], ["above", 3], ["large", 5]] as const) {
+    insertSession.run(id, id === "above" ? "other-source" : "pi", home, 1, "model", jsonlPath);
+    for (let i = 0; i < count; i++) insert.run(`${id}:${i}`, id, 900 + i * 100, i, "keep user body", "keep reply", '["read"]', `${id}:user:${i}`);
+  }
+  insert.run("unrelated-orphan", "missing-session", 0, 0, "unrelated", "keep", '["read"]', "orphan-user");
+  legacy.exec("CREATE TABLE memories(content TEXT); INSERT INTO memories VALUES ('keep legacy table'); PRAGMA user_version = 73;");
+  const allSessions = () => legacy.prepare("SELECT * FROM sessions ORDER BY session_id").all();
+  const allTurns = () => legacy.prepare("SELECT * FROM turns ORDER BY turn_id").all();
+  const originalSessions = allSessions();
+  const originalTurns = allTurns();
+  const policyBefore = legacy.prepare("SELECT name, sql FROM sqlite_master WHERE type='trigger' ORDER BY name").all();
+  const backupNames = () => readdirSync(backupDirectory).sort();
+  const namesBeforeValidation = backupNames();
+  for (const invalid of [-1, 1.1, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) assert.throws(() => deleteSessionsAtOrBelowTurnCount(invalid), /non-negative safe integer/);
+  assert.deepEqual(backupNames(), namesBeforeValidation, "invalid limits must not access or back up the database");
+
+  for (const failure of ["backup-write", "backup-check"]) {
+    let checks = 0;
+    let copies = 0;
+    try {
+      DatabaseSync.prototype.prepare = function(sql: string) {
+        if (sql === "VACUUM main INTO ?") {
+          copies++;
+          if (failure === "backup-write") return { run() { throw new Error("injected-session-backup-write"); } } as any;
+        }
+        if (sql === "PRAGMA integrity_check" && ++checks === 2 && failure === "backup-check") return { all() { return [{ integrity_check: "injected-session-backup-check" }]; } } as any;
+        return nativePrepare.call(this, sql);
+      };
+      assert.throws(() => deleteSessionsAtOrBelowTurnCount(2), (error: any) => /SQLite session deletion failed/.test(error.message) && /injected-session-backup/.test(error.cause.message));
+      assert.equal(copies, 1, "backup failures must not retry");
+    } finally { DatabaseSync.prototype.prepare = nativePrepare; }
+    assert.deepEqual(allSessions(), originalSessions);
+    assert.deepEqual(allTurns(), originalTurns, "unverified backups must prevent all deletion");
+  }
+
+  legacy.exec("CREATE TRIGGER block_session_deletion BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT, 'blocked-session-delete'); END;");
+  assert.throws(() => deleteSessionsAtOrBelowTurnCount(2), (error: any) => /Backup target:/.test(error.message) && /blocked-session-delete/.test(error.cause.message));
+  assert.deepEqual(allSessions(), originalSessions);
+  assert.deepEqual(allTurns(), originalTurns, "a session-delete failure must roll back already-deleted turns");
+  legacy.exec("DROP TRIGGER block_session_deletion;");
+
+  let lockedCopies = 0;
+  let zero: ReturnType<typeof deleteSessionsAtOrBelowTurnCount>;
+  try {
+    DatabaseSync.prototype.prepare = function(sql: string) {
+      if (sql === "VACUUM main INTO ?") {
+        lockedCopies++;
+        assert.throws(() => insert.run("concurrent-turn", "zero", 0, 0, "race", "race", '["read"]', "race-user"), /database is locked/, "the deletion write lock must prevent changes between backup and target selection");
+        assert.throws(() => this.exec("CREATE TABLE forbidden_source_write(n INTEGER)"), /readonly database/, "backup reads use a read-only source connection");
+      }
+      return nativePrepare.call(this, sql);
+    };
+    zero = deleteSessionsAtOrBelowTurnCount(0);
+  } finally { DatabaseSync.prototype.prepare = nativePrepare; }
+  assert.equal(lockedCopies, 1);
+  assert.deepEqual([zero.maximum_turns, zero.removed_sessions, zero.removed_turns], [0, 1, 0], "zero is valid and includes empty sessions");
+  const zeroSnapshot = new DatabaseSync(zero.backup_path, { readOnly: true });
+  try {
+    assert.deepEqual(zeroSnapshot.prepare("SELECT * FROM sessions ORDER BY session_id").all(), originalSessions);
+    assert.deepEqual(zeroSnapshot.prepare("SELECT * FROM turns ORDER BY turn_id").all(), originalTurns, "the verified snapshot contains every pre-deletion WAL row");
+  } finally { zeroSnapshot.close(); }
+  const beforeTwoSessions = allSessions();
+  const beforeTwoTurns = allTurns();
+  const deleted = deleteSessionsAtOrBelowTurnCount(2);
+  assert.deepEqual([deleted.maximum_turns, deleted.removed_sessions, deleted.removed_turns], [2, 4, 7], "the inclusive threshold uses actual row counts, not turn_index");
+  assert.deepEqual(allSessions().map(row => row.session_id), ["above", "large"], "every matched session is removed, while higher counts and other-source metadata stay intact");
+  assert.equal(allTurns().length, 9);
+  assert.ok(allTurns().some(row => row.turn_id === "unrelated-orphan"), "unrelated turns outside existing sessions stay unchanged");
+  const deletedSnapshot = new DatabaseSync(deleted.backup_path, { readOnly: true });
+  try {
+    assert.deepEqual(deletedSnapshot.prepare("SELECT * FROM sessions ORDER BY session_id").all(), beforeTwoSessions);
+    assert.deepEqual(deletedSnapshot.prepare("SELECT * FROM turns ORDER BY turn_id").all(), beforeTwoTurns);
+  } finally { deletedSnapshot.close(); }
+  const noMatch = deleteSessionsAtOrBelowTurnCount(2);
+  assert.deepEqual([noMatch.removed_sessions, noMatch.removed_turns], [0, 0]);
+  assert.notEqual(noMatch.backup_path, deleted.backup_path);
+  const cleared = deleteSessionsAtOrBelowTurnCount(Number.MAX_SAFE_INTEGER);
+  assert.deepEqual([cleared.removed_sessions, cleared.removed_turns], [2, 8]);
+  assert.deepEqual(allSessions(), []);
+  assert.equal(allTurns().length, 1);
+  assert.deepEqual(legacy.prepare("SELECT * FROM source_files").all(), trackingBefore);
+  assert.deepEqual(legacy.prepare("SELECT name, sql FROM sqlite_master WHERE type='trigger' ORDER BY name").all(), policyBefore, "session deletion must not install or replace exclusion triggers");
+  assert.equal(legacy.prepare("PRAGMA user_version").get()!.user_version, 73);
+  assert.deepEqual(legacy.prepare("SELECT * FROM memories").all().map(row => row.content), ["keep legacy table"]);
+  assert.equal(legacy.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='session_deletion_targets'").get()!.n, 0, "targets must stay in the temporary schema");
+  assert.equal(readFileSync(jsonlPath, "utf8"), jsonlBytes);
+  assert.equal(readFileSync(okfPath, "utf8"), okfBytes);
+  legacy.exec("ALTER TABLE turns RENAME TO unavailable_turns;");
+  const brokenSchema = legacy.prepare("SELECT * FROM sqlite_master ORDER BY name").all();
+  assert.throws(() => deleteSessionsAtOrBelowTurnCount(0), (error: any) => /no such table: turns/.test(error.cause.message));
+  assert.deepEqual(legacy.prepare("SELECT * FROM sqlite_master ORDER BY name").all(), brokenSchema, "unsupported schemas must fail without migration");
+
+  console.log("memory-index-cleanup tests passed: pre-purge WAL snapshot, exact whole-turn removal, unchanged metadata/JSONL/OKF, old writers, idempotence, backup failure, rollback, invalid metadata, menu and tool, inclusive session limits, zero-turn sessions, matching child-turn deletion, locked verified backups, unchanged policy, atomic failure rollback, strict input and schema errors");
 } finally { legacy.close(); rmSync(home, { recursive: true, force: true }); }

@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { stripVTControlCharacters } from "node:util";
 import { getKeybindings, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { showDatabaseSessionManagement } from "../src/presentation/database-session-management.ts";
+import { deleteSessionsByTurnCount, SESSION_DELETION_LABEL, showDatabaseSessionManagement } from "../src/presentation/database-session-management.ts";
 
 const home = mkdtempSync(join(tmpdir(), "pi-session-counts-"));
 process.env.HOME = process.env.USERPROFILE = home;
@@ -31,6 +31,17 @@ function _ui(rows = 24) {
     notify() { throw new Error("Viewing must not notify, import, or change settings"); },
   } } as unknown as ExtensionContext;
   return { state, tui, context, view: () => component! };
+}
+function _deletionUi(answer: string | undefined) {
+  const state = { calls: [] as string[], prompts: [] as { title: string; placeholder: string }[], notifications: [] as { text: string; type: string }[] };
+  const context = { mode: "tui", hasUI: true, ui: {
+    async select() { state.calls.push("select"); return SESSION_DELETION_LABEL; },
+    async input(title: string, placeholder: string) { state.calls.push("input"); state.prompts.push({ title, placeholder }); return answer; },
+    confirm() { throw new Error("Session deletion must use the requested input-only flow"); },
+    custom() { throw new Error("Session deletion must use the native number input"); },
+    notify(text: string, type: string) { state.calls.push("notify"); state.notifications.push({ text, type }); },
+  } } as unknown as ExtensionContext;
+  return { state, context };
 }
 function _sampledChart(context: ExtensionContext, readEntries: () => readonly Entry[], samples: readonly number[]) {
   const original = Math.random;
@@ -240,6 +251,38 @@ try {
   assert.equal(failedReads, 1);
   assert.equal(failed.state.builds, 0, "failed reads must not show stale results");
 
+  for (const value of ["0", " 2 ", String(Number.MAX_SAFE_INTEGER)]) {
+    const deletion = _deletionUi(value);
+    await deleteSessionsByTurnCount(deletion.context, maximum => {
+      deletion.state.calls.push("delete");
+      assert.equal(maximum, Number(value));
+      return { removed_sessions: 2, removed_turns: 0, backup_path: "temporary-backup.db" };
+    });
+    assert.deepEqual(deletion.state.calls, ["input", "delete", "notify"]);
+    assert.equal(deletion.state.prompts[0].title, "Delete sessions by turn count");
+    assert.match(deletion.state.prompts[0].placeholder, /inclusive.*Enter to delete/);
+    assert.equal(deletion.state.notifications[0].type, "info");
+    assert.match(deletion.state.notifications[0].text, /Deleted sessions: 2 \| Deleted turns: 0/);
+    assert.match(deletion.state.notifications[0].text, /Backup: temporary-backup.db/);
+    assert.match(deletion.state.notifications[0].text, /Full import or continued use.*restore/);
+  }
+  for (const value of ["", " ", "-1", "2.5", "NaN", "Infinity", "1e3", "0x10", "+2", String(Number.MAX_SAFE_INTEGER + 1)]) {
+    const deletion = _deletionUi(value);
+    await assert.rejects(deleteSessionsByTurnCount(deletion.context, () => { throw new Error("Invalid input must not touch the database"); }), /Enter digits/);
+    assert.deepEqual(deletion.state.calls, ["input"], "invalid input must fail without retry, deletion or success notification");
+  }
+  const cancelledDeletion = _deletionUi(undefined);
+  await deleteSessionsByTurnCount(cancelledDeletion.context, () => { throw new Error("Cancelled input must not delete"); });
+  assert.deepEqual(cancelledDeletion.state.calls, ["input"]);
+  const failedDeletion = _deletionUi("2");
+  let attempts = 0;
+  await assert.rejects(deleteSessionsByTurnCount(failedDeletion.context, () => { attempts++; throw new Error("Injected deletion failure"); }), /Injected deletion failure/);
+  assert.equal(attempts, 1);
+  assert.deepEqual(failedDeletion.state.calls, ["input"], "failed deletion must not retry or report stale success");
+  const jsonDeletion = _deletionUi("2");
+  await assert.rejects(deleteSessionsByTurnCount({ ...jsonDeletion.context, mode: "json" } as ExtensionContext, () => { throw new Error("Unsupported mode must not access SQLite"); }), /requires Pi TUI mode/);
+  assert.deepEqual(jsonDeletion.state.calls, []);
+
   const commands: any[] = [];
   let registeredTools = 0;
   const extension = (await import("../extensions/index.ts")).default;
@@ -248,7 +291,7 @@ try {
   const menu = _ui();
   const menuResult = commands[0].handler("", menu.context);
   await Promise.resolve();
-  assert.deepEqual(menu.state.options[0], ["Agentic setup", "Edit configuration", "Database session management", "Clean indexed tool turns", "Import history"]);
+  assert.deepEqual(menu.state.options[0], ["Agentic setup", "Edit configuration", "Database session management", "Delete sessions by turn count", "Clean indexed tool turns", "Import history"]);
   assert.ok(_plain(menu.view()).some(line => line.includes("Total sessions: 7 | Total turns: 112 | Groups: 5")));
   assert.deepEqual(_bars(menu.view()).map(row => ({ turn_count: row.turns, session_count: row.sessions })), expected);
   assert.equal(_chartLines(menu.view()).length, 5, "seven sessions collapse to five turn-count groups");
@@ -264,10 +307,32 @@ try {
   await assert.rejects(commands[0].handler("", { ...menu.context, mode: "json" }), /requires Pi TUI mode/);
   assert.equal(menu.state.builds, 1);
 
+  const cancelledMenuDeletion = _deletionUi(undefined);
+  await commands[0].handler("", cancelledMenuDeletion.context);
+  assert.deepEqual(cancelledMenuDeletion.state.calls, ["select", "input"]);
+  assert.deepEqual(readFileSync(path), snapshot);
+  assert.ok(!existsSync(join(home, "pi-session-memory", "backups")), "cancellation must not open or back up SQLite");
+  const invalidMenuDeletion = _deletionUi("-1");
+  await assert.rejects(commands[0].handler("", invalidMenuDeletion.context), /Enter digits/);
+  assert.deepEqual(readFileSync(path), snapshot);
+  const deleteMenu = _deletionUi("2");
+  await commands[0].handler("", deleteMenu.context);
+  assert.deepEqual(deleteMenu.state.calls, ["select", "input", "notify"]);
+  assert.match(deleteMenu.state.notifications[0].text, /Deleted sessions: 3 \| Deleted turns: 3\nMaximum turns per session \(inclusive\): 2/);
+  assert.deepEqual(getSessionTurnDistribution().map(row => ({ ...row })), [{ turn_count: 100, session_count: 1 }, { turn_count: 3, session_count: 3 }]);
+  const afterDelete = new DatabaseSync(path, { readOnly: true });
+  try {
+    assert.equal(afterDelete.prepare("SELECT count(*) AS n FROM turns").get()!.n, 109, "deletion must not purge other package-tool turns");
+    assert.equal(afterDelete.prepare("PRAGMA user_version").get()!.user_version, 73);
+    assert.equal(afterDelete.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='trigger'").get()!.n, 0);
+    assert.deepEqual(afterDelete.prepare("SELECT * FROM source_files").all().map(row => ({ ...row })), [{ jsonl_path: "/missing/source.jsonl", source: "legacy", parser_version: "keep-parser" }]);
+    assert.equal(afterDelete.prepare("SELECT * FROM memories").get()!.content, "keep obsolete table untouched");
+  } finally { afterDelete.close(); }
+
   const changed = new DatabaseSync(path);
   changed.exec("DELETE FROM turns");
   changed.close();
-  assert.deepEqual(getSessionTurnDistribution().map(row => ({ ...row })), [{ turn_count: 0, session_count: 7 }], "reopening groups all zero-turn sessions together");
+  assert.deepEqual(getSessionTurnDistribution().map(row => ({ ...row })), [{ turn_count: 0, session_count: 4 }], "reopening groups all remaining zero-turn sessions together");
   const empty = new DatabaseSync(path);
   empty.exec("DELETE FROM sessions");
   empty.close();
@@ -277,7 +342,7 @@ try {
   broken.close();
   await assert.rejects(commands[0].handler("", menu.context), /no such table: turns/);
   assert.equal(menu.state.builds, 1, "invalid schemas fail without migration or reopening a stale view");
-  console.log("database session management tests passed: read-only grouped frequencies, equal turn counts merged, exact session-count annotations, frequency-based bars, explicit metric headings, compact solid bars, aligned numbers, random grayscale RGB, stable colors across redraw and paging, fresh colors on reopen, zero-turn groups, no session IDs, weighted totals, pagination, resize, theme changes, menu routing, empty and error boundaries");
+  console.log("database session management tests passed: read-only grouped frequencies, equal turn counts merged, exact session-count annotations, frequency-based bars, explicit metric headings, compact solid bars, aligned numbers, random grayscale RGB, stable colors across redraw and paging, fresh colors on reopen, zero-turn groups, no session IDs, weighted totals, pagination, resize, theme changes, menu routing, inclusive session deletion, input cancellation and validation, empty and error boundaries");
 } finally {
   rmSync(home, { recursive: true, force: true });
 }

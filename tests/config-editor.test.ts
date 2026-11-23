@@ -218,7 +218,7 @@ try {
   assert.equal(commands.length, 1); assert.equal(tools.length, 15);
   assert.match(commands[0].options.description, /required\/optional/);
   rmSync(path);
-  const menuSteps = [{ method: "select", answer: "Edit configuration", check: (_title: string, rows?: string[]) => assert.deepEqual(rows, ["Agentic setup", "Edit configuration", "Database session management", "Clean indexed tool turns", "Import history"]) }, select()] as Step[];
+  const menuSteps = [{ method: "select", answer: "Edit configuration", check: (_title: string, rows?: string[]) => assert.deepEqual(rows, ["Agentic setup", "Edit configuration", "Database session management", "Delete sessions by turn count", "Clean indexed tool turns", "Import history"]) }, select()] as Step[];
   await commands[0].options.handler("", _ui(menuSteps)); assert.equal(menuSteps.length, 0); assert.ok(!existsSync(path));
   assert.deepEqual(setupRequests, [], "direct editing sends no setup request");
   allowSetupRequest = true;
@@ -227,7 +227,7 @@ try {
     answer: "Agentic setup",
     check: (_title, rows) => assert.deepEqual(rows, [
       "Agentic setup", "Edit configuration", "Database session management",
-      "Clean indexed tool turns", "Import history",
+      "Delete sessions by turn count", "Clean indexed tool turns", "Import history",
     ]),
   }];
   await commands[0].options.handler("", _ui(setupSteps));

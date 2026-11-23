@@ -7,7 +7,7 @@ import { fetchTurnContext } from "../src/history/fetch-turn-context.ts";
 import { formatRecallResults, recallTurns } from "../src/recall/retriever.ts";
 import { selectRecallMode } from "../src/recall/recall-mode.ts";
 import { MemoryOutput, OKF_OUTPUT_NOTICE } from "../src/presentation/memory-output.ts";
-import { showDatabaseSessionManagement } from "../src/presentation/database-session-management.ts";
+import { deleteSessionsByTurnCount, SESSION_DELETION_LABEL, showDatabaseSessionManagement } from "../src/presentation/database-session-management.ts";
 import { MemoryContext, withMemoryContext } from "../src/presentation/memory-context.ts";
 import { registerMemoryKnowledgeTools } from "../src/knowledge/memory-knowledge-tools.ts";
 import { registerSetupTools } from "../src/setup/setup-tools.ts";
@@ -16,6 +16,7 @@ import { SETUP_REQUEST } from "../src/setup/setup.ts";
 import { recallSequentially } from "../src/recall/recall-workflow.ts";
 import { backfillAll, type BackfillStats } from "../src/history/backfill.ts";
 import { notifyMemoryToolCleanup, registerMemoryCleanupTools } from "../src/history/memory-index-cleanup-tools.ts";
+import { deleteSessionsAtOrBelowTurnCount } from "../src/history/memory-index-cleanup.ts";
 import { formatProjectRecallResults, recallProjectMemory } from "../src/recall/project-retriever.ts";
 import { validateRecallQuery } from "../src/recall/recall-query.ts";
 import { getSessionMemoryConfig, getDiscussionConfiguration } from "../src/settings/config.ts";
@@ -193,6 +194,7 @@ const SESSION_MEMORY_ACTIONS = {
   setup: "Agentic setup",
   edit: "Edit configuration",
   database: "Database session management",
+  deleteSessions: SESSION_DELETION_LABEL,
   clean: "Clean indexed tool turns",
   backfill: "Import history",
 } as const;
@@ -211,6 +213,10 @@ async function _openSessionMemoryMenu(pi: ExtensionAPI, ctx: ExtensionCommandCon
   }
   if (selection === SESSION_MEMORY_ACTIONS.database) {
     await showDatabaseSessionManagement(ctx, getSessionTurnDistribution);
+    return;
+  }
+  if (selection === SESSION_MEMORY_ACTIONS.deleteSessions) {
+    await deleteSessionsByTurnCount(ctx, deleteSessionsAtOrBelowTurnCount);
     return;
   }
   if (selection === SESSION_MEMORY_ACTIONS.backfill) {

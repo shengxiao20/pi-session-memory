@@ -4,6 +4,7 @@ import { requestContextTool } from "./helpers/request-context-tool.ts";
 import { POST_SETUP_IMPORT_NOTICE } from "../prompts/guidance.ts";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { getKeybindings, visibleWidth } from "@earendil-works/pi-tui";
@@ -115,6 +116,7 @@ assert.deepEqual(menuOptions[0], [
   "Agentic setup",
   "Edit configuration",
   "Database session management",
+  "Delete sessions by turn count",
   "Clean indexed tool turns",
   "Import history",
 ]);
@@ -221,6 +223,47 @@ try {
     for (let index = 0; index < turnCount; index++) startupDb.upsertTurn({ ...distributionSeed.turns[0], session_id: sessionId, turn_id: `${sessionId}:turn:${index}`, turn_index: index });
   }
   await inspectDatabaseMenu(5, 5, [{ turn_count: 2, session_count: 1 }, { turn_count: 1, session_count: 3 }, { turn_count: 0, session_count: 1 }]);
+  const beforeDeletionDb = readFileSync(dbPath);
+  const beforeDeletionWal = existsSync(`${dbPath}-wal`) ? readFileSync(`${dbPath}-wal`) : undefined;
+  const beforeDeletionTracking = startupDb.getSourceFile(curatedPath);
+  const beforeDeletionHistory = readFileSync(curatedPath);
+  const deletionConfigPath = join(historyHome, ".pi", "agent", "pi-session-memory", "config.json");
+  const beforeDeletionConfig = readFileSync(deletionConfigPath);
+  const beforeDeletionMessages = sentUserMessages.length;
+  const beforeDeletionNotices = notices.length;
+  const deletionContext = (answer: string | undefined) => ({ ...ctx, mode: "tui", hasUI: true, ui: { ...ctx.ui,
+    async input(title: string, placeholder: string) {
+      assert.equal(title, "Delete sessions by turn count");
+      assert.match(placeholder, /inclusive.*Enter to delete/);
+      return answer;
+    },
+    async confirm() { throw new Error("Deletion must use the requested input-only flow"); },
+  } });
+  for (const answer of [undefined, "-1"]) {
+    selections.push("Delete sessions by turn count");
+    if (answer === undefined) await menu.options.handler("", deletionContext(answer));
+    else await assert.rejects(menu.options.handler("", deletionContext(answer)), /Enter digits/);
+    assert.deepEqual(readFileSync(dbPath), beforeDeletionDb);
+    if (beforeDeletionWal) assert.deepEqual(readFileSync(`${dbPath}-wal`), beforeDeletionWal);
+    assert.equal(notices.length, beforeDeletionNotices, "cancelled or invalid input must not report deletion");
+  }
+  selections.push("Delete sessions by turn count");
+  await menu.options.handler("", deletionContext("1"));
+  assert.match(notices.at(-1)!.message, /Deleted sessions: 4 \| Deleted turns: 3\nMaximum turns per session \(inclusive\): 1/);
+  const deletionBackupPath = notices.at(-1)!.message.match(/\nBackup: (.+)\n/)![1];
+  const deletionBackup = new DatabaseSync(deletionBackupPath, { readOnly: true });
+  try {
+    assert.equal(deletionBackup.prepare("SELECT count(*) AS n FROM sessions").get()!.n, 5);
+    assert.equal(deletionBackup.prepare("SELECT count(*) AS n FROM turns").get()!.n, 5, "the deletion backup contains all pre-deletion sessions and turns");
+    assert.equal(deletionBackup.prepare("PRAGMA integrity_check").get()!.integrity_check, "ok");
+  } finally { deletionBackup.close(); rmSync(deletionBackupPath); }
+  assert.deepEqual(startupDb.getSessionTurnDistribution().map(row => ({ ...row })), [{ turn_count: 2, session_count: 1 }], "equal-to-limit and zero-turn sessions are deleted together");
+  assert.deepEqual(startupDb.getDb().prepare("PRAGMA foreign_key_check").all(), [], "associated turns must be deleted before sessions");
+  assert.deepEqual(startupDb.getSourceFile(curatedPath), beforeDeletionTracking);
+  assert.deepEqual(readFileSync(curatedPath), beforeDeletionHistory);
+  assert.deepEqual(readFileSync(deletionConfigPath), beforeDeletionConfig);
+  assert.equal(sentUserMessages.length, beforeDeletionMessages, "deletion must not start an Agent, import or setup request");
+  await inspectDatabaseMenu(1, 2, [{ turn_count: 2, session_count: 1 }]);
 } finally {
   for (const [sessionId] of distributionFixtures) {
     startupDb.getDb().prepare("DELETE FROM turns WHERE session_id = ?").run(sessionId);

@@ -1,6 +1,29 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, SelectList, Text, truncateToWidth } from "@earendil-works/pi-tui";
 
+export const SESSION_DELETION_LABEL = "Delete sessions by turn count";
+
+/** Request an inclusive turn limit; Enter runs deletion and Esc leaves the index unchanged. */
+export async function deleteSessionsByTurnCount(
+  ctx: ExtensionContext,
+  deleteSessions: (maximumTurns: number) => { removed_sessions: number; removed_turns: number; backup_path: string },
+): Promise<void> {
+  if (ctx.mode !== "tui") throw new Error("Session deletion requires Pi TUI mode");
+  const input = await ctx.ui.input(SESSION_DELETION_LABEL, "Maximum turns per session (inclusive). Enter to delete.");
+  if (input === undefined) return;
+  const text = input.trim();
+  const maximumTurns = Number(text);
+  if (!/^\d+$/.test(text) || !Number.isSafeInteger(maximumTurns)) throw new Error(`Enter digits for a maximum turn count from 0 to ${Number.MAX_SAFE_INTEGER}`);
+  const result = deleteSessions(maximumTurns);
+  ctx.ui.notify([
+    `[session-memory] Deleted sessions: ${result.removed_sessions} | Deleted turns: ${result.removed_turns}`,
+    `Maximum turns per session (inclusive): ${maximumTurns}`,
+    `Backup: ${result.backup_path}`,
+    "Original history files stay unchanged. " +
+    "Full import or continued use of a deleted session can restore it.",
+  ].join("\n"), "info");
+}
+
 /** Show one read-only turn-count distribution. Entries arrive sorted by descending turn count. */
 export async function showDatabaseSessionManagement(
   ctx: ExtensionContext,

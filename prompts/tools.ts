@@ -314,8 +314,10 @@ export const TOOL_PROMPTS = {
 
 export const COMMAND_DESCRIPTION =
   "Open direct configuration editing, guided setup, read-only " +
-  "database session management, Pi history import, or " +
-  "indexed-tool-turn cleanup. Field rows show " +
+  "database session management, session deletion by turn count, " +
+  "Pi history import, or indexed-tool-turn cleanup. Session " +
+  "deletion uses an inclusive non-negative integer limit and " +
+  "creates a verified database backup first. Field rows show " +
   "current values and required/optional labels. Unset fields " +
   "show defaults. Enter saves a valid field; Esc goes back. " +
   "Use this menu for plugin settings and " +
