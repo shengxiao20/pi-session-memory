@@ -311,7 +311,9 @@ assert.equal(shown, 1);
 assert.equal(selectionResult.details.mode, "consultation");
 assert.match(selectionResult.content.at(-1)!.text, /recallMode=discussion \(recall only; main tools unchanged\)/);
 assert.doesNotMatch(selectionResult.content.at(-1)!.text, /Jev=|Ollama/);
+assert.equal(selectionResult.details.consultation.status, "cancelled");
 assert.equal(selectionResult.details.consultation.consultation_id, null);
+assert.equal(selectionResult.details.fallbackReason, undefined, "participant cancellation does not return Normal evidence");
 assert.equal(selectionResult.details.global, undefined);
 const cancelledDisplay = recall.renderResult!(selectionResult, { expanded: false, isPartial: false }, renderTheme, { isError: false }).render(120).join("\n");
 assert.match(cancelledDisplay, /cancelled without fetch fallback/);
@@ -334,9 +336,18 @@ const noCandidates = await recall.execute("no-candidates", {
   entities: ["missing-consultation-topic", "missing-history-topic"], primary_entity: "missing-consultation-topic",
   question: "What did we discuss about missing-consultation-topic?",
 }, undefined, () => {}, selectionCtx);
-assert.equal(noCandidates.details.consultation.consultation_id, null);
-assert.match(noCandidates.content[0].text, /No consultation is active/);
+assert.equal(noCandidates.details.mode, "transcript");
+assert.equal(noCandidates.details.recallMode, "normal");
+assert.equal(noCandidates.details.configuredMode, "discussion");
+assert.equal(noCandidates.details.returnedResults, 0);
+assert.equal(noCandidates.details.consultation, undefined);
+assert.match(noCandidates.details.fallbackReason, /unique returned-turn threshold/);
+assert.match(noCandidates.content[0].text, /Global recall/);
+assert.match(noCandidates.content[1].text, /Project recall/);
+assert.doesNotMatch(noCandidates.content.map(block => block.text).join("\n"), /No consultation is active|Private historical-session consultation/);
 assert.equal(shown, 1, "no eligible candidates must not open another checklist");
+assert.equal(readFileSync(native.getSessionFile()!, "utf8"), nativeBefore);
+assert.equal(JSON.parse(readFileSync(configPath, "utf8")).recallMode, "discussion");
 writeFileSync(configPath, originalConfig);
 db.getDb().prepare("DELETE FROM turns WHERE session_id = ?").run(nativeId);
 db.getDb().prepare("DELETE FROM sessions WHERE session_id = ?").run(nativeId);
@@ -406,6 +417,27 @@ try {
   assert.doesNotMatch(filtered.content[1]!.text, /pi:project:unique/);
   const filteredCompact = recall.renderResult(filtered, { expanded: false, isPartial: false }, renderTheme, { isError: false }).render(160).join("\n");
   assert.match(filteredCompact, /Global recall.*Jev: filtered[\s\S]*Project recall.*Jev: filtered/);
+
+  const filterConfig = readFileSync(configPath, "utf8");
+  const fallbackConfig = JSON.stringify({ ...JSON.parse(filterConfig), recallMode: "discussion", consultation: { timeoutMs: 1000 } });
+  writeFileSync(configPath, fallbackConfig);
+  process.env.PI_SESSION_MEMORY_DISCUSSION_TURN_THRESHOLD = "2";
+  jevRequests.length = 0;
+  const fallbackUpdates: any[] = [];
+  const filteredFallback = await recall.execute("jev-discussion-fallback", options, undefined, (update: any) => fallbackUpdates.push(update), selectionCtx);
+  assert.equal(filteredFallback.details.mode, "transcript");
+  assert.equal(filteredFallback.details.recallMode, "normal");
+  assert.equal(filteredFallback.details.configuredMode, "discussion");
+  assert.match(filteredFallback.details.fallbackReason, /unique returned-turn threshold/);
+  assert.equal(jevRequests.length, 2, "fallback must not rerun the two-stage Jev review");
+  assert.deepEqual(filteredFallback.details.global, filtered.details.global);
+  assert.deepEqual(filteredFallback.details.project, filtered.details.project);
+  assert.deepEqual(filteredFallback.content.slice(0, 2), filtered.content.slice(0, 2), "Normal fallback reuses the final filtered evidence sections");
+  assert.deepEqual(fallbackUpdates.map(update => update.details.stage), filteredUpdates.map(update => update.details.stage));
+  assert.equal(shown, 1, "filtered unique turns at the threshold do not open participants");
+  assert.equal(readFileSync(configPath, "utf8"), fallbackConfig);
+  writeFileSync(configPath, filterConfig);
+  process.env.PI_SESSION_MEMORY_DISCUSSION_TURN_THRESHOLD = "0";
 
   runtimePrototype.ensureReady = async () => ({ state: "unavailable", reason: "test Jev unavailable" });
   const unavailable = await recall.execute("jev-unavailable", options, undefined, () => {});

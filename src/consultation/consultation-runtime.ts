@@ -42,7 +42,7 @@ export class ConsultationRuntime {
     if (!config) throw new Error("Session consultation is disabled or consultation.timeoutMs is not configured");
     if (this.record || this.busy) throw new Error("Finish or cancel the active consultation first");
     const groups = selectConsultationSessions(turns, `pi:${context.sessionManager.getSessionId()}`);
-    if (!groups.length) return { consultation_id: null, answers: [], reason: "No historical native Pi sessions exceed the configured unique returned-turn threshold" };
+    if (!groups.length) return { status: "no_eligible_sessions" as const, consultation_id: null, answers: [], reason: "No historical native Pi sessions exceed the configured unique returned-turn threshold" };
     this.record = { id: randomUUID(), owner: context.sessionManager.getSessionId(), question, answers: [], evidence: groups.flat(), knowledgePath: resolveKnowledgePath(), timeoutMs: config.timeoutMs };
     return this.run(context, signal, async (requestSignal, startTimeout) => {
       const record = this.record!;
@@ -50,7 +50,7 @@ export class ConsultationRuntime {
       requestSignal.throwIfAborted();
       if (!selected.length) {
         this.record = undefined;
-        return { consultation_id: null, answers: [], reason: "User selected no historical sessions; consultation cancelled without fetch fallback" };
+        return { status: "cancelled" as const, consultation_id: null, answers: [], reason: "User selected no historical sessions; consultation cancelled without fetch fallback" };
       }
       record.evidence = selected.flat();
       startTimeout();
@@ -65,7 +65,7 @@ export class ConsultationRuntime {
         requestSignal.throwIfAborted();
       }
       if (!this.record || !this.participants.length) throw new Error("Consultation was cancelled during startup");
-      return { consultation_id: this.record.id, answers: this.record.answers.map(answer => ({ ...answer, question })) };
+      return { status: "active" as const, consultation_id: this.record.id, answers: this.record.answers.map(answer => ({ ...answer, question })) };
     }, true);
   }
 

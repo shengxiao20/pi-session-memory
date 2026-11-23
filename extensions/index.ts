@@ -105,25 +105,31 @@ export default function (pi: ExtensionAPI) {
         ? formatProjectRecallResults(project, options)
         : "No additional project turns returned after the existing project search, optional Jev review, and exact turn_id deduplication.";
       const projectText = _recallStageText(`Project recall · new turns: ${project.results.length} · duplicates removed: ${project.duplicatesRemoved}`, project.stats, projectResultsText);
-      const mode = await selectRecallMode(configuredMode, { global: global.results.length, project: project.results.length }, ctx, signal);
+      let mode = await selectRecallMode(configuredMode, { global: global.results.length, project: project.results.length }, ctx, signal);
+      let fallbackReason: string | undefined;
       if (mode === undefined) return {
         content: [{ type: "text", text: "Recall mode selection cancelled. No transcripts were added and no historical agents were opened." }],
         details: { mode: "cancelled", configuredMode, returnedResults: 0 },
       };
       if (mode === "discussion") {
         const consultation = await consultationRuntime.start([...global.results, ...project.results], options.question, ctx, signal);
-        consultationPresentation.remember(consultation);
-        if (consultation.consultation_id !== null) output.startDiscussion();
-        return {
-          content: [{ type: "text" as const, text: `## Private historical-session consultation\n${JSON.stringify(consultation, null, 2)}\n${consultationGuidance(consultation.consultation_id)}` }],
-          details: { mode: "consultation", configuredMode, recallMode: mode, consultation },
-        };
+        if (consultation.status === "no_eligible_sessions") {
+          mode = "normal";
+          fallbackReason = consultation.reason;
+        } else {
+          consultationPresentation.remember(consultation);
+          if (consultation.consultation_id !== null) output.startDiscussion();
+          return {
+            content: [{ type: "text" as const, text: `## Private historical-session consultation\n${JSON.stringify(consultation, null, 2)}\n${consultationGuidance(consultation.consultation_id)}` }],
+            details: { mode: "consultation", configuredMode, recallMode: mode, consultation },
+          };
+        }
       }
       output.addTranscript([...global.results, ...project.results]);
       return {
         content: [{ type: "text" as const, text: globalText }, { type: "text" as const, text: `${projectText}\n\n${OKF_OUTPUT_NOTICE}\nSources: ${JSON.stringify(output.sourceIds())}` }],
         details: {
-          mode: "transcript", configuredMode, recallMode: mode,
+          mode: "transcript", configuredMode, recallMode: mode, fallbackReason,
           returnedResults: global.results.length + project.results.length,
           global: { returnedResults: global.results.length, results: global.results, jev: global.stats, jevFilteredOut: global.filteredOut },
           project: { totalSessions: project.sessions.length, returnedResults: project.results.length, sessions: project.sessions, results: project.results, duplicatesRemoved: project.duplicatesRemoved, jev: project.stats, jevFilteredOut: project.filteredOut },

@@ -159,8 +159,12 @@ export const TOOL_PROMPTS = {
       "PI_SESSION_MEMORY_DISCUSSION_TURN_THRESHOLD) and its indexed " +
       "evidence in a TUI checklist. Count turns after both recall " +
       "stages, optional Jev filtering and exact turn_id " +
-      "deduplication. There is no session-count cap. All eligible " +
-      "candidates start selected. Resume only user-confirmed " +
+      "deduplication. If no historical session exceeds the " +
+      "threshold, use normal for this call only with the same " +
+      "retrieved evidence; do not change recallMode or repeat " +
+      "retrieval. Participant cancellation and errors do not " +
+      "trigger this fallback. There is no session-count cap. All " +
+      "eligible candidates start selected. Resume only user-confirmed " +
       "sessions for sequential private consultation, excluding the " +
       "active main session. Return consultation answers instead of " +
       "raw recall sections for this request only. Consultation uses " +
@@ -179,7 +183,10 @@ export const TOOL_PROMPTS = {
       "question. Keep the complete core phrase verbatim. Global " +
       "recall runs before entity-discovered project recall; never " +
       "infer scope from the current session or CWD. Discussion uses " +
-      "user-confirmed sessions, not transcript fallback.",
+      "user-confirmed sessions. Only when no historical session " +
+      "exceeds the unique returned-turn threshold, use normal for " +
+      "this call without changing configuration or repeating recall. " +
+      "Cancellation and errors never trigger this fallback.",
     promptGuidelines: [KNOWLEDGE_FIRST_NOTICE, OKF_OUTPUT_NOTICE],
   },
   review_jev_filtered: {

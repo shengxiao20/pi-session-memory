@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Value } from "typebox/value";
 import { selectRecallMode } from "../src/recall/recall-mode.ts";
 import { requestContextTool } from "./helpers/request-context-tool.ts";
+import { knowledgeFields } from "./helpers/knowledge-fixture.ts";
 
 const home = mkdtempSync(join(tmpdir(), "pi-recall-mode-"));
 process.env.HOME = process.env.USERPROFILE = home;
@@ -12,7 +13,9 @@ process.env.MEMORY_DB_PATH = join(home, "memory.db");
 const directory = join(home, ".pi", "agent", "pi-session-memory");
 mkdirSync(directory, { recursive: true });
 const configPath = join(directory, "config.json");
-const { RECALL_MODES, DEFAULT_RECALL_MODE, validateMemoryConfig } = await import("../src/settings/config.ts");
+const { RECALL_MODES, DEFAULT_RECALL_MODE, validateMemoryConfig, DISCUSSION_TURN_THRESHOLD_ENV } = await import("../src/settings/config.ts");
+const originalThreshold = process.env[DISCUSSION_TURN_THRESHOLD_ENV];
+delete process.env[DISCUSSION_TURN_THRESHOLD_ENV];
 const { setupConfigurationSchema } = await import("../src/setup/setup-schema.ts");
 const { configureMemory, readMemorySetup } = await import("../src/setup/setup.ts");
 const { default: extension } = await import("../extensions/index.ts");
@@ -90,7 +93,7 @@ try {
   const starts: any[] = [];
   ConsultationRuntime.prototype.start = async function(turns, question, ctx, signal) {
     starts.push({ turns, question, ctx, signal });
-    return { consultation_id: "test-consultation", answers: [] } as any;
+    return { status: "active", consultation_id: "test-consultation", answers: [] };
   };
   const build = (answer?: number, hasUI = true) => {
     const events = new Map<string, any>(); const tools = new Map<string, any>();
@@ -172,11 +175,70 @@ try {
   await assert.rejects(missing.recall(), /consultation.timeoutMs is not configured/);
   assert.equal(missing.menus.length, 1, "missing consultation config does not force normal before asking");
   assert.deepEqual(missing.events.get("message_end")({ message: finalMessage }).message, finalMessage);
+  for (const configuredMode of ["discussion", "choice"] as const) {
+    for (const turnThreshold of [undefined, 2]) {
+      const knowledgePath = join(home, `fallback-${configuredMode}-${turnThreshold ?? "default"}`);
+      writeConfig({ recallMode: configuredMode, knowledgePath, consultation: { timeoutMs: 2000,
+        ...(turnThreshold === undefined ? {} : { turnThreshold }) } });
+      const app = build(1); const bytes = readFileSync(configPath, "utf8");
+      let pickers = 0;
+      app.ctx.mode = "tui";
+      app.ctx.ui.custom = async () => { pickers++; return turnThreshold === undefined ? undefined : []; };
+      const fallback = await app.recall();
+      assert.equal(fallback.details.mode, "transcript");
+      assert.equal(fallback.details.recallMode, "normal");
+      assert.equal(fallback.details.configuredMode, configuredMode);
+      assert.match(fallback.details.fallbackReason, /unique returned-turn threshold/);
+      assert.equal(fallback.details.returnedResults, 2);
+      assert.equal(fallback.details.global.returnedResults, 2);
+      assert.equal(fallback.details.project.returnedResults, 0);
+      assert.equal(fallback.details.project.duplicatesRemoved, 2, "duplicate hits cannot exceed the exclusive threshold");
+      assert.deepEqual(app.updates.map(update => update.details.stage), ["global", "project"], "fallback never repeats recall");
+      assert.equal(pickers, 0, "no eligible session opens neither a checklist nor an agent");
+      assert.ok(fallback.content.some((block: any) => /Source answer/.test(block.text)));
+      assert.ok(fallback.content.some((block: any) => /transcript-1/.test(block.text)));
+      assert.ok(!fallback.content.some((block: any) => /Private historical-session consultation/.test(block.text)));
+      assert.equal(fallback.details.consultation, undefined);
+      assert.equal(readFileSync(configPath, "utf8"), bytes);
+      assert.ok(!existsSync(knowledgePath), "fallback does not save raw evidence");
+      assert.equal(app.events.get("message_end")({ message: finalMessage }, app.ctx).message.stopReason, "error",
+        "fallback follows the Normal OKF finish requirement");
+      const saved = await app.tools.get("finish_memory_recall").execute("finish", { question: query.question, conclusion: {
+        ...knowledgeFields, description: "Review of mode project evidence.", findings: "Sources reviewed [transcript-1].",
+        decisions: "None", unverified_inferences: "None", disagreements: "None", open_questions: "None", actions: "None",
+      } }, undefined, undefined, app.ctx);
+      assert.match(saved.details.markdown, /transcript-1/);
+      const final = app.events.get("message_end")({ message: finalMessage }, app.ctx).message;
+      assert.equal(final.stopReason, "stop");
+      assert.equal(final.content[0].text, saved.details.markdown, "fallback can save and emit the Normal OKF document");
+      assert.equal(readFileSync(configPath, "utf8"), bytes);
+
+      process.env[DISCUSSION_TURN_THRESHOLD_ENV] = "1";
+      const next = await app.recall();
+      delete process.env[DISCUSSION_TURN_THRESHOLD_ENV];
+      assert.equal(next.details.mode, "consultation", "the next call still attempts Discussion when a session exceeds the threshold");
+      assert.equal(next.details.recallMode, "discussion");
+      assert.equal(next.details.consultation.status, "cancelled");
+      assert.equal(next.details.consultation.consultation_id, null);
+      assert.equal(next.details.fallbackReason, undefined, "Esc and empty participant selection do not fall back");
+      assert.ok(!next.content.some((block: any) => /Source answer|Fetch turn ID/.test(block.text)));
+      assert.equal(pickers, 1, "the environment threshold is read again on the next call");
+      assert.equal(app.menus.length, configuredMode === "choice" ? 2 : 0, "choice is not replaced by the previous fallback");
+      assert.equal(readFileSync(configPath, "utf8"), bytes);
+      await app.events.get("session_before_switch")();
+    }
+  }
   writeConfig({ recallMode: "discussion", consultation: { timeoutMs: 2000 } });
-  const ineligible = build();
-  const emptyDiscussion = await ineligible.recall();
-  assert.equal(emptyDiscussion.details.consultation.consultation_id, null);
-  assert.equal(emptyDiscussion.details.mode, "consultation", "no eligible participants never falls back to transcripts");
+  const empty = build(undefined, false);
+  const emptyFallback = await empty.recall({ entities: ["missing topic"], primary_entity: "missing topic", question: "Review missing topic" });
+  assert.equal(emptyFallback.details.mode, "transcript", "zero hits use Normal without requiring a participant TUI");
+  assert.equal(emptyFallback.details.recallMode, "normal");
+  assert.equal(emptyFallback.details.returnedResults, 0);
+  assert.deepEqual(emptyFallback.details.global.results, []);
+  assert.deepEqual(emptyFallback.details.project.results, []);
+  assert.equal(empty.menus.length, 0);
+  assert.equal(empty.events.get("message_end")({ message: finalMessage }, empty.ctx).message.stopReason, "error");
+  await empty.events.get("session_before_switch")();
 
   writeConfig({ recallMode: "choice", consultation: { timeoutMs: 2000, turnThreshold: 0 } });
   let confirmed = false; let disposed = 0;
@@ -188,6 +250,7 @@ try {
   const evidence: any = [{ turn_id: "pi:other:u", session_id: "pi:other", source: "pi", score: 11, ts: 1, turn_index: 0, user_text: "mode project", reply_text: "answer" }];
   const context: any = { sessionManager: { getSessionId: () => "main" } };
   const consultation = await runtime.start(evidence, query.question, context);
+  assert.equal(consultation.status, "active");
   assert.ok(consultation.consultation_id);
   const followup = await runtime.followUp(consultation.consultation_id!, "pi:other", "Explain", context);
   assert.equal(followup.answer, "Private", "choice allows follow-up only for an active participant");
@@ -195,8 +258,10 @@ try {
   assert.equal(disposed, 1);
   assert.equal(JSON.parse(readFileSync(configPath, "utf8")).recallMode, "choice");
   assert.ok(!existsSync(join(directory, "knowledge")), "choosing or cancelling a mode never writes knowledge");
-  console.log("recall mode tests passed: enum/default, explicit legacy repair, native menu, abort/Esc/headless, every-call routing, dedup counts, no persistence/fallback, confirmation/follow-up/cleanup");
+  console.log("recall mode tests passed: enum/default, explicit legacy repair, native menu, abort/Esc/headless, every-call routing, dedup counts, one-call no-candidate fallback, Normal OKF saving, no cancellation/error fallback, no persistence, confirmation/follow-up/cleanup");
 } finally {
   ConsultationRuntime.prototype.start = originalStart;
+  if (originalThreshold === undefined) delete process.env[DISCUSSION_TURN_THRESHOLD_ENV];
+  else process.env[DISCUSSION_TURN_THRESHOLD_ENV] = originalThreshold;
   rmSync(home, { recursive: true, force: true });
 }

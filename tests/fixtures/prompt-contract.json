@@ -1,5 +1,5 @@
 {
-  "description": "Public text and complete schema contract. Recall/review inputs retain reviewed 2.0.8 changes; recall modes retain reviewed 2.0.9 changes. Storage help/schema/fields and the shared OKF path sentence reflect reviewed 2.0.10 storage unification. Complete metadata was compared with the earlier baseline using only these explicit transformations. Guide changes are limited to reviewed editor/storage sections, section numbering and the storage JSON field. The configuration command description and direct-editor guide also reflect reviewed now-value rows. Other tools, notices, environment help, model and response formats retain earlier baselines. SHA-256 over canonical JSON. The default knowledge path is normalized for portability. No events or tools were executed.",
+  "description": "Public text and complete schema contract. Recall/review inputs retain reviewed 2.0.8 changes; recall modes retain reviewed 2.0.9 changes and the one-call Normal fallback when Discussion has no eligible historical sessions. Storage help/schema/fields and the shared OKF path sentence reflect reviewed 2.0.10 storage unification. Complete metadata was compared with the earlier baseline using only these explicit transformations. Guide changes are limited to reviewed editor/storage sections, section numbering and the storage JSON field. The configuration command description and direct-editor guide also reflect reviewed now-value rows. Other tools, notices, environment help, model and response formats retain earlier baselines. SHA-256 over canonical JSON. The default knowledge path is normalized for portability. No events or tools were executed.",
   "tools": {
     "follow_up_session": "7ad654caec17a47eccc7e87808eb40d1fd7b0003d510c1b21ee9f12fec878163",
     "finish_session_consultation": "c2f7576ef3cf136460d62bc2a6be72615a1266980534f2413071e3da27149d19",
@@ -8,7 +8,7 @@
     "configure_memory": "43ec7acb944ad3f00adff6a188a8066816512aaad6f13b019c53e6e6cb2f5d95",
     "inspect_memory_knowledge": "bc0e05c6a4f4455923df47babde3cfbba8292955ba59637aa6e3da709afe40e1",
     "read_memory_knowledge": "b5844f72f401852f0b700f71e7dae36243faa0c4f9bed0f1af6fb6718bbbc0af",
-    "recall_memory": "27d8808d6e4db4121dc6b673ee5b3c25e2cebb2f1ffc99f6f5de7db9a0ddf8f6",
+    "recall_memory": "8e6971aba6dd155fda6a95590f9275c192a2f4c2dee068e22cefab4efb428331",
     "review_jev_filtered": "a6e51ed6c9b1a6292658c75ced225ee230a9738055f73c11ec176788bc2519c5",
     "fetch_session": "20f106ff51563e4422f8babbf248d2d4f48643a667916b15883485c4bcf756ad",
     "finish_memory_recall": "7d9dd2e5b7e2a24ea07f84b9a42d4b6af6c25a26a6a0123ce8b450c8471d6075",
