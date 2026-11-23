@@ -156,6 +156,7 @@ assert.match(extensionSource, /setup: "Agentic setup",\s*edit: "Edit configurati
 assert.doesNotMatch(extensionSource, /setup: "Setup"/);
 assert.match(extensionSource, /clean: "Clean indexed tool turns"/);
 assert.match(extensionSource, /backfill: "Import history"/);
+assert.doesNotMatch(extensionSource, /\bsyncChangedHistory\b/, "the extension must not automatically import historical sessions");
 assert.doesNotMatch(extensionSource, /Search (?:project )?history —/);
 assert.doesNotMatch(extensionSource, /"memory-project-search"/);
 assert.match(TOOL_PROMPTS.recall_memory.description, /One call with literal topic entities/);

@@ -34,6 +34,18 @@ mkdirSync(join(historyHome, ".pi", "agent", "pi-session-memory"), { recursive: t
 mkdirSync(obsidianVault, { recursive: true });
 writeFileSync(join(historyHome, ".pi", "agent", "pi-session-memory", "config.json"), JSON.stringify({ recallLimit: 2, recallMode: "normal", knowledgePath: join(obsidianVault, "pi-session-memory") }));
 
+const curatedRoot = join(historyHome, ".pi", "agent", "sessions", "curated");
+const curatedPath = join(curatedRoot, "history.jsonl");
+const curatedSessionId = "pi:curated";
+const curatedTimestamp = "2026-06-06T12:00:00Z";
+const curatedRecords = [
+  { type: "session", version: 3, id: "curated", timestamp: curatedTimestamp, cwd: historyHome },
+  { type: "message", id: "user", parentId: null, timestamp: curatedTimestamp, message: { role: "user", timestamp: 1, content: [{ type: "text", text: "Curated historical question" }] } },
+  { type: "message", id: "reply", parentId: "user", timestamp: curatedTimestamp, message: { role: "assistant", timestamp: 2, stopReason: "stop", content: [{ type: "text", text: "Curated historical answer" }] } },
+];
+mkdirSync(curatedRoot, { recursive: true });
+writeFileSync(curatedPath, curatedRecords.map(record => JSON.stringify(record)).join("\n") + "\n");
+
 const extension = (await import("../extensions/index.ts")).default;
 const events: Array<{ event: string; handler: (...args: any[]) => unknown }> = [];
 const commands: Array<{ name: string; options: { description: string; handler: (args: string, ctx: unknown) => Promise<void> } }> = [];
@@ -83,11 +95,13 @@ const startup = events.find(({ event }) => event === "session_start");
 assert.ok(startup);
 const oldStatePath = join(historyHome, ".pi", "agent", "pi-session-memory", "whats-new.json");
 await startup.handler({}, ctx);
-assert.equal(notices.length, 0, "startup must not show a custom release notice or empty sync summary");
+assert.equal(notices.length, 0, "startup must not show a custom release notice or history import summary");
+assert.ok(!existsSync(dbPath), "startup must not create a historical index even when source files exist");
 assert.ok(!existsSync(oldStatePath), "startup must not create custom release-note state");
 writeFileSync(oldStatePath, "invalid legacy state");
 await startup.handler({}, ctx);
 assert.equal(notices.length, 0, "startup must ignore legacy custom release-note state");
+assert.ok(!existsSync(dbPath), "repeated startup must not import historical source files");
 assert.equal(readFileSync(oldStatePath, "utf8"), "invalid legacy state", "legacy state must remain untouched");
 const menu = commands.find((command) => command.name === "pi-session-memory");
 assert.ok(menu);
@@ -103,7 +117,10 @@ assert.deepEqual(menuOptions[0], [
 ]);
 assert.ok(menuOptions[0]!.every((option) => !/[\u4e00-\u9fff]/.test(option)), "menu descriptions must be English only");
 assert.ok(menuOptions[0]!.every((option) => !/search|help|status|knowledge|consultation|conclusion/i.test(option)), "Agent-handled review actions must not appear in the direct-operation menu");
-(await import("../src/history/db.ts")).getDb();
+const startupDb = await import("../src/history/db.ts");
+startupDb.getDb();
+assert.equal(startupDb.getHistoryStats().sessions, 0, "startup must leave newly discovered history unindexed");
+assert.equal(startupDb.getSourceFile(curatedPath), undefined);
 selections.push("Clean indexed tool turns");
 await menu.options.handler("", ctx);
 assert.match(notices.at(-1)!.message, /SQLite cleanup removed 0 package-tool turns/);
@@ -111,6 +128,34 @@ assert.match(notices.at(-1)!.message, /Backup:/);
 selections.push("Import history");
 await menu.options.handler("", ctx);
 assert.match(notices.at(-1)!.message, /\[session-memory\] imported/);
+assert.equal(startupDb.getSession(curatedSessionId).turns[0].reply_text, "Curated historical answer", "manual Import must still index historical files");
+function deleteCuratedSession(): void {
+  startupDb.getDb().prepare("DELETE FROM turns WHERE session_id = ?").run(curatedSessionId);
+  startupDb.getDb().prepare("DELETE FROM sessions WHERE session_id = ?").run(curatedSessionId);
+}
+deleteCuratedSession();
+curatedRecords[2].message!.content[0].text = "Changed historical answer after manual database deletion";
+writeFileSync(curatedPath, curatedRecords.map(record => JSON.stringify(record)).join("\n") + "\n");
+startupDb.getDb().prepare("UPDATE source_files SET parser_version = ? WHERE jsonl_path = ?").run("old-parser", curatedPath);
+const curatedSourceBeforeStartup = startupDb.getSourceFile(curatedPath);
+const noticesBeforeCuratedStartup = notices.length;
+await startup.handler({}, ctx);
+await startup.handler({}, ctx);
+assert.equal(notices.length, noticesBeforeCuratedStartup, "startup must not report history import activity");
+assert.equal(startupDb.getHistoryStats().sessions, 0, "startup must not restore deleted sessions even when source content and parser versions differ");
+assert.deepEqual(startupDb.getSourceFile(curatedPath), curatedSourceBeforeStartup, "startup must not update source tracking");
+selections.push("Import history");
+await menu.options.handler("", ctx);
+assert.equal(startupDb.getSession(curatedSessionId).turns[0].reply_text, curatedRecords[2].message!.content[0].text, "explicit Import must restore the changed historical session");
+deleteCuratedSession();
+const explicitBackfill = tools.find(tool => tool.name === "backfill_memory")!;
+const explicitImportResult = await explicitBackfill.execute("explicit-import", {});
+assert.equal(explicitImportResult.details.pi, 1);
+assert.equal(explicitImportResult.details.turns, 1);
+assert.equal(startupDb.getSession(curatedSessionId).turns[0].reply_text, curatedRecords[2].message!.content[0].text, "backfill_memory must still explicitly restore deleted sessions");
+deleteCuratedSession();
+startupDb.getDb().prepare("DELETE FROM source_files WHERE jsonl_path = ?").run(curatedPath);
+rmSync(curatedRoot, { recursive: true });
 notices.length = 0;
 await assert.rejects(menu.options.handler("setup", ctx), /accepts no arguments/);
 await assert.rejects(menu.options.handler("unexpected", ctx), /accepts no arguments/);

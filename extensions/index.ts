@@ -13,7 +13,7 @@ import { registerSetupTools } from "../src/setup/setup-tools.ts";
 import { editMemoryConfiguration } from "../src/setup/config-editor.ts";
 import { SETUP_REQUEST } from "../src/setup/setup.ts";
 import { recallSequentially } from "../src/recall/recall-workflow.ts";
-import { backfillAll, syncChangedHistory, type BackfillStats } from "../src/history/backfill.ts";
+import { backfillAll, type BackfillStats } from "../src/history/backfill.ts";
 import { notifyMemoryToolCleanup, registerMemoryCleanupTools } from "../src/history/memory-index-cleanup-tools.ts";
 import { formatProjectRecallResults, recallProjectMemory } from "../src/recall/project-retriever.ts";
 import { validateRecallQuery } from "../src/recall/recall-query.ts";
@@ -44,13 +44,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     output.reset(); memory.reset();
     consultationPresentation.restore(ctx.sessionManager.getBranch());
-    try {
-      const stats = syncChangedHistory();
-      for (const issue of stats.issues) ctx.ui.notify(`[session-memory] ${issue.error}`, "error");
-    } catch (err) {
-      ctx.ui.notify(`[session-memory] history sync failed: ${String(err)}`, "error");
-      return;
-    }
     let config: ReturnType<typeof getSessionMemoryConfig>;
     try { config = getSessionMemoryConfig(); }
     catch (err) {
