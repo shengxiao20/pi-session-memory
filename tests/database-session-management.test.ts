@@ -15,7 +15,7 @@ const { getSessionTurnDistribution } = await import("../src/history/db.ts");
 type Entry = { turn_count: number; session_count: number };
 
 function _ui(rows = 24) {
-  const state = { closed: 0, renders: 0, builds: 0, color: "31", options: [] as string[][], selection: "Database session management" as string | undefined };
+  const state = { closed: 0, renders: 0, builds: 0, color: "31", foreground: [] as { role: string; text: string }[], options: [] as string[][], selection: "Database session management" as string | undefined };
   let component: Component;
   const tui = { terminal: { rows }, requestRender() { state.renders++; } };
   const context = { mode: "tui", hasUI: true, ui: {
@@ -23,7 +23,10 @@ function _ui(rows = 24) {
     custom(build: any) {
       state.builds++;
       return new Promise<void>(resolve => {
-        component = build(tui, { fg: (_role: string, text: string) => `\x1b[${state.color}m${text}\x1b[0m` }, getKeybindings(), () => { state.closed++; resolve(); });
+        component = build(tui, {
+          fg(role: string, text: string) { state.foreground.push({ role, text }); return `\x1b[${state.color}m${text}\x1b[0m`; },
+          bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+        }, getKeybindings(), () => { state.closed++; resolve(); });
       });
     },
     notify() { throw new Error("Viewing must not notify, import, or change settings"); },
@@ -34,7 +37,7 @@ function _plain(view: Component, width = 100): string[] { return view.render(wid
 function _chartLines(view: Component, width = 100) { return _plain(view, width).filter(line => /^(?:→ |  )\s*\d+ /.test(line)); }
 function _bars(view: Component, width = 100) {
   return _chartLines(view, width).map(line => {
-    const match = line.match(/^.{2}\s*(\d+) (█*) (\d+)$/)!;
+    const match = line.match(/^.{2}\s*(\d+) ([▓▒]*) (\d+)$/)!;
     return { turns: Number(match[1]), sessions: Number(match[3]), cells: match[2].length };
   });
 }
@@ -112,8 +115,17 @@ try {
   assert.equal(ui.state.builds, 1);
   const lines = _plain(ui.view());
   assert.ok(lines.includes("Database session management"));
-  assert.ok(lines.some(line => line.includes("Sessions: 18 | Turns: 1260 | Groups: 4 | Read-only snapshot")));
-  assert.ok(lines.some(line => line.includes("Turns per session | Sessions (bar and number)")));
+  assert.ok(lines.some(line => line.includes("Total sessions: 18 | Total turns: 1260 | Groups: 4 | Read-only snapshot")));
+  const columnHeading = lines.find(line => line.includes("Turns per session") && line.includes("Session count"))!;
+  assert.ok(columnHeading, "the numeric columns need explicit metric labels");
+  assert.equal(columnHeading.indexOf("Session count"), _chartLines(ui.view())[0].indexOf("▓"), "the session-count heading aligns with its colored bars");
+  const styledRows = ui.view().render(100).filter(line => /^(?:→ |  )\s*\d+ /.test(stripVTControlCharacters(line)));
+  assert.equal(styledRows.length, raw.length);
+  assert.ok(styledRows.every(line => /\x1b\[31m[▓▒]+\x1b\[0m/.test(line)), "every bar is colored, including unselected rows");
+  assert.ok(styledRows.every(line => /\x1b\[31m\d+\x1b\[0m/.test(line)), "session counts use the same metric color as the bars");
+  assert.ok(styledRows[0].includes("\x1b[1m"), "selection adds bold without replacing bar color");
+  assert.ok(styledRows[0].includes("▓▒"), "bars include alternating texture");
+  assert.ok(ui.state.foreground.filter(call => /^[▓▒]+$/.test(call.text)).every(call => call.role === "accent"), "bar colors use the theme accent, not severity colors");
   assert.ok(!lines.join("\n").includes("sessionId"));
   assert.deepEqual(_bars(ui.view()).map(row => row.turns), [100, 50, 10, 0]);
   assert.deepEqual(_bars(ui.view()).map(row => row.sessions), [10, 5, 1, 2], "the number immediately after each bar is the group session count");
@@ -174,7 +186,7 @@ try {
     if (!entries.length) assert.ok(_plain(view.view()).includes("No sessions are indexed."));
     if (entries.length === 1) {
       assert.ok(_bars(view.view())[0].cells > 0);
-      assert.ok(_plain(view.view()).some(line => line.includes("Sessions: 7 | Turns: 0 | Groups: 1")));
+      assert.ok(_plain(view.view()).some(line => line.includes("Total sessions: 7 | Total turns: 0 | Groups: 1")));
     }
     if (entries.length === 2) assert.equal(_bars(view.view())[1].cells, 1, "small nonzero frequencies need one visible cell");
     for (const key of ["\x1b[6~", "\x1b[5~", "\x1b[F", "\x1b[H", "\x1b[A"]) { view.view().handleInput!(key); _plain(view.view()); }
@@ -201,7 +213,7 @@ try {
   const menuResult = commands[0].handler("", menu.context);
   await Promise.resolve();
   assert.deepEqual(menu.state.options[0], ["Agentic setup", "Edit configuration", "Database session management", "Clean indexed tool turns", "Import history"]);
-  assert.ok(_plain(menu.view()).some(line => line.includes("Sessions: 7 | Turns: 112 | Groups: 5")));
+  assert.ok(_plain(menu.view()).some(line => line.includes("Total sessions: 7 | Total turns: 112 | Groups: 5")));
   assert.deepEqual(_bars(menu.view()).map(row => ({ turn_count: row.turns, session_count: row.sessions })), expected);
   assert.equal(_chartLines(menu.view()).length, 5, "seven sessions collapse to five turn-count groups");
   assert.ok(!_plain(menu.view()).join("\n").includes("pi:"), "the menu must never display individual session IDs");
@@ -229,7 +241,7 @@ try {
   broken.close();
   await assert.rejects(commands[0].handler("", menu.context), /no such table: turns/);
   assert.equal(menu.state.builds, 1, "invalid schemas fail without migration or reopening a stale view");
-  console.log("database session management tests passed: read-only grouped frequencies, equal turn counts merged, exact session-count annotations, frequency-based bars, zero-turn groups, no session IDs, weighted totals, pagination, resize, theme changes, menu routing, empty and error boundaries");
+  console.log("database session management tests passed: read-only grouped frequencies, equal turn counts merged, exact session-count annotations, frequency-based bars, explicit metric headings, colored textured bars, zero-turn groups, no session IDs, weighted totals, pagination, resize, theme changes, menu routing, empty and error boundaries");
 } finally {
   rmSync(home, { recursive: true, force: true });
 }

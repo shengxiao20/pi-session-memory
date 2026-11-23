@@ -20,14 +20,14 @@ export async function showDatabaseSessionManagement(
     const createList = () => {
       const view = new SelectList(items, visibleRows, {
         selectedPrefix: text => theme.fg("accent", text),
-        selectedText: text => theme.fg("accent", text),
+        selectedText: text => theme.bold(text),
         description: text => theme.fg("muted", text),
         scrollInfo: text => theme.fg("dim", text),
         noMatch: () => theme.fg("dim", "No sessions are indexed."),
       }, {
         truncatePrimary: ({ item, maxWidth }) => {
           const entry = entries[positions.get(item.value)!];
-          return _chartRow(entry.turn_count, entry.session_count, maxWidth, maxTurns, maxSessions);
+          return _chartRow(entry.turn_count, entry.session_count, maxWidth, maxTurns, maxSessions, text => theme.fg("accent", text));
         },
       });
       view.setSelectedIndex(cursor);
@@ -40,8 +40,8 @@ export async function showDatabaseSessionManagement(
       render(width: number) {
         const header = new Text([
           theme.fg("accent", "Database session management"),
-          `Sessions: ${sessions} | Turns: ${total} | Groups: ${entries.length} | Read-only snapshot`,
-          theme.fg("dim", "Turns per session | Sessions (bar and number) | Descending turn count"),
+          `Total sessions: ${sessions} | Total turns: ${total} | Groups: ${entries.length} | Read-only snapshot`,
+          `  ${theme.fg("muted", "Turns per session".padStart(_turnColumnWidth(width - 4, maxTurns)))} ${theme.fg("accent", "Session count")}`,
         ].join("\n"), 0, 0).render(width);
         const controls = new Text(theme.fg("dim", "Up/Down: select | PgUp/PgDn: page | Home/End: first/last | Enter/Esc: close"), 0, 0).render(width);
         // Reserve one blank line and the native list's optional scroll indicator.
@@ -64,9 +64,15 @@ export async function showDatabaseSessionManagement(
   });
 }
 
-function _chartRow(turns: number, sessions: number, width: number, maxTurns: number, maxSessions: number): string {
-  const turnWidth = Math.max(5, String(maxTurns).length);
+function _chartRow(turns: number, sessions: number, width: number, maxTurns: number, maxSessions: number, colorSession: (text: string) => string): string {
+  const turnWidth = _turnColumnWidth(width, maxTurns);
   const barWidth = Math.max(0, width - turnWidth - String(maxSessions).length - 2);
   const filled = Math.min(barWidth, Math.max(1, Math.round(sessions / maxSessions * barWidth)));
-  return truncateToWidth(`${String(turns).padStart(turnWidth)} ${"█".repeat(filled)} ${sessions}`, width, "");
+  const bar = "▓▒".repeat(Math.ceil(filled / 2)).slice(0, filled);
+  return truncateToWidth(`${String(turns).padStart(turnWidth)} ${colorSession(bar)} ${colorSession(String(sessions))}`, width, "");
+}
+
+/** Align wide views with the heading while reserving space for narrow-view count annotations. */
+function _turnColumnWidth(width: number, maxTurns: number): number {
+  return Math.max(String(maxTurns).length, Math.min("Turns per session".length, Math.floor(width / 3)));
 }

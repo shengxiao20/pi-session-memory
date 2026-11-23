@@ -142,16 +142,23 @@ async function inspectDatabaseMenu(sessions: number, turns: number, distribution
       async custom(build: any) {
         builds++;
         let closed = false;
-        const component = build({ terminal: { rows: 24 }, requestRender() {} }, { fg: (_role: string, text: string) => `\x1b[36m${text}\x1b[0m` }, getKeybindings(), () => { closed = true; });
-        const lines = component.render(100);
+        const component = build({ terminal: { rows: 24 }, requestRender() {} }, {
+          fg: (_role: string, text: string) => `\x1b[36m${text}\x1b[0m`,
+          bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+        }, getKeybindings(), () => { closed = true; });
+        const lines: string[] = component.render(100);
         assert.ok(lines.every((line: string) => visibleWidth(line) <= 100));
         const text: string = lines.map((line: string) => stripVTControlCharacters(line).trimEnd()).join("\n");
         assert.match(text, /Database session management/);
-        assert.ok(text.includes(`Sessions: ${sessions} | Turns: ${turns} | Groups: ${distribution.length} | Read-only snapshot`));
+        assert.ok(text.includes(`Total sessions: ${sessions} | Total turns: ${turns} | Groups: ${distribution.length} | Read-only snapshot`));
+        assert.ok(text.includes("Turns per session"));
+        assert.ok(text.includes("Session count"));
+        const styledRows = lines.filter(line => /^(?:→ |  )\s*\d+ /.test(stripVTControlCharacters(line)));
+        assert.ok(styledRows.every(line => /\x1b\[36m[▓▒]+\x1b\[0m/.test(line)), "all bars must have theme color and texture");
         assert.doesNotMatch(text, /sessionId|pi:/, "the chart must not display individual sessions");
         const chartRows = text.split("\n").filter(line => /^(?:→ |  )\s*\d+ /.test(line));
         assert.deepEqual(chartRows.map(line => {
-          const match = line.match(/^.{2}\s*(\d+) (█+) (\d+)$/)!;
+          const match = line.match(/^.{2}\s*(\d+) ([▓▒]+) (\d+)$/)!;
           return { turn_count: Number(match[1]), session_count: Number(match[3]) };
         }), distribution, "equal turn counts share one bar with the exact session frequency beside it");
         if (!distribution.length) assert.ok(text.includes("No sessions are indexed."));
