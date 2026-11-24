@@ -30,8 +30,8 @@
     "extensions/",
     "src/",
     "prompts/",
-    "site/assets/codegraph-map.svg",
-    "site/assets/codegraph-map.json",
+    "github-page/assets/codegraph-map.svg",
+    "github-page/assets/codegraph-map.json",
     "CHANGELOG.md"
   ],
   "scripts": {

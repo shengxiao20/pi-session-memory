@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { parse } from "yaml";
 
-const siteRoot = resolve("site");
+const siteRoot = resolve("github-page");
 const html = readFileSync(resolve(siteRoot, "index.html"), "utf8");
 const css = readFileSync(resolve(siteRoot, "styles.css"), "utf8");
 const script = readFileSync(resolve(siteRoot, "main.js"), "utf8");
@@ -42,7 +42,7 @@ assert.match(css, /\.source-map-scroll:focus-visible/);
 assert.match(html, /On small screens, scroll the map horizontally or open the full-size SVG/);
 assert.match(css, /\.source-map \{[^}]*min-width: 960px/);
 assert.match(html, /src="\.\/assets\/codegraph-map\.svg"/);
-assert.match(readme, /\]\(site\/assets\/codegraph-map\.svg\)/);
+assert.match(readme, /\]\(github-page\/assets\/codegraph-map\.svg\)/);
 assert.match(html, /href="\.\/assets\/codegraph-map\.json"/);
 assert.match(html, /Static relationships are not runtime traces/);
 assert.match(html, /Shared <code>prompts\/<\/code> resources are omitted/);
@@ -112,21 +112,21 @@ for (const [, attribute, value] of html.matchAll(/\b(href|src)="([^"]+)"/g)) {
 assert.equal([...html.matchAll(/<img\b/g)].length, [...html.matchAll(/<img\b[^>]*\balt=/g)].length, "all images declare alternative text");
 
 assert.deepEqual(workflow.on.push.branches, ["main"]);
-assert.deepEqual(workflow.on.push.paths, ["site/**", ".github/workflows/pages.yml"]);
+assert.deepEqual(workflow.on.push.paths, ["github-page/**", ".github/workflows/pages.yml"]);
 assert.ok(Object.hasOwn(workflow.on, "workflow_dispatch"), "manual deployment is available");
 assert.equal(workflow.permissions.contents, "read");
 assert.equal(workflow.jobs.deploy.permissions.pages, "write");
 assert.equal(workflow.jobs.deploy.permissions["id-token"], "write");
 assert.equal(workflow.jobs.deploy.environment.name, "github-pages");
 const upload = workflow.jobs.deploy.steps.find((step: { uses?: string }) => step.uses?.startsWith("actions/upload-pages-artifact@"));
-assert.equal(upload.with.path, "site", "deployment exposes only static site files");
+assert.equal(upload.with.path, "github-page", "deployment exposes only static site files");
 assert.match(readme, /Settings → Pages/);
 assert.match(readme, /Architecture decision: independent evidence routing/);
 assert.match(readme, /fetch_session` remains available to the main agent during either route/);
 assert.match(readme, /never falls back to transcript retrieval automatically/);
 assert.ok(!manifest.files.some((path: string) => path.startsWith("docs/")), "retired resources are not declared for publication");
 assert.doesNotMatch(readme, /\]\(docs\//);
-assert.match(readme, /python3 -m http\.server 8000 --directory site/);
+assert.match(readme, /python3 -m http\.server 8000 --directory github-page/);
 
 async function testClipboard(writeText: (text: string) => Promise<void>) {
   let listener: () => Promise<void>;

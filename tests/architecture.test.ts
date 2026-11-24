@@ -104,13 +104,13 @@ function visit(source: string, path: string[]): void {
 }
 for (const source of graph.keys()) visit(source, []);
 
-const mapSnapshot = JSON.parse(readFileSync(join(root, "site/assets/codegraph-map.json"), "utf8")) as {
+const mapSnapshot = JSON.parse(readFileSync(join(root, "github-page/assets/codegraph-map.json"), "utf8")) as {
   source: { tool: string; root: string; depth: number; sourceFiles: number; moduleCycles: number };
   modules: Array<{ id: string; files: number }>;
   links: Array<{ source: string; target: string; declared: number }>;
   reviewedDynamicImports: Array<{ source: string; target: string; file: string; specifier: string }>;
 };
-const mapSvg = readFileSync(join(root, "site/assets/codegraph-map.svg"), "utf8");
+const mapSvg = readFileSync(join(root, "github-page/assets/codegraph-map.svg"), "utf8");
 function moduleId(file: string): string {
   return file === entryPoint ? "extensions/index.ts" : `src/${relative(sourceRoot, file).split(/[\\/]/)[0]}`;
 }
@@ -159,13 +159,13 @@ assert.match(mapSvg, /Type-only dependency/);
 assert.match(mapSvg, /Source-verified dynamic import/);
 
 const config = JSON.parse(readFileSync(join(root, "codegraph.json"), "utf8"));
-assert.deepEqual(config, { exclude: [".github/", "scripts/", "site/", "sites/"] }, "CodeGraph excludes auxiliary directories, not tests or runtime modules");
+assert.deepEqual(config, { exclude: [".github/", "scripts/", "github-page/", "sites/"] }, "CodeGraph excludes auxiliary directories, not tests or runtime modules");
 const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 assert.deepEqual(manifest.pi.extensions, ["./extensions"], "the public Pi entry point remains unchanged");
 assert.ok(manifest.files.includes("src/"), "all domain modules are packaged");
 assert.ok(manifest.files.includes("prompts/"), "all shared text resources are packaged");
 assert.deepEqual(manifest.pi.prompts, [], "internal Markdown resources are not registered as Pi slash commands");
 assert.ok(!manifest.files.some((path: string) => path.startsWith("docs/")), "retired documentation is not declared for publication");
-assert.ok(manifest.files.includes("site/assets/codegraph-map.svg"), "the shared README architecture image is packaged");
-assert.ok(manifest.files.includes("site/assets/codegraph-map.json"), "the architecture evidence snapshot is packaged");
+assert.ok(manifest.files.includes("github-page/assets/codegraph-map.svg"), "the shared README architecture image is packaged");
+assert.ok(manifest.files.includes("github-page/assets/codegraph-map.json"), "the architecture evidence snapshot is packaged");
 console.log("architecture.test.ts: passed");
