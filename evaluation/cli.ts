@@ -119,7 +119,8 @@ async function _run(configPath: string, runId: string, scenario: Scenario): Prom
       ...Object.fromEntries(["cli.ts", "config.ts", "dataset.ts", "metrics.ts", "models.ts", "model-http.ts", "ollama.ts", "pipeline.ts", "scoring.ts", "full-context.ts", "resources.ts"].map(name =>
         [`evaluation/${name}`, sha256(readFileSync(join(ROOT, "evaluation", name)))])) },
     dependencyLockSha256: sha256(readFileSync(join(ROOT, "package-lock.json"))),
-    evaluator: "pi-session-memory-project-judge-v1", temperature: 0,
+    evaluator: "pi-session-memory-project-judge-v1",
+    samplingPolicy: "Ollama uses explicit per-model sampling recorded in models and requests; OpenAI uses temperature=0",
     scope: scenario === "memory"
       ? "LoCoMo text + image captions; normal recall with one-pass answering; no fetch windows, Discussion or saved OKF reuse"
       : "Full raw LoCoMo conversation + image captions; one-pass answer; no planner, retrieval, Jev, database or plugin state",

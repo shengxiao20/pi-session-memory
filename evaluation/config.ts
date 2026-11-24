@@ -3,7 +3,29 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { validateMemoryConfig, type SessionMemoryConfig } from "../src/settings/config.ts";
 
-export type ModelBackend = { backend: "openai"; } | { backend: "ollama"; thinking: boolean | string; contextWindow: number; };
+export interface OllamaSampling {
+  temperature: number;
+  topP: number;
+  topK: number;
+  minP: number;
+  presencePenalty: number;
+  repeatPenalty: number;
+  seed: number;
+}
+export type ModelBackend = { backend: "openai"; } | { backend: "ollama"; thinking: boolean | string; contextWindow: number; sampling: OllamaSampling; };
+
+function _validateSampling(value: unknown, location: string): asserts value is OllamaSampling {
+  assert(value && typeof value === "object" && !Array.isArray(value), `Set explicit ${location}`);
+  assert.deepEqual(Object.keys(value).sort(), ["minP", "presencePenalty", "repeatPenalty", "seed", "temperature", "topK", "topP"], `Unexpected ${location} fields`);
+  const sampling = value as OllamaSampling;
+  for (const [key, maximum] of [["temperature", 2], ["topP", 1], ["minP", 1]] as const) {
+    assert(Number.isFinite(sampling[key]) && sampling[key] >= 0 && sampling[key] <= maximum, `Invalid ${location}.${key}`);
+  }
+  assert(Number.isSafeInteger(sampling.topK) && sampling.topK >= 0, `Invalid ${location}.topK`);
+  assert(Number.isFinite(sampling.presencePenalty) && Math.abs(sampling.presencePenalty) <= 2, `Invalid ${location}.presencePenalty`);
+  assert(Number.isFinite(sampling.repeatPenalty) && sampling.repeatPenalty > 0, `Invalid ${location}.repeatPenalty`);
+  assert(Number.isSafeInteger(sampling.seed) && sampling.seed >= 0, `Invalid ${location}.seed`);
+}
 export type ModelConfig = ModelBackend & { baseURLEnv: string; apiKeyEnv: string; modelEnv: string; maxTokens: number; };
 export interface EvalConfig {
   dataset: string;
@@ -46,8 +68,9 @@ export function parseConfig(value: unknown): EvalConfig {
     if (model.backend === "ollama") {
       assert(typeof model.thinking === "boolean" || (typeof model.thinking === "string" && model.thinking.trim() === model.thinking && model.thinking.length > 0), `Set explicit ${role}.thinking`);
       assert(Number.isSafeInteger(model.contextWindow) && model.contextWindow > model.maxTokens, `${role}.contextWindow must exceed maxTokens`);
+      _validateSampling(model.sampling, `${role}.sampling`);
     } else {
-      assert(!("thinking" in model) && !("contextWindow" in model), `Ollama controls require ${role}.backend=ollama`);
+      assert(!("thinking" in model) && !("contextWindow" in model) && !("sampling" in model), `Ollama controls require ${role}.backend=ollama`);
     }
   }
   return config;
@@ -64,7 +87,8 @@ export function resolveModel(config: ModelConfig): ResolvedModel {
   const reference = { baseURL: baseURL.replace(/\/+$/, ""), apiKey: requiredEnv(config.apiKeyEnv), model: requiredEnv(config.modelEnv), maxTokens: config.maxTokens };
   if (config.backend === "ollama") {
     assert.equal(url.pathname, "/", "Ollama baseURL must be a server root, for example http://127.0.0.1:11434");
-    return { ...reference, backend: "ollama", thinking: config.thinking, contextWindow: config.contextWindow };
+    _validateSampling(config.sampling, "model.sampling");
+    return { ...reference, backend: "ollama", thinking: config.thinking, contextWindow: config.contextWindow, sampling: config.sampling };
   }
   assert.equal(config.backend, "openai", "Set an explicit model backend");
   return { ...reference, backend: "openai" };
@@ -79,7 +103,7 @@ export function requiredEnv(name: string): string {
 export function datasetPath(config: EvalConfig): string { return resolve(config.dataset); }
 
 /** Export model identity for provenance without writing credentials. */
-export function modelIdentity(model: ResolvedModel): Omit<ResolvedModel, "apiKey"> {
+export function modelIdentity<T extends ResolvedModel>(model: T): Omit<T, "apiKey"> {
   const { apiKey: _apiKey, ...identity } = model;
   return identity;
 }

@@ -36,8 +36,8 @@ const server = createServer(async (request, response) => {
     assert.equal(body.model, "offline:q4");
     if (request.url === "/api/show") {
       metadataCalls++;
-      response.end(JSON.stringify({ capabilities: ["completion", "thinking"], thinking: incompatibleThinking ? { values: [false], default: false } : { values: [false, "low", "medium", "xhigh"], default: "xhigh" },
-        model_info: { "general.architecture": "qwen38", "qwen38.context_length": 131072 } }));
+      response.end(JSON.stringify({ capabilities: ["completion", "thinking"], thinking: incompatibleThinking ? { values: [true], default: true } : { values: [false, true], default: true },
+        model_info: { "general.architecture": "qwen35", "qwen35.context_length": 262144 } }));
       return;
     }
     assert.equal(request.url, "/api/chat");
@@ -45,11 +45,12 @@ const server = createServer(async (request, response) => {
     assert.equal(body.truncate, false);
     assert.equal(body.shift, false);
     assert.equal(body.options.num_ctx, 65536);
-    assert.equal(body.options.temperature, 0);
+    assert.deepEqual(body.options, { temperature: 0.7, top_p: 0.8, top_k: 20, min_p: 0,
+      presence_penalty: 1.5, repeat_penalty: 1, seed: 42, num_ctx: 65536, num_predict: body.options.num_predict });
     const input = JSON.parse(body.messages[1].content);
     const role = Object.entries(PROMPTS).find(([, prompt]) => prompt === body.messages[0].content)?.[0];
     assert(role);
-    assert.equal(body.think, role === "judge" ? "low" : false);
+    assert.equal(body.think, false);
     assert.equal(body.options.num_predict, config.models[role as keyof typeof config.models].maxTokens);
     assert.equal(body.format, role === "answer" ? undefined : "json");
     calls++;
@@ -71,7 +72,7 @@ const server = createServer(async (request, response) => {
       content = '{"correct":false}';
     }
     response.setHeader("Content-Type", "application/json");
-    response.end(JSON.stringify({ model: "offline:q4", message: { content, ...(role === "judge" ? { thinking: "Fixture reasoning" } : {}) },
+    response.end(JSON.stringify({ model: "offline:q4", message: { content },
       done: true, done_reason: "stop", prompt_eval_count: 7, eval_count: 3 }));
   } catch (error) { response.writeHead(500); response.end(String(error)); }
 });
@@ -106,7 +107,11 @@ try {
   assert.equal(manifest.status, "completed");
   assert.equal(manifest.models.answer.model, "offline:q4");
   assert.equal(manifest.models.answer.thinking, false);
-  assert.equal(manifest.models.judge.thinking, "low");
+  assert.equal(manifest.models.judge.thinking, false);
+  assert.deepEqual(manifest.models.answer.sampling, { temperature: 0.7, topP: 0.8, topK: 20, minP: 0, presencePenalty: 1.5, repeatPenalty: 1, seed: 42 });
+  assert.deepEqual(manifest.models.judge.sampling, manifest.models.answer.sampling);
+  assert(!("temperature" in manifest), "Sampling provenance uses the actual per-model controls");
+  assert(manifest.samplingPolicy.includes("explicit per-model"));
   assert.equal(manifest.modelChecks.answer.digest, digest);
   assert.equal(manifest.modelChecks.judge.serverVersion, "0.35.0");
   assert.equal(metadataCalls, 9, "Run and worker each inspect the shared model once");

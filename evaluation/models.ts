@@ -23,7 +23,9 @@ export async function complete(model: ResolvedModel, request: ModelRequest, time
   const messages = [{ role: "system", content: PROMPTS[request.role] }, { role: "user", content: JSON.stringify(request.input) }];
   const body = model.backend === "ollama" ? {
     model: model.model, messages, stream: false, think: model.thinking, truncate: false, shift: false,
-    options: { temperature: 0, num_ctx: model.contextWindow, num_predict: model.maxTokens },
+    options: { temperature: model.sampling.temperature, top_p: model.sampling.topP, top_k: model.sampling.topK,
+      min_p: model.sampling.minP, presence_penalty: model.sampling.presencePenalty, repeat_penalty: model.sampling.repeatPenalty,
+      seed: model.sampling.seed, num_ctx: model.contextWindow, num_predict: model.maxTokens },
     ...(request.json ? { format: "json" } : {}),
   } : {
     model: model.model, messages, temperature: 0, max_tokens: model.maxTokens,

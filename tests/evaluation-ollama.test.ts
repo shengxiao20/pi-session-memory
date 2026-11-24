@@ -13,7 +13,13 @@ for (const model of Object.values(config.models)) {
   assert.equal(model.backend, "ollama");
   assert(model.backend === "ollama");
   assert.equal(model.contextWindow, 65536);
+  assert.equal(model.thinking, false);
+  assert.deepEqual(model.sampling, { temperature: 0.7, topP: 0.8, topK: 20, minP: 0, presencePenalty: 1.5, repeatPenalty: 1, seed: 42 });
 }
+assert.equal(config.timeoutMs, 180000);
+assert(config.models.planner.backend === "ollama");
+const sampling = config.models.planner.sampling;
+const variedSampling = { temperature: 1.1, topP: 0.95, topK: 40, minP: 0.1, presencePenalty: 0, repeatPenalty: 1.2, seed: 17 };
 assert.deepEqual(readConfig("evaluation/config/locomo-full-context-smoke.json").models, config.models, "Both scenarios use identical model controls");
 assert.deepEqual(readConfig("evaluation/config/locomo-full.json").models, config.models, "Full and smoke retrieval runs use identical model controls");
 assert.equal(config.models.answer.maxTokens, 1024);
@@ -21,10 +27,26 @@ assert.equal(config.models.judge.maxTokens, 4096);
 for (const [field, value, expected] of [
   ["backend", undefined, /backend/], ["thinking", null, /explicit/], ["thinking", " ", /explicit/],
   ["contextWindow", 512, /contextWindow/], ["maxTokens", 0, /Assertion/],
+  ["sampling", undefined, /explicit.*sampling/], ["sampling", null, /explicit.*sampling/],
+  ["sampling", [], /explicit.*sampling/],
 ] as const) {
   const invalid = structuredClone(config);
   Object.assign(invalid.models.planner, { [field]: value });
   assert.throws(() => parseConfig(invalid), expected);
+}
+for (const [field, value] of [["temperature", NaN], ["temperature", 2.1], ["topP", 1.01], ["minP", -0.1],
+  ["topK", 20.5], ["presencePenalty", 3], ["repeatPenalty", 0], ["seed", -1], ["seed", 1.5]] as const) {
+  const invalid = structuredClone(config);
+  assert(invalid.models.planner.backend === "ollama");
+  Object.assign(invalid.models.planner.sampling, { [field]: value });
+  assert.throws(() => parseConfig(invalid), new RegExp(`sampling.${field}`));
+}
+for (const mutation of ["missing", "unknown"] as const) {
+  const invalid = structuredClone(config);
+  assert(invalid.models.planner.backend === "ollama");
+  if (mutation === "missing") Reflect.deleteProperty(invalid.models.planner.sampling, "topK");
+  else Reflect.set(invalid.models.planner.sampling, "top_p", 0.8);
+  assert.throws(() => parseConfig(invalid), /Unexpected.*sampling fields/);
 }
 const invalidBackend = structuredClone(config);
 Object.assign(invalidBackend.models.planner, { backend: "openai" });
@@ -59,9 +81,10 @@ const server = createServer(async (request, response) => {
     assert.equal(body.truncate, false);
     assert.equal(body.shift, false);
     assert.equal(body.stream, false);
-    assert.equal(body.options.temperature, 0);
-    assert.equal(body.options.num_ctx, 32768);
-    assert.equal(body.options.num_predict, body.think === "low" ? 4096 : 512);
+    const expected = body.think === "low" ? sampling : variedSampling;
+    assert.deepEqual(body.options, { temperature: expected.temperature, top_p: expected.topP, top_k: expected.topK,
+      min_p: expected.minP, presence_penalty: expected.presencePenalty, repeat_penalty: expected.repeatPenalty,
+      seed: expected.seed, num_ctx: 32768, num_predict: body.think === "low" ? 4096 : 512 });
     assert.equal(body.format, "json");
     const result = { model: "fixture:q4", message: { content: '{"correct":true}', thinking: body.think === "low" ? "Fixture reasoning" : "" },
       done: true, done_reason: "stop", prompt_eval_count: 11, eval_count: 7 };
@@ -82,9 +105,9 @@ const address = server.address();
 assert(address && typeof address === "object");
 const baseURL = `http://127.0.0.1:${address.port}`;
 const models: ResolvedModels = {
-  planner: { backend: "ollama", baseURL, apiKey: "fixture-key", model: "fixture:q4", maxTokens: 512, thinking: false, contextWindow: 32768 },
-  answer: { backend: "ollama", baseURL, apiKey: "fixture-key", model: "fixture:q4", maxTokens: 1024, thinking: false, contextWindow: 32768 },
-  judge: { backend: "ollama", baseURL, apiKey: "fixture-key", model: "fixture:q4", maxTokens: 4096, thinking: "low", contextWindow: 32768 },
+  planner: { backend: "ollama", baseURL, apiKey: "fixture-key", model: "fixture:q4", maxTokens: 512, thinking: false, contextWindow: 32768, sampling: variedSampling },
+  answer: { backend: "ollama", baseURL, apiKey: "fixture-key", model: "fixture:q4", maxTokens: 1024, thinking: false, contextWindow: 32768, sampling },
+  judge: { backend: "ollama", baseURL, apiKey: "fixture-key", model: "fixture:q4", maxTokens: 4096, thinking: "low", contextWindow: 32768, sampling },
 };
 const temporary = mkdtempSync(join(tmpdir(), "pi-memory-ollama-test-"));
 const audit = join(temporary, "model-calls.jsonl");
@@ -146,12 +169,18 @@ try {
     process.env.PI_EVAL_TEST_BASE = `${baseURL}/v1`;
     process.env.PI_EVAL_TEST_KEY = "fixture-key";
     process.env.PI_EVAL_TEST_MODEL = "fixture:q4";
-    assert.throws(() => resolveModel({ backend: "ollama", thinking: false, contextWindow: 32768, maxTokens: 512,
-      baseURLEnv: envNames[0], apiKeyEnv: envNames[1], modelEnv: envNames[2] }), /server root/);
+    const reference = { backend: "ollama", thinking: false, contextWindow: 32768, maxTokens: 512, sampling,
+      baseURLEnv: envNames[0], apiKeyEnv: envNames[1], modelEnv: envNames[2] } as const;
+    assert.throws(() => resolveModel(reference), /server root/);
+    process.env.PI_EVAL_TEST_BASE = baseURL;
+    const resolved = resolveModel(reference);
+    assert(resolved.backend === "ollama");
+    assert.deepEqual(resolved.sampling, sampling);
+    assert.deepEqual(modelIdentity(resolved).sampling, sampling);
   } finally {
     envNames.forEach((name, index) => { if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index]; });
   }
-  console.log("evaluation-ollama.test.ts: passed (explicit thinking, capabilities, budgets, native JSON/usage, audit and fail-fast errors)");
+  console.log("evaluation-ollama.test.ts: passed (explicit sampling/thinking, capabilities, budgets, native JSON/usage, audit and fail-fast errors)");
 } finally {
   await new Promise<void>((resolveServer, reject) => server.close(error => error ? reject(error) : resolveServer()));
   rmSync(temporary, { recursive: true });

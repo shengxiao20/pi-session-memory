@@ -25,7 +25,16 @@
       "backend": "ollama",
       "thinking": false,
       "contextWindow": 65536,
-      "maxTokens": 512
+      "maxTokens": 512,
+      "sampling": {
+        "temperature": 0.7,
+        "topP": 0.8,
+        "topK": 20,
+        "minP": 0,
+        "presencePenalty": 1.5,
+        "repeatPenalty": 1,
+        "seed": 42
+      }
     },
     "answer": {
       "baseURLEnv": "PI_MEMORY_EVAL_BASE_URL",
@@ -34,16 +43,34 @@
       "backend": "ollama",
       "thinking": false,
       "contextWindow": 65536,
-      "maxTokens": 1024
+      "maxTokens": 1024,
+      "sampling": {
+        "temperature": 0.7,
+        "topP": 0.8,
+        "topK": 20,
+        "minP": 0,
+        "presencePenalty": 1.5,
+        "repeatPenalty": 1,
+        "seed": 42
+      }
     },
     "judge": {
       "baseURLEnv": "PI_MEMORY_EVAL_BASE_URL",
       "apiKeyEnv": "PI_MEMORY_EVAL_API_KEY",
       "modelEnv": "PI_MEMORY_EVAL_JUDGE_MODEL",
       "backend": "ollama",
-      "thinking": "low",
+      "thinking": false,
       "contextWindow": 65536,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "sampling": {
+        "temperature": 0.7,
+        "topP": 0.8,
+        "topK": 20,
+        "minP": 0,
+        "presencePenalty": 1.5,
+        "repeatPenalty": 1,
+        "seed": 42
+      }
     }
   }
 }
