@@ -24,7 +24,7 @@
       "modelEnv": "PI_MEMORY_EVAL_PLANNER_MODEL",
       "backend": "ollama",
       "thinking": false,
-      "contextWindow": 32768,
+      "contextWindow": 65536,
       "maxTokens": 512
     },
     "answer": {
@@ -33,7 +33,7 @@
       "modelEnv": "PI_MEMORY_EVAL_ANSWER_MODEL",
       "backend": "ollama",
       "thinking": false,
-      "contextWindow": 32768,
+      "contextWindow": 65536,
       "maxTokens": 1024
     },
     "judge": {
@@ -42,7 +42,7 @@
       "modelEnv": "PI_MEMORY_EVAL_JUDGE_MODEL",
       "backend": "ollama",
       "thinking": "low",
-      "contextWindow": 32768,
+      "contextWindow": 65536,
       "maxTokens": 4096
     }
   }

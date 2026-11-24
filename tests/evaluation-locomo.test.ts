@@ -28,7 +28,7 @@ const server = createServer(async (request, response) => {
     if (request.url === "/api/version") { metadataCalls++; response.end(JSON.stringify({ version: "0.35.0" })); return; }
     if (request.url === "/api/tags") { metadataCalls++; response.end(JSON.stringify({ models: [{ name: "offline:q4", digest }] })); return; }
     if (request.url === "/api/ps") {
-      response.end(JSON.stringify({ models: [{ name: "offline:q4", size: 17000000000, size_vram: 17000000000, context_length: 32768 }] })); return;
+      response.end(JSON.stringify({ models: [{ name: "offline:q4", size: 17000000000, size_vram: 17000000000, context_length: 65536 }] })); return;
     }
     let text = "";
     for await (const chunk of request) text += chunk;
@@ -44,7 +44,7 @@ const server = createServer(async (request, response) => {
     assert.equal(body.stream, false);
     assert.equal(body.truncate, false);
     assert.equal(body.shift, false);
-    assert.equal(body.options.num_ctx, 32768);
+    assert.equal(body.options.num_ctx, 65536);
     assert.equal(body.options.temperature, 0);
     const input = JSON.parse(body.messages[1].content);
     const role = Object.entries(PROMPTS).find(([, prompt]) => prompt === body.messages[0].content)?.[0];
@@ -174,7 +174,7 @@ try {
   assert.equal(baselineSummary.totalPromptTokens, 70);
   assert(!("evidenceRecall" in baselineSummary));
   const resources = JSON.parse(readFileSync(join(baselineRun, "resources.json"), "utf8"));
-  assert.equal(resources.ollama[0].models[0].context_length, 32768);
+  assert.equal(resources.ollama[0].models[0].context_length, 65536);
   result = await command(["worker", baselineRun, "0"]);
   assert.notEqual(result.code, 0, "Memory worker cannot execute a completed baseline manifest");
   assert(!existsSync(join(baselineSample, "memory.db")));

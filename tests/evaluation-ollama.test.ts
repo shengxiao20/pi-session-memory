@@ -9,6 +9,13 @@ import { inspectModels } from "../evaluation/ollama.ts";
 
 const config = readConfig("evaluation/config/locomo-smoke.json");
 assert.equal(config.models.planner.backend, "ollama");
+for (const model of Object.values(config.models)) {
+  assert.equal(model.backend, "ollama");
+  assert(model.backend === "ollama");
+  assert.equal(model.contextWindow, 65536);
+}
+assert.deepEqual(readConfig("evaluation/config/locomo-full-context-smoke.json").models, config.models, "Both scenarios use identical model controls");
+assert.deepEqual(readConfig("evaluation/config/locomo-full.json").models, config.models, "Full and smoke retrieval runs use identical model controls");
 assert.equal(config.models.answer.maxTokens, 1024);
 assert.equal(config.models.judge.maxTokens, 4096);
 for (const [field, value, expected] of [
