@@ -3,3 +3,6 @@ node_modules/
 *.tgz
 coverage/
 quick-notes/
+evaluation/data/
+evaluation/runs/
+evaluation/.env
