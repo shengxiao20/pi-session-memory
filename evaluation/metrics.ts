@@ -6,7 +6,7 @@ export interface EvidenceMetric {
   recall: number | null;
   complete: boolean | null;
 }
-export interface QuestionResult {
+export interface AnswerResult {
   sampleId: string;
   questionIndex: number;
   category: number;
@@ -16,17 +16,21 @@ export interface QuestionResult {
   correct: boolean;
   exactMatch: boolean;
   tokenF1: number;
+  contextCharacters: number;
+  answerMs: number;
+  judgeMs: number;
+  totalMs: number;
+  promptTokens: number;
+  completionTokens: number;
+}
+export interface QuestionResult extends AnswerResult {
   evidence: EvidenceMetric;
   query: { entities: string[]; primary_entity: string; };
   retrieved: { turnId: string; dialogueId: string; stage: "global" | "project"; score: number; }[];
   globalCandidates: number;
   projectCandidates: number;
   duplicatesRemoved: number;
-  contextCharacters: number;
   retrievalMs: number;
-  totalMs: number;
-  promptTokens: number;
-  completionTokens: number;
 }
 
 /** Preserve malformed annotations as explicit exclusions from evidence metrics; never repair them. */
@@ -59,28 +63,39 @@ export function tokenF1(prediction: string, goldAnswer: string): number {
   return 2 * matches / (predicted.length + gold.length);
 }
 
-export function summarize(results: QuestionResult[]) {
+function _average(values: number[]): number { return values.reduce((sum, value) => sum + value, 0) / values.length; }
+
+export function summarizeAnswers(results: AnswerResult[]) {
   assert(results.length > 0, "No completed evaluation questions");
-  const evidence = results.filter(result => result.evidence.status === "valid");
-  const durations = results.map(result => result.retrievalMs).sort((a, b) => a - b);
-  const average = (values: number[]): number => values.reduce((sum, value) => sum + value, 0) / values.length;
   return {
     questions: results.length,
-    projectJudgeAccuracy: average(results.map(result => Number(result.correct))),
-    diagnosticExactMatch: average(results.map(result => Number(result.exactMatch))),
-    diagnosticTokenF1: average(results.map(result => result.tokenF1)),
-    evidenceEligibleQuestions: evidence.length,
-    evidenceEmptyQuestions: results.filter(result => result.evidence.status === "empty").length,
-    evidenceInvalidQuestions: results.filter(result => result.evidence.status === "invalid").length,
-    evidenceRecall: evidence.length ? average(evidence.map(result => result.evidence.recall!)) : null,
-    evidenceCompleteRate: evidence.length ? average(evidence.map(result => Number(result.evidence.complete))) : null,
-    retrievalMeanMs: average(durations),
-    retrievalP95Ms: durations[Math.ceil(durations.length * 0.95) - 1],
+    projectJudgeAccuracy: _average(results.map(result => Number(result.correct))),
+    diagnosticExactMatch: _average(results.map(result => Number(result.exactMatch))),
+    diagnosticTokenF1: _average(results.map(result => result.tokenF1)),
+    answerMeanMs: _average(results.map(result => result.answerMs)),
+    judgeMeanMs: _average(results.map(result => result.judgeMs)),
+    totalMeanMs: _average(results.map(result => result.totalMs)),
     totalPromptTokens: results.reduce((sum, result) => sum + result.promptTokens, 0),
     totalCompletionTokens: results.reduce((sum, result) => sum + result.completionTokens, 0),
     byCategory: Object.fromEntries([...new Set(results.map(result => result.category))].sort().map(category => {
       const group = results.filter(result => result.category === category);
-      return [category, { questions: group.length, projectJudgeAccuracy: average(group.map(result => Number(result.correct))) }];
+      return [category, { questions: group.length, projectJudgeAccuracy: _average(group.map(result => Number(result.correct))) }];
     })),
+  };
+}
+
+export function summarize(results: QuestionResult[]) {
+  const answerSummary = summarizeAnswers(results);
+  const evidence = results.filter(result => result.evidence.status === "valid");
+  const durations = results.map(result => result.retrievalMs).sort((a, b) => a - b);
+  return {
+    ...answerSummary,
+    evidenceEligibleQuestions: evidence.length,
+    evidenceEmptyQuestions: results.filter(result => result.evidence.status === "empty").length,
+    evidenceInvalidQuestions: results.filter(result => result.evidence.status === "invalid").length,
+    evidenceRecall: evidence.length ? _average(evidence.map(result => result.evidence.recall!)) : null,
+    evidenceCompleteRate: evidence.length ? _average(evidence.map(result => Number(result.evidence.complete))) : null,
+    retrievalMeanMs: _average(durations),
+    retrievalP95Ms: durations[Math.ceil(durations.length * 0.95) - 1],
   };
 }

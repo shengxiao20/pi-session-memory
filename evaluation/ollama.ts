@@ -13,12 +13,12 @@ export interface OllamaModelCheck {
 export type ModelChecks = Record<ModelRole, OllamaModelCheck | null>;
 
 /** Inspect local models without generating text, loading weights or downloading files. */
-export async function inspectModels(models: ResolvedModels, timeoutMs: number): Promise<ModelChecks> {
+export async function inspectModels(models: Partial<ResolvedModels>, timeoutMs: number): Promise<ModelChecks> {
   const servers = new Map<string, { version: string; tags: { name: string; digest: string; }[]; }>();
   const inspected = new Map<string, OllamaModelCheck>();
   const checks: ModelChecks = { planner: null, answer: null, judge: null };
   for (const role of Object.keys(models) as ModelRole[]) {
-    const model = models[role];
+    const model = models[role]!;
     if (model.backend === "openai") continue;
     if (!servers.has(model.baseURL)) {
       const version = await requestModelJson(model, "/api/version", undefined, timeoutMs);

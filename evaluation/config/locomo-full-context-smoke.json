@@ -1,0 +1,49 @@
+{
+  "dataset": "evaluation/data/locomo10.json",
+  "sampleIndices": [0],
+  "categories": [1, 2, 3, 4],
+  "questionsPerSample": 5,
+  "contextCharacterLimit": 200000,
+  "timeoutMs": 180000,
+  "memory": {
+    "recallMode": "normal",
+    "recallLimit": 20,
+    "jevEnable": false,
+    "model": "nimble",
+    "jevConnection": {
+      "baseURL": "http://127.0.0.1:11434",
+      "manageOllama": false,
+      "apiKeyEnv": "PI_MEMORY_EVAL_JEV_API_KEY",
+      "contextWindow": 32768
+    }
+  },
+  "models": {
+    "planner": {
+      "baseURLEnv": "PI_MEMORY_EVAL_BASE_URL",
+      "apiKeyEnv": "PI_MEMORY_EVAL_API_KEY",
+      "modelEnv": "PI_MEMORY_EVAL_PLANNER_MODEL",
+      "backend": "ollama",
+      "thinking": false,
+      "contextWindow": 32768,
+      "maxTokens": 512
+    },
+    "answer": {
+      "baseURLEnv": "PI_MEMORY_EVAL_BASE_URL",
+      "apiKeyEnv": "PI_MEMORY_EVAL_API_KEY",
+      "modelEnv": "PI_MEMORY_EVAL_ANSWER_MODEL",
+      "backend": "ollama",
+      "thinking": false,
+      "contextWindow": 32768,
+      "maxTokens": 1024
+    },
+    "judge": {
+      "baseURLEnv": "PI_MEMORY_EVAL_BASE_URL",
+      "apiKeyEnv": "PI_MEMORY_EVAL_API_KEY",
+      "modelEnv": "PI_MEMORY_EVAL_JUDGE_MODEL",
+      "backend": "ollama",
+      "thinking": "low",
+      "contextWindow": 32768,
+      "maxTokens": 4096
+    }
+  }
+}

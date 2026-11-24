@@ -45,6 +45,14 @@ export function parseDataset(value: unknown): Sample[] {
   return value as Sample[];
 }
 
+/** Use the same ordered question selection in retrieval and full-context evaluations. */
+export function selectQuestions(sample: Sample, categories: number[], limit: number | null) {
+  const eligible = sample.qa.map((qa, questionIndex) => ({ qa, questionIndex })).filter(({ qa }) => categories.includes(qa.category));
+  const selected = limit === null ? eligible : eligible.slice(0, limit);
+  assert(selected.length > 0, "No questions match the configured categories");
+  return selected;
+}
+
 /** Map each utterance to one synthetic Pi turn; exclude all annotations and summaries. */
 export function historyTurns(sample: Sample): HistoryTurn[] {
   const keys = Object.keys(sample.conversation).filter(key => /^session_\d+$/.test(key))

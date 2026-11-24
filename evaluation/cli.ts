@@ -4,10 +4,18 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFi
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { datasetPath, modelIdentity, readConfig, resolveModel, requiredEnv } from "./config.ts";
+import { datasetPath, modelIdentity, readConfig, resolveModel, requiredEnv, type EvalConfig, type ResolvedModels } from "./config.ts";
 import { LOCOMO_SOURCE, parseDataset, readDataset, sha256, historyTurns } from "./dataset.ts";
 import { PROMPTS } from "./models.ts";
 import { inspectModels } from "./ollama.ts";
+import { summarizeFullContext, type FullContextResult } from "./full-context.ts";
+import { machineSnapshot, runningModelSnapshot } from "./resources.ts";
+
+type Scenario = "memory" | "full-context";
+function _modelsForScenario(config: EvalConfig, scenario: Scenario): Partial<ResolvedModels> {
+  const roles = scenario === "memory" ? ["planner", "answer", "judge"] as const : ["answer", "judge"] as const;
+  return Object.fromEntries(roles.map(role => [role, resolveModel(config.models[role])]));
+}
 import { summarize, type QuestionResult } from "./metrics.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -72,11 +80,11 @@ async function _doctor(configPath: string): Promise<void> {
     modelChecks, modelGenerationCallsPerformed: 0 }, null, 2));
 }
 
-function _spawnWorker(run: string, index: number): Promise<void> {
+function _spawnWorker(run: string, index: number, scenario: Scenario): Promise<void> {
   const directory = join(run, `sample-${index}`);
   mkdirSync(directory);
   return new Promise((resolveWorker, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(import.meta.url), "worker", run, String(index)], {
+    const child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(import.meta.url), scenario === "memory" ? "worker" : "baseline-worker", run, String(index)], {
       cwd: ROOT, stdio: "inherit",
       env: { ...process.env, HOME: join(directory, "home"), USERPROFILE: join(directory, "home"), MEMORY_DB_PATH: join(directory, "memory.db") },
     });
@@ -88,54 +96,57 @@ function _spawnWorker(run: string, index: number): Promise<void> {
   });
 }
 
-async function _run(configPath: string, runId: string): Promise<void> {
+async function _run(configPath: string, runId: string, scenario: Scenario): Promise<void> {
   assert(/^[A-Za-z0-9_-]+$/.test(runId), "run-id must contain letters, digits, underscores or hyphens");
   const config = readConfig(configPath);
   config.dataset = datasetPath(config);
   const dataset = readDataset(config.dataset);
   for (const index of config.sampleIndices) assert(dataset[index], `Unknown sample index: ${index}`);
-  const models = {
-    planner: modelIdentity(resolveModel(config.models.planner)), answer: modelIdentity(resolveModel(config.models.answer)),
-    judge: modelIdentity(resolveModel(config.models.judge)),
-  };
-  if (config.memory.jevEnable) requiredEnv(config.memory.jevConnection.apiKeyEnv!);
+  const resolvedModels = _modelsForScenario(config, scenario);
+  const models = Object.fromEntries(Object.entries(resolvedModels).map(([role, model]) => [role, modelIdentity(model)]));
+  if (scenario === "memory" && config.memory.jevEnable) requiredEnv(config.memory.jevConnection.apiKeyEnv!);
   _safeDirectory(RUNS);
   const run = join(RUNS, runId);
   mkdirSync(run); // Existing runs throw: never overwrite or resume partial scores.
   const packageVersion = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
   const manifest = {
-    status: "running", startedAt: new Date().toISOString(), source: LOCOMO_SOURCE, packageVersion,
+    status: "running", scenario, startedAt: new Date().toISOString(), source: LOCOMO_SOURCE, packageVersion,
+    machine: machineSnapshot(),
     gitCommit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim(),
     gitStatus: execFileSync("git", ["status", "--porcelain"], { cwd: ROOT, encoding: "utf8" }),
     node: process.version, models, config, prompts: PROMPTS, promptSha256: sha256(JSON.stringify(PROMPTS)),
     sourceSha256: { ..._sourceHashes(join(ROOT, "src")), ..._sourceHashes(join(ROOT, "prompts")),
-      ...Object.fromEntries(["cli.ts", "config.ts", "dataset.ts", "metrics.ts", "models.ts", "model-http.ts", "ollama.ts", "pipeline.ts"].map(name =>
+      ...Object.fromEntries(["cli.ts", "config.ts", "dataset.ts", "metrics.ts", "models.ts", "model-http.ts", "ollama.ts", "pipeline.ts", "scoring.ts", "full-context.ts", "resources.ts"].map(name =>
         [`evaluation/${name}`, sha256(readFileSync(join(ROOT, "evaluation", name)))])) },
     dependencyLockSha256: sha256(readFileSync(join(ROOT, "package-lock.json"))),
     evaluator: "pi-session-memory-project-judge-v1", temperature: 0,
-    scope: "LoCoMo text + image captions; normal recall with one-pass answering; no fetch windows, Discussion or saved OKF reuse",
+    scope: scenario === "memory"
+      ? "LoCoMo text + image captions; normal recall with one-pass answering; no fetch windows, Discussion or saved OKF reuse"
+      : "Full raw LoCoMo conversation + image captions; one-pass answer; no planner, retrieval, Jev, database or plugin state",
     selection: "First N eligible questions per selected sample; null means all eligible questions",
-    evidencePolicy: "Exact dialogue IDs; empty or invalid annotations excluded and reported",
-    tokenUsageScope: "Planner, answer and judge only; Ollama eval_count includes thinking and final output; Jev token usage excluded",
+    evidencePolicy: scenario === "memory" ? "Exact dialogue IDs; empty or invalid annotations excluded and reported" : "Scoring annotations stay outside answer input; retrieval evidence metrics remain inapplicable",
+    tokenUsageScope: `${scenario === "memory" ? "Planner, answer and judge" : "Answer and judge"} only; Ollama eval_count includes thinking and final output; Jev token usage excluded`,
     contextPolicy: "Ollama requests use explicit num_ctx, truncate=false and shift=false; overflow fails",
     modelCheckPolicy: "Record server version, installed model digest, context limit and thinking values before generation; worker metadata must match",
   };
   writeFileSync(join(run, "config.json"), JSON.stringify(config, null, 2), { flag: "wx" });
   writeFileSync(join(run, "manifest.json"), JSON.stringify(manifest, null, 2), { flag: "wx" });
   try {
-    const modelChecks = await inspectModels({ planner: resolveModel(config.models.planner), answer: resolveModel(config.models.answer), judge: resolveModel(config.models.judge) }, config.timeoutMs);
+    const modelChecks = await inspectModels(resolvedModels, config.timeoutMs);
     Object.assign(manifest, { modelChecks });
     writeFileSync(join(run, "manifest.json"), JSON.stringify(manifest, null, 2));
     for (const index of config.sampleIndices) {
-      await _spawnWorker(run, index);
+      await _spawnWorker(run, index, scenario);
       assert.deepEqual(JSON.parse(readFileSync(join(run, `sample-${index}`, "model-checks.json"), "utf8")), modelChecks,
         "Ollama model metadata changed between run preflight and worker");
     }
-    const results: QuestionResult[] = config.sampleIndices.flatMap(index => {
+    const results: (QuestionResult | FullContextResult)[] = config.sampleIndices.flatMap(index => {
       const lines = readFileSync(join(run, `sample-${index}`, "results.jsonl"), "utf8").trim().split("\n");
-      return lines.map(line => JSON.parse(line) as QuestionResult);
+      return lines.map(line => JSON.parse(line) as QuestionResult | FullContextResult);
     });
-    const summary = summarize(results);
+    const summary = scenario === "memory" ? { scenario, ...summarize(results as QuestionResult[]) } : summarizeFullContext(results as FullContextResult[]);
+    const resources = await runningModelSnapshot(resolvedModels, config.timeoutMs);
+    writeFileSync(join(run, "resources.json"), JSON.stringify(resources, null, 2), { flag: "wx" });
     writeFileSync(join(run, "summary.json"), JSON.stringify(summary, null, 2), { flag: "wx" });
     writeFileSync(join(run, "manifest.json"), JSON.stringify({ ...manifest, status: "completed", completedAt: new Date().toISOString() }, null, 2));
     console.log(JSON.stringify({ run, ...summary }, null, 2));
@@ -145,20 +156,28 @@ async function _run(configPath: string, runId: string): Promise<void> {
   }
 }
 
-async function _worker(runArgument: string, indexArgument: string): Promise<void> {
+async function _worker(runArgument: string, indexArgument: string, scenario: Scenario): Promise<void> {
   const run = resolve(runArgument);
   assert.equal(dirname(run), RUNS, "Worker must use evaluation/runs");
   assert.equal(realpathSync(run), run, "Worker path must use a real directory");
   const index = Number(indexArgument);
   assert(Number.isSafeInteger(index) && index >= 0 && String(index) === indexArgument, "Invalid worker index");
+  const manifest = JSON.parse(readFileSync(join(run, "manifest.json"), "utf8"));
+  assert.equal(manifest.status, "running", "Worker requires a running manifest");
+  assert.equal(manifest.scenario, scenario, "Worker scenario must match manifest");
   const config = readConfig(join(run, "config.json"));
   assert(config.sampleIndices.includes(index), "Worker sample is outside configured selection");
   const sample = readDataset(datasetPath(config))[index];
   assert(sample, "Missing sample");
   const directory = join(run, `sample-${index}`);
   assert.equal(realpathSync(directory), directory);
-  const { evaluateSample } = await import("./pipeline.ts");
-  await evaluateSample(sample, config, directory);
+  if (scenario === "full-context") {
+    const { evaluateFullContext } = await import("./full-context.ts");
+    await evaluateFullContext(sample, config, directory);
+  } else {
+    const { evaluateSample } = await import("./pipeline.ts");
+    await evaluateSample(sample, config, directory);
+  }
 }
 
 async function _main(): Promise<void> {
@@ -168,9 +187,11 @@ async function _main(): Promise<void> {
   switch (command) {
     case "download": assert(args.length === 0 && Object.keys(values).length === 0); await _download(); break;
     case "doctor": assert(args.length === 0 && values.config && !values["run-id"]); await _doctor(resolve(values.config)); break;
-    case "run": assert(args.length === 0 && values.config && values["run-id"]); await _run(resolve(values.config), values["run-id"]); break;
-    case "worker": assert(args.length === 2 && Object.keys(values).length === 0); await _worker(args[0], args[1]); break;
-    default: throw new Error("Usage: npm run eval -- download | doctor --config <file> | run --config <file> --run-id <unique-name>");
+    case "run": assert(args.length === 0 && values.config && values["run-id"]); await _run(resolve(values.config), values["run-id"], "memory"); break;
+    case "baseline": assert(args.length === 0 && values.config && values["run-id"]); await _run(resolve(values.config), values["run-id"], "full-context"); break;
+    case "worker": assert(args.length === 2 && Object.keys(values).length === 0); await _worker(args[0], args[1], "memory"); break;
+    case "baseline-worker": assert(args.length === 2 && Object.keys(values).length === 0); await _worker(args[0], args[1], "full-context"); break;
+    default: throw new Error("Usage: npm run eval -- download | doctor --config <file> | run --config <file> --run-id <unique-name> | baseline --config <file> --run-id <unique-name>");
   }
 }
 
