@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { BorderedLoader, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, ScrollView, SelectList, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
 
@@ -32,10 +32,11 @@ type Metric = "total_tokens" | "recorded_cost";
 /** Show exact grouped values and compact ranking bars from one on-demand JSONL snapshot. */
 export async function showWorkspaceUsage(ctx: ExtensionContext, readUsage: () => Promise<UsageView>): Promise<void> {
   if (ctx.mode !== "tui") throw new Error("Workspace usage requires Pi TUI mode");
-  const snapshot = await readUsage();
-  let entries = [...snapshot.workspaces];
-  const sessions = entries.reduce((sum, entry) => sum + entry.session_count, 0);
-  await ctx.ui.custom<void>((tui, theme, keys, done) => {
+  const result = await ctx.ui.custom<{ error: unknown } | undefined>((tui, theme, keys, done) => {
+    const loader = new BorderedLoader(tui, theme, "Reading session JSONL...", { cancellable: false });
+    let snapshot: UsageView | undefined;
+    let entries: UsageRow[] = [];
+    let sessions = 0;
     let metric: Metric = "total_tokens";
     let cursor = 0;
     let visibleRows = 1;
@@ -63,10 +64,21 @@ export async function showWorkspaceUsage(ctx: ExtensionContext, readUsage: () =>
       return list;
     };
     let list = createList();
+    void Promise.resolve().then(readUsage).then(value => {
+      snapshot = value;
+      entries = [...value.workspaces];
+      sessions = entries.reduce((sum, entry) => sum + entry.session_count, 0);
+      list = createList();
+      tui.requestRender();
+    }).catch(error => done({ error })).finally(() => loader.dispose());
     return {
       capturesViewportInput: true,
       render(width: number) {
         const title = theme.fg("accent", WORKSPACE_USAGE_LABEL);
+        if (snapshot === undefined) {
+          return [...new Text(title, 0, 0).render(width), ...loader.render(width)]
+            .slice(0, Math.max(1, tui.terminal.rows)).map(line => truncateToWidth(line, width, ""));
+        }
         const controls = new Text(theme.fg("dim", detail
           ? "↑/↓ scroll · PgUp/PgDn · Home/End · Enter/Esc back"
           : "↑/↓ move · PgUp/PgDn · Home/End · Tab tokens/cost · Enter details · Esc close"), 0, 0).render(width);
@@ -90,11 +102,13 @@ export async function showWorkspaceUsage(ctx: ExtensionContext, readUsage: () =>
         list = createList();
         return [...header, ...list.render(width), "", ...controls].map(line => truncateToWidth(line, width, ""));
       },
-      invalidate() { list.invalidate(); detail?.invalidate(); },
+      invalidate() { if (snapshot === undefined) loader.invalidate(); list.invalidate(); detail?.invalidate(); },
+      dispose() { loader.dispose(); },
       handleInput(data: string) {
+        if (snapshot === undefined) return;
         if (keys.matches(data, "tui.select.cancel")) {
           if (detail) detail = undefined;
-          else { done(); return; }
+          else { done(undefined); return; }
         } else if (keys.matches(data, "tui.select.confirm")) {
           if (detail) detail = undefined;
           else if (entries.length) detail = new ScrollView(new Text(_details(entries[cursor], snapshot), 0, 0), { scrollbar: "hidden" });
@@ -121,6 +135,7 @@ export async function showWorkspaceUsage(ctx: ExtensionContext, readUsage: () =>
       },
     };
   });
+  if (result !== undefined) throw result.error;
 }
 
 function _cells(entry: UsageRow): string[] {

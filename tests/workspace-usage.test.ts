@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import { mock } from "node:test";
 import { getKeybindings, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getWorkspaceUsage, type WorkspaceUsageSnapshot } from "../src/history/workspace-usage.ts";
@@ -37,15 +38,17 @@ function _tree(path: string): { path: string; bytes: string; mtime: number }[] {
   }).sort((a, b) => a.path.localeCompare(b.path));
 }
 function _ui(rows = 24) {
-  let component: Component | undefined;
+  let component: (Component & { dispose?(): void }) | undefined;
   const state = { closed: 0, builds: 0, renders: 0, color: 36, selection: "Workspace usage" as string | undefined };
   const tui = { terminal: { rows }, requestRender() { state.renders++; } };
   const context = { mode: "tui", ui: {
     async select(_title: string, options: string[]) { assert.ok(options.includes("Workspace usage")); return state.selection; },
     custom(build: any) {
       state.builds++;
-      return new Promise<void>(resolve => {
-        component = build(tui, { fg: (_role: string, text: string) => `\x1b[${state.color}m${text}\x1b[0m` }, getKeybindings(), () => { state.closed++; resolve(); });
+      return new Promise<unknown>(resolve => {
+        component = build(tui, { fg: (_role: string, text: string) => `\x1b[${state.color}m${text}\x1b[0m` }, getKeybindings(), (result: unknown) => {
+          state.closed++; resolve(result); component?.dispose?.();
+        });
       });
     },
     notify() { throw new Error("Usage viewing must not notify or request import"); },
@@ -182,9 +185,77 @@ try {
   writeFileSync(invalid, ''); await assert.rejects(getWorkspaceUsage(root), /Missing Pi session header/);
   rmSync(invalid);
 
+  const zeroCostFile = join(root, "project", "zero-cost.jsonl");
+  _write(zeroCostFile, "zero-cost", "/projects/zero-recorded-cost", [_assistant("zero-cost-usage", 1000, 0, false)]);
+  const zeroCostBefore = _tree(home);
+  const zeroRecordedCost = (await getWorkspaceUsage(root)).workspaces.find(row => row.name === "zero-recorded-cost")!;
+  assert.ok(zeroRecordedCost.total_tokens > 0);
+  assert.equal(zeroRecordedCost.recorded_cost, 0, "nonzero tokens retain an explicitly recorded zero cost");
+  assert.deepEqual(_tree(home), zeroCostBefore);
+  rmSync(zeroCostFile);
+
   const frozen = JSON.parse(JSON.stringify(snapshot)) as WorkspaceUsageSnapshot;
   for (const row of frozen.workspaces) { Object.freeze(row.cwd_paths); Object.freeze(row); }
   Object.freeze(frozen.workspaces); Object.freeze(frozen);
+  mock.timers.enable({ apis: ["setInterval"] });
+  try {
+    let finishLoading!: (snapshot: WorkspaceUsageSnapshot) => void;
+    const delayedSnapshot = new Promise<WorkspaceUsageSnapshot>(resolve => { finishLoading = resolve; });
+    let delayedReads = 0;
+    const loading = _ui();
+    const loadingView = showWorkspaceUsage(loading.context, () => { delayedReads++; return delayedSnapshot; });
+    await _tick();
+    assert.equal(loading.state.builds, 1, "the view mounts while the snapshot is still pending");
+    assert.match(_plain(loading.view()), /Reading session JSONL/);
+    assert.match(_plain(loading.view()), /⠋/);
+    assert.doesNotMatch(_plain(loading.view()), /Sessions:|Recorded cost|█|Esc/);
+    const renders = loading.state.renders;
+    mock.timers.tick(80);
+    assert.match(_plain(loading.view()), /⠙/);
+    assert.ok(loading.state.renders > renders, "native spinner ticks request a render");
+    for (const width of [20, 40, 80, 120]) {
+      for (const height of [1, 8, 24]) {
+        loading.tui.terminal.rows = height;
+        const lines = loading.view().render(width);
+        assert.ok(lines.every(line => visibleWidth(line) <= width));
+        assert.ok(lines.length <= height);
+      }
+    }
+    loading.tui.terminal.rows = 24;
+    loading.state.color = 31; loading.view().invalidate();
+    assert.match(loading.view().render(120).join("\n"), /\x1b\[31m/);
+    for (const key of ["\x1b", "\r", "\t", "\x1b[B", "\x1b[6~", "\x1b[F"]) loading.view().handleInput!(key);
+    assert.equal(loading.state.closed, 0, "table input stays inactive until reading finishes");
+    finishLoading(frozen);
+    await _tick();
+    assert.match(_plain(loading.view()), /Sessions: 4 \| Workspaces: 2/);
+    assert.doesNotMatch(_plain(loading.view()), /Reading session JSONL|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/);
+    assert.equal(delayedReads, 1); assert.equal(loading.state.builds, 1, "success reuses the loading screen");
+    const readyRenders = loading.state.renders;
+    mock.timers.tick(800);
+    assert.equal(loading.state.renders, readyRenders, "the animation stops after success");
+    loading.view().handleInput!("\x1b"); await loadingView;
+    const closedRenders = loading.state.renders;
+    mock.timers.tick(800);
+    assert.equal(loading.state.renders, closedRenders, "closing leaves no animation timer");
+
+    for (const cause of [new Error("injected-delayed-read-failure"), undefined, null]) {
+      let failLoading!: (error: unknown) => void;
+      const rejectedSnapshot = new Promise<WorkspaceUsageSnapshot>((_resolve, reject) => { failLoading = reject; });
+      let failedReads = 0;
+      const progress = _ui();
+      const failedView = showWorkspaceUsage(progress.context, () => { failedReads++; return rejectedSnapshot; });
+      const rejection = failedView.then(() => assert.fail("read failures must reject"), error => assert.equal(error, cause));
+      await _tick();
+      assert.match(_plain(progress.view()), /Reading session JSONL/);
+      failLoading(cause); await rejection; await _tick();
+      assert.equal(failedReads, 1); assert.equal(progress.state.builds, 1); assert.equal(progress.state.closed, 1);
+      assert.doesNotMatch(_plain(progress.view()), /Sessions:|Recorded cost|█/);
+      const failedRenders = progress.state.renders;
+      mock.timers.tick(800);
+      assert.equal(progress.state.renders, failedRenders, "the animation stops after failure without retry");
+    }
+  } finally { mock.timers.reset(); }
   let reads = 0;
   const ui = _ui();
   const viewing = showWorkspaceUsage(ui.context, async () => { reads++; return frozen; });
@@ -197,6 +268,7 @@ try {
   const dataRows = text.split("\n").filter(line => /^(?:→ |  )(?:team|zero)\s/.test(line));
   assert.equal(dataRows.length, 2);
   assert.ok(dataRows[0].includes(String(team.total_tokens)));
+  assert.ok(dataRows[0].includes(String(team.recorded_cost)), "recorded cost keeps its raw numeric precision");
   assert.ok(!dataRows[1].includes("█"), "zero use has an empty bar");
   assert.doesNotMatch(text, /PRIVATE|SENTINEL|sessionId|pi:/);
   for (const width of [20, 40, 60, 80, 100, 120]) {
@@ -227,11 +299,22 @@ try {
   assert.equal(forbiddenReads, 0);
   const failed = _ui();
   await assert.rejects(showWorkspaceUsage(failed.context, async () => { forbiddenReads++; throw new Error("injected-read-failure"); }), /injected-read-failure/);
-  assert.equal(forbiddenReads, 1); assert.equal(failed.state.builds, 0);
+  assert.equal(forbiddenReads, 1); assert.equal(failed.state.builds, 1); assert.equal(failed.state.closed, 1);
   const emptyUi = _ui(); const emptyView = showWorkspaceUsage(emptyUi.context, async () => empty); await _tick();
   assert.match(_plain(emptyUi.view()), /No native session JSONL files/);
   emptyUi.view().handleInput!("\r"); assert.equal(emptyUi.state.closed, 0);
   emptyUi.view().handleInput!("\x1b"); await emptyView;
+
+  const zeroCostUi = _ui();
+  const zeroCostView = showWorkspaceUsage(zeroCostUi.context, async () => ({ ...snapshot, workspaces: [zeroRecordedCost] }));
+  await _tick();
+  zeroCostUi.view().handleInput!("\t");
+  assert.match(_plain(zeroCostUi.view()), /Bars: recorded cost/);
+  assert.doesNotMatch(_plain(zeroCostUi.view()), /█/);
+  zeroCostUi.view().handleInput!("\r");
+  assert.match(_plain(zeroCostUi.view()), /Total tokens: 1009/);
+  assert.match(_plain(zeroCostUi.view()), /Recorded cost \(\$\): 0/);
+  zeroCostUi.view().handleInput!("\x1b"); zeroCostUi.view().handleInput!("\x1b"); await zeroCostView;
 
   const many = { ...snapshot, workspaces: Array.from({ length: 100 }, (_, i) => ({ ...team, name: `workspace-${String(i).padStart(3, "0")}`, total_tokens: 100 - i, recorded_cost: i })) };
   const pages = _ui(18); const paged = showWorkspaceUsage(pages.context, async () => many); await _tick();
@@ -251,8 +334,8 @@ try {
   const menu = _ui();
   const menuBefore = _tree(home);
   const action = commands[0].options.handler("", menu.context); await _tick();
-  // File reads are asynchronous. Wait for the actual custom view, without touching real history.
-  for (let i = 0; i < 100 && menu.state.builds === 0; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  // File reads are asynchronous. Wait for the table after the loading phase, using temporary history.
+  for (let i = 0; i < 100 && !/Workspaces: 3/.test(_plain(menu.view())); i++) await new Promise(resolve => setTimeout(resolve, 5));
   assert.equal(menu.state.builds, 1);
   assert.match(_plain(menu.view()), /Workspaces: 3/);
   menu.view().handleInput!("\x1b"); await action;
@@ -261,7 +344,7 @@ try {
   await commands[0].options.handler("", menu.context);
   assert.equal(menu.state.builds, 1);
   assert.deepEqual(_tree(home), menuBefore);
-  console.log("workspace-usage.test.ts: bounded native session discovery, unchanged auxiliary files, grouped raw usage, fork provenance, strict validation, read-only menu and native TUI passed");
+  console.log("workspace-usage.test.ts: native loading animation, single snapshot and screen, timer cleanup on success/failure/close, recorded zero cost and raw precision, bounded discovery, fork provenance, strict validation, read-only menu and native TUI passed");
 } finally {
   if (originalHome === undefined) delete process.env.HOME; else process.env.HOME = originalHome;
   if (originalProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = originalProfile;
