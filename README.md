@@ -613,14 +613,16 @@ Pi 1.5.0 and later can display unread package entries through **Extension Update
 
 ## GitHub Pages website
 
-The static project website lives in `site/`. It uses separate HTML, CSS, JavaScript, and SVG files, with no build step or runtime dependencies.
+The static project website lives in `github-page/`. It uses separate HTML, CSS, JavaScript, and SVG files without a build step or runtime dependencies.
 
 ```text
-site/
+github-page/
 ├── index.html
 ├── styles.css
 ├── main.js
 └── assets/
+    ├── codegraph-map.json
+    ├── codegraph-map.svg
     ├── favicon.svg
     └── memory-map.svg
 ```
@@ -629,7 +631,7 @@ The content sections use [CodeGraph's website](https://colbymchenry.github.io/co
 
 ### Preview locally
 
-1. Run `python3 -m http.server 8000 --directory site` from the repository root.
+1. Run `python3 -m http.server 8000 --directory github-page` from the repository root.
 2. Open `http://localhost:8000`.
 3. Stop the server with Ctrl+C when you finish.
 
@@ -641,7 +643,7 @@ The content sections use [CodeGraph's website](https://colbymchenry.github.io/co
 4. Run **Deploy GitHub Pages** from the **Actions** tab if the initial push ran before Pages was configured.
 5. Check the deployment at `https://shengxiao20.github.io/pi-session-memory/`.
 
-The workflow uploads only `site/`, not transcripts, local databases, or the rest of the repository. Later changes to `site/` on `main` trigger deployment automatically. Website deployment does not publish an npm release. The current package version is `2.0.10`.
+The workflow uploads only `github-page/`. Changes to `github-page/` on `main` trigger deployment automatically. Publishing an npm release is a separate operation. The current package version is `2.0.10`.
 
 ## Source architecture
 
@@ -649,10 +651,10 @@ The [standalone BGE-M3 experiment](scripts/rag-demo/README.md) builds a separate
 Run `python3 scripts/rag-demo query "your complete query"` from a repository checkout. The demo leaves plugin retrieval unchanged.
 Its code, dependencies, guide, and tests stay in `scripts/rag-demo/` and are excluded from the npm package.
 
-`extensions/index.ts` connects **9 source module groups and 44 TypeScript files**. The CodeGraph Map below shows implementation dependencies.
+`extensions/index.ts` connects **9 source module groups and 47 TypeScript files**. The CodeGraph Map below shows implementation dependencies.
 The [historical-review routing diagram](#architecture-decision-independent-evidence-routing) shows agent participation instead. These are separate views.
 
-[![CodeGraph Map of the Pi entry point and nine source module groups. Cards list cross-domain imports; selected arrows distinguish declared, type-only, and source-verified dynamic dependencies.](site/assets/codegraph-map.svg)](site/assets/codegraph-map.svg)
+[![CodeGraph Map of the Pi entry point and nine source module groups. Cards list cross-domain imports; selected arrows distinguish declared, type-only, and source-verified dynamic dependencies.](github-page/assets/codegraph-map.svg)](github-page/assets/codegraph-map.svg)
 
 Read the map in three steps:
 
@@ -666,7 +668,8 @@ Read the map in three steps:
 | Output and services | `presentation`, `relevance`, `knowledge` | Temporary context, optional filtering, and saved OKF documents |
 | Foundations | `history`, `contracts`, `settings` | Transcript storage, shared types, and configuration validation |
 
-**Evidence and limits:** The [Map snapshot](site/assets/codegraph-map.json) records declared relationships from `/api/map?root=&depth=2`.
+**Evidence and limits:** The [Map snapshot](github-page/assets/codegraph-map.json) records declared relationships from `/api/map?root=&depth=2`.
+File counts reflect current source files, including Workspace usage and model pricing. Declared relationship counts retain the original CodeGraph Map baseline.
 Tests and shared `prompts/` resources are omitted from this view, not from the index. Static counts are not runtime call frequencies.
 The `recall → relevance` relationship is type-only; the entry point supplies the reviewer callback.
 `consultation → history` is a source-verified dynamic import in `src/consultation/consultation-agent.ts`, not a declared Map edge.
@@ -738,8 +741,8 @@ The static source map still covers only `extensions/index.ts` and `src/`; it omi
 
 ### CodeGraph index scope
 
-Repository-level `codegraph.json` excludes `.github/`, `scripts/`, `site/`, and `sites/` from CodeGraph, including tracked files.
-The website directory is `site/`; `sites/` also covers the requested plural name. Tests remain indexed.
+Repository-level `codegraph.json` excludes `.github/`, `scripts/`, `github-page/`, and `sites/` from CodeGraph, including tracked files.
+The website directory is `github-page/`. Tests remain indexed.
 This configuration does not change Git tracking, npm packaging, or the plugin's SQLite transcript index.
 Run an explicit CodeGraph sync after changing the configuration. Opening the browser UI does not perform that sync.
 

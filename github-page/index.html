@@ -80,13 +80,13 @@
           <div class="section-intro">
             <p class="eyebrow">Implementation architecture · CodeGraph Map</p>
             <h2 id="source-architecture-title">One entry point. Nine source module groups.</h2>
-            <p>The Pi entry point connects 44 TypeScript files across nine module groups. This map shows static dependencies, not agent participation or runtime sequence.</p>
+            <p>The Pi entry point connects 47 TypeScript files across nine module groups. This map shows static dependencies, not agent participation or runtime sequence.</p>
           </div>
           <figure class="source-map-figure" aria-labelledby="source-map-caption">
             <div class="source-map-scroll" tabindex="0" role="region" aria-label="Source architecture map. Scroll horizontally on small screens.">
               <img class="source-map" src="./assets/codegraph-map.svg" width="1200" height="1010" alt="CodeGraph Map: extensions/index.ts connects consultation, recall, setup, presentation, relevance, knowledge, history, contracts, and settings. Cards list dependencies. Recall imports relevance types; consultation dynamically imports history. Foundations have no cross-domain imports.">
             </div>
-            <figcaption id="source-map-caption">Redrawn from the CodeGraph Map relationship baseline. File counts are source-reviewed for configuration editor 2.0.3 and recall modes 2.0.9, not a fresh extraction. Cards list every cross-domain import; arrows show selected dependencies. The dynamic consultation-to-history import is verified in source. Static relationships are not runtime traces. Shared <code>prompts/</code> resources are omitted. On small screens, scroll the map horizontally or open the full-size SVG.</figcaption>
+            <figcaption id="source-map-caption">Relationship counts retain the original CodeGraph Map baseline. Source-reviewed file counts include Workspace usage and model pricing. Cards list every cross-domain import; arrows show selected dependencies. The dynamic consultation-to-history import is verified in source. Static relationships are not runtime traces. Shared <code>prompts/</code> resources are omitted. On small screens, scroll the map horizontally or open the full-size SVG.</figcaption>
           </figure>
           <ol class="source-map-guide">
             <li><h3>Start with the entry point</h3><p><code>extensions/index.ts</code> registers Pi tools and connects all nine domains.</p></li>
