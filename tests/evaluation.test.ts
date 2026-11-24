@@ -26,12 +26,16 @@ async function worker(directory: string): Promise<void> {
 
 async function tests(): Promise<void> {
   const config = readConfig(resolve("evaluation/config/locomo-smoke.json"));
+  for (const role of ["planner", "answer", "judge"] as const) {
+    const { baseURLEnv, apiKeyEnv, modelEnv, maxTokens } = config.models[role];
+    config.models[role] = { backend: "openai", baseURLEnv, apiKeyEnv, modelEnv, maxTokens };
+  }
   assert.equal(readConfig(resolve("evaluation/config/locomo-full.json")).sampleIndices.length, 10);
   assert.throws(() => parseConfig({ ...config, categories: [5] }), /Supported categories/);
   assert.throws(() => parseConfig({ ...config, sampleIndices: [0, 0] }), /Duplicate sample/);
   assert.throws(() => parseConfig({ ...config, memory: { ...config.memory, recallMode: "discussion" } }));
   assert.throws(() => parseConfig({ ...config, memory: { ...config.memory, jevConnection: { ...config.memory.jevConnection, manageOllama: true } } }), /unmanaged/);
-  assert.throws(() => resolveModel({ baseURLEnv: "PI_EVAL_TEST_MISSING_ENV", apiKeyEnv: "PI_EVAL_TEST_MISSING_KEY", modelEnv: "PI_EVAL_TEST_MISSING_MODEL", maxTokens: 5 }), /Missing environment/);
+  assert.throws(() => resolveModel({ backend: "openai", baseURLEnv: "PI_EVAL_TEST_MISSING_ENV", apiKeyEnv: "PI_EVAL_TEST_MISSING_KEY", modelEnv: "PI_EVAL_TEST_MISSING_MODEL", maxTokens: 5 }), /Missing environment/);
   assert.throws(() => parseDataset([]), /contain samples/);
   assert.throws(() => parseDataset([fixture[0], fixture[0]]), /Duplicate sample/);
   const badDate = structuredClone(fixture);

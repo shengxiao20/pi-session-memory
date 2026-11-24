@@ -4,7 +4,7 @@
   "categories": [1, 2, 3, 4],
   "questionsPerSample": 5,
   "contextCharacterLimit": 60000,
-  "timeoutMs": 60000,
+  "timeoutMs": 180000,
   "memory": {
     "recallMode": "normal",
     "recallLimit": 20,
@@ -22,19 +22,28 @@
       "baseURLEnv": "PI_MEMORY_EVAL_BASE_URL",
       "apiKeyEnv": "PI_MEMORY_EVAL_API_KEY",
       "modelEnv": "PI_MEMORY_EVAL_PLANNER_MODEL",
+      "backend": "ollama",
+      "thinking": false,
+      "contextWindow": 32768,
       "maxTokens": 512
     },
     "answer": {
       "baseURLEnv": "PI_MEMORY_EVAL_BASE_URL",
       "apiKeyEnv": "PI_MEMORY_EVAL_API_KEY",
       "modelEnv": "PI_MEMORY_EVAL_ANSWER_MODEL",
-      "maxTokens": 512
+      "backend": "ollama",
+      "thinking": false,
+      "contextWindow": 32768,
+      "maxTokens": 1024
     },
     "judge": {
       "baseURLEnv": "PI_MEMORY_EVAL_BASE_URL",
       "apiKeyEnv": "PI_MEMORY_EVAL_API_KEY",
       "modelEnv": "PI_MEMORY_EVAL_JUDGE_MODEL",
-      "maxTokens": 128
+      "backend": "ollama",
+      "thinking": "low",
+      "contextWindow": 32768,
+      "maxTokens": 4096
     }
   }
 }

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { appendFileSync } from "node:fs";
 import type { ResolvedModel } from "./config.ts";
+import { requestModelJson } from "./model-http.ts";
+import { validateOllamaUsage } from "./ollama.ts";
 
 export const PROMPTS = Object.freeze({
   planner: `Extract search inputs for pi-session-memory. Return only a JSON object with entities (a nonempty array of strings) and primary_entity (a string). Copy the complete core topic name or phrase verbatim from the question as primary_entity and include it in entities. Use literal topic phrases from the question. The retriever searches raw conversation text and adds +10 for an exact primary phrase match. You receive only the question; do not invent facts or use an answer key.`,
@@ -12,33 +14,50 @@ export interface Completion {
   content: string;
   usage: { promptTokens: number; completionTokens: number; };
   latencyMs: number;
+  thinking: string | null;
 }
 export interface ModelRequest { role: keyof typeof PROMPTS; questionIndex: number; input: unknown; json: boolean; }
 
-/** Call an explicitly configured OpenAI-compatible endpoint once; report every HTTP or schema error. */
+/** Use the configured backend once. Preserve responses for auditing before schema validation. */
 export async function complete(model: ResolvedModel, request: ModelRequest, timeoutMs: number, auditPath: string): Promise<Completion> {
-  const body = {
-    model: model.model, temperature: 0, max_tokens: model.maxTokens,
-    messages: [{ role: "system", content: PROMPTS[request.role] }, { role: "user", content: JSON.stringify(request.input) }],
+  const messages = [{ role: "system", content: PROMPTS[request.role] }, { role: "user", content: JSON.stringify(request.input) }];
+  const body = model.backend === "ollama" ? {
+    model: model.model, messages, stream: false, think: model.thinking, truncate: false, shift: false,
+    options: { temperature: 0, num_ctx: model.contextWindow, num_predict: model.maxTokens },
+    ...(request.json ? { format: "json" } : {}),
+  } : {
+    model: model.model, messages, temperature: 0, max_tokens: model.maxTokens,
     ...(request.json ? { response_format: { type: "json_object" } } : {}),
   };
   const started = performance.now();
-  const response = await fetch(`${model.baseURL}/chat/completions`, {
-    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${model.apiKey}` },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs),
-  });
-  const text = await response.text();
-  assert(response.ok, `${request.role} HTTP ${response.status}: ${text}`);
-  const result = JSON.parse(text);
-  assert(Array.isArray(result.choices) && result.choices.length === 1, "Expected one completion");
-  assert.equal(result.choices[0].finish_reason, "stop", `${request.role} completion was truncated or interrupted`);
-  const content = result.choices[0].message.content;
+  const result = await requestModelJson(model, model.backend === "ollama" ? "/api/chat" : "/chat/completions", body, timeoutMs);
+  const latencyMs = performance.now() - started;
+  appendFileSync(auditPath, `${JSON.stringify({ role: request.role, questionIndex: request.questionIndex, backend: model.backend, request: body, response: result, latencyMs })}\n`);
+  let content: unknown, thinking: string | null = null, promptTokens: number, completionTokens: number;
+  if (model.backend === "ollama") {
+    assert.equal(result.model, model.model, "Ollama returned a different model identity");
+    assert.equal(result.done, true, "Expected a completed Ollama response");
+    assert.equal(result.done_reason, "stop", `${request.role} completion was truncated or interrupted`);
+    content = result.message?.content;
+    if (result.message?.thinking !== undefined) {
+      assert.equal(typeof result.message.thinking, "string", "Invalid Ollama thinking response");
+      thinking = result.message.thinking;
+    }
+    if (model.thinking === false) assert(!thinking?.trim(), "Ollama returned thinking despite think=false");
+    promptTokens = result.prompt_eval_count;
+    completionTokens = result.eval_count;
+  } else {
+    assert(Array.isArray(result.choices) && result.choices.length === 1, "Expected one completion");
+    assert.equal(result.choices[0].finish_reason, "stop", `${request.role} completion was truncated or interrupted`);
+    content = result.choices[0].message?.content;
+    promptTokens = result.usage?.prompt_tokens;
+    completionTokens = result.usage?.completion_tokens;
+  }
   assert(typeof content === "string" && content.trim(), "Empty model response");
-  assert(Number.isSafeInteger(result.usage?.prompt_tokens) && result.usage.prompt_tokens >= 0, "Missing prompt token usage");
-  assert(Number.isSafeInteger(result.usage?.completion_tokens) && result.usage.completion_tokens >= 0, "Missing completion token usage");
-  const completion = { content, usage: { promptTokens: result.usage.prompt_tokens, completionTokens: result.usage.completion_tokens }, latencyMs: performance.now() - started };
-  appendFileSync(auditPath, `${JSON.stringify({ role: request.role, questionIndex: request.questionIndex, request: body, completion })}\n`);
-  return completion;
+  assert(Number.isSafeInteger(promptTokens) && promptTokens >= 0, "Missing prompt token usage");
+  assert(Number.isSafeInteger(completionTokens) && completionTokens >= 0, "Missing completion token usage");
+  if (model.backend === "ollama") validateOllamaUsage(model, promptTokens, completionTokens);
+  return { content, thinking, usage: { promptTokens, completionTokens }, latencyMs };
 }
 
 export function parsePlan(content: string, question: string): { entities: string[]; primary_entity: string; question: string; } {

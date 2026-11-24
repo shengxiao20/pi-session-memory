@@ -5,6 +5,7 @@ import { historyTurns, type Sample } from "./dataset.ts";
 import { complete, parseGrade, parsePlan } from "./models.ts";
 import { evidenceMetric, normalizeAnswer, tokenF1, type QuestionResult } from "./metrics.ts";
 import { resolveModel, type EvalConfig } from "./config.ts";
+import { inspectModels } from "./ollama.ts";
 import type { RecallReviewer } from "../src/recall/recall-workflow.ts";
 
 /** Run only in an isolated worker: DB_PATH is captured when the production DB module is imported. */
@@ -20,6 +21,8 @@ export async function evaluateSample(sample: Sample, config: EvalConfig, directo
   const models = {
     planner: resolveModel(config.models.planner), answer: resolveModel(config.models.answer), judge: resolveModel(config.models.judge),
   };
+  const modelChecks = await inspectModels(models, config.timeoutMs);
+  writeFileSync(join(directory, "model-checks.json"), JSON.stringify(modelChecks, null, 2), { flag: "wx" });
   const questions = sample.qa.map((qa, questionIndex) => ({ qa, questionIndex })).filter(({ qa }) => config.categories.includes(qa.category));
   const selected = config.questionsPerSample === null ? questions : questions.slice(0, config.questionsPerSample);
   assert(selected.length > 0, "No questions match the configured categories");

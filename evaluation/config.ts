@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { validateMemoryConfig, type SessionMemoryConfig } from "../src/settings/config.ts";
 
-export interface ModelConfig { baseURLEnv: string; apiKeyEnv: string; modelEnv: string; maxTokens: number; }
+export type ModelBackend = { backend: "openai"; } | { backend: "ollama"; thinking: boolean | string; contextWindow: number; };
+export type ModelConfig = ModelBackend & { baseURLEnv: string; apiKeyEnv: string; modelEnv: string; maxTokens: number; };
 export interface EvalConfig {
   dataset: string;
   sampleIndices: number[];
@@ -41,17 +42,32 @@ export function parseConfig(value: unknown): EvalConfig {
       assert(typeof model[key] === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(model[key]), `Invalid ${role}.${key}`);
     }
     assert(Number.isSafeInteger(model.maxTokens) && model.maxTokens > 0);
+    assert(model.backend === "openai" || model.backend === "ollama", `Invalid ${role}.backend`);
+    if (model.backend === "ollama") {
+      assert(typeof model.thinking === "boolean" || (typeof model.thinking === "string" && model.thinking.trim() === model.thinking && model.thinking.length > 0), `Set explicit ${role}.thinking`);
+      assert(Number.isSafeInteger(model.contextWindow) && model.contextWindow > model.maxTokens, `${role}.contextWindow must exceed maxTokens`);
+    } else {
+      assert(!("thinking" in model) && !("contextWindow" in model), `Ollama controls require ${role}.backend=ollama`);
+    }
   }
   return config;
 }
 
-export interface ResolvedModel { baseURL: string; apiKey: string; model: string; maxTokens: number; }
+export type ResolvedModel = ModelBackend & { baseURL: string; apiKey: string; model: string; maxTokens: number; };
+export type ModelRole = keyof EvalConfig["models"];
+export type ResolvedModels = Record<ModelRole, ResolvedModel>;
 export function resolveModel(config: ModelConfig): ResolvedModel {
   const baseURL = requiredEnv(config.baseURLEnv);
   const url = new URL(baseURL);
   assert(["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash, "Invalid model API root");
   assert(!url.pathname.endsWith("/chat/completions"), "baseURL must be an API root, for example https://api.openai.com/v1");
-  return { baseURL: baseURL.replace(/\/+$/, ""), apiKey: requiredEnv(config.apiKeyEnv), model: requiredEnv(config.modelEnv), maxTokens: config.maxTokens };
+  const reference = { baseURL: baseURL.replace(/\/+$/, ""), apiKey: requiredEnv(config.apiKeyEnv), model: requiredEnv(config.modelEnv), maxTokens: config.maxTokens };
+  if (config.backend === "ollama") {
+    assert.equal(url.pathname, "/", "Ollama baseURL must be a server root, for example http://127.0.0.1:11434");
+    return { ...reference, backend: "ollama", thinking: config.thinking, contextWindow: config.contextWindow };
+  }
+  assert.equal(config.backend, "openai", "Set an explicit model backend");
+  return { ...reference, backend: "openai" };
 }
 export function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -64,5 +80,6 @@ export function datasetPath(config: EvalConfig): string { return resolve(config.
 
 /** Export model identity for provenance without writing credentials. */
 export function modelIdentity(model: ResolvedModel): Omit<ResolvedModel, "apiKey"> {
-  return { baseURL: model.baseURL, model: model.model, maxTokens: model.maxTokens };
+  const { apiKey: _apiKey, ...identity } = model;
+  return identity;
 }

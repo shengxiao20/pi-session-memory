@@ -7,6 +7,7 @@ import { parseArgs } from "node:util";
 import { datasetPath, modelIdentity, readConfig, resolveModel, requiredEnv } from "./config.ts";
 import { LOCOMO_SOURCE, parseDataset, readDataset, sha256, historyTurns } from "./dataset.ts";
 import { PROMPTS } from "./models.ts";
+import { inspectModels } from "./ollama.ts";
 import { summarize, type QuestionResult } from "./metrics.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -48,7 +49,7 @@ async function _download(): Promise<void> {
   console.log(JSON.stringify({ dataset: destination, samples: samples.length, source: LOCOMO_SOURCE }, null, 2));
 }
 
-function _doctor(configPath: string): void {
+async function _doctor(configPath: string): Promise<void> {
   const config = readConfig(configPath);
   const dataset = readDataset(datasetPath(config));
   for (const index of config.sampleIndices) assert(dataset[index], `Unknown sample index: ${index}`);
@@ -63,9 +64,12 @@ function _doctor(configPath: string): void {
     }, 0),
     datasetTurns: dataset.reduce((sum, sample) => sum + historyTurns(sample).length, 0),
     recallMode: config.memory.recallMode, jevEnabled: config.memory.jevEnable, missingEnvironment: missing,
-    remoteCallsPerformed: 0 }, null, 2));
+    modelChecksPerformed: false, modelGenerationCallsPerformed: 0 }, null, 2));
   assert.equal(missing.length, 0, `Set required environment variables: ${missing.join(", ")}`);
-  for (const model of Object.values(config.models)) resolveModel(model);
+  const models = { planner: resolveModel(config.models.planner), answer: resolveModel(config.models.answer), judge: resolveModel(config.models.judge) };
+  const modelChecks = await inspectModels(models, config.timeoutMs);
+  console.log(JSON.stringify({ models: Object.fromEntries(Object.entries(models).map(([role, model]) => [role, modelIdentity(model)])),
+    modelChecks, modelGenerationCallsPerformed: 0 }, null, 2));
 }
 
 function _spawnWorker(run: string, index: number): Promise<void> {
@@ -105,19 +109,28 @@ async function _run(configPath: string, runId: string): Promise<void> {
     gitStatus: execFileSync("git", ["status", "--porcelain"], { cwd: ROOT, encoding: "utf8" }),
     node: process.version, models, config, prompts: PROMPTS, promptSha256: sha256(JSON.stringify(PROMPTS)),
     sourceSha256: { ..._sourceHashes(join(ROOT, "src")), ..._sourceHashes(join(ROOT, "prompts")),
-      ...Object.fromEntries(["cli.ts", "config.ts", "dataset.ts", "metrics.ts", "models.ts", "pipeline.ts"].map(name =>
+      ...Object.fromEntries(["cli.ts", "config.ts", "dataset.ts", "metrics.ts", "models.ts", "model-http.ts", "ollama.ts", "pipeline.ts"].map(name =>
         [`evaluation/${name}`, sha256(readFileSync(join(ROOT, "evaluation", name)))])) },
     dependencyLockSha256: sha256(readFileSync(join(ROOT, "package-lock.json"))),
     evaluator: "pi-session-memory-project-judge-v1", temperature: 0,
     scope: "LoCoMo text + image captions; normal recall with one-pass answering; no fetch windows, Discussion or saved OKF reuse",
     selection: "First N eligible questions per selected sample; null means all eligible questions",
     evidencePolicy: "Exact dialogue IDs; empty or invalid annotations excluded and reported",
-    tokenUsageScope: "Planner, answer and judge only; Jev token usage excluded",
+    tokenUsageScope: "Planner, answer and judge only; Ollama eval_count includes thinking and final output; Jev token usage excluded",
+    contextPolicy: "Ollama requests use explicit num_ctx, truncate=false and shift=false; overflow fails",
+    modelCheckPolicy: "Record server version, installed model digest, context limit and thinking values before generation; worker metadata must match",
   };
   writeFileSync(join(run, "config.json"), JSON.stringify(config, null, 2), { flag: "wx" });
   writeFileSync(join(run, "manifest.json"), JSON.stringify(manifest, null, 2), { flag: "wx" });
   try {
-    for (const index of config.sampleIndices) await _spawnWorker(run, index);
+    const modelChecks = await inspectModels({ planner: resolveModel(config.models.planner), answer: resolveModel(config.models.answer), judge: resolveModel(config.models.judge) }, config.timeoutMs);
+    Object.assign(manifest, { modelChecks });
+    writeFileSync(join(run, "manifest.json"), JSON.stringify(manifest, null, 2));
+    for (const index of config.sampleIndices) {
+      await _spawnWorker(run, index);
+      assert.deepEqual(JSON.parse(readFileSync(join(run, `sample-${index}`, "model-checks.json"), "utf8")), modelChecks,
+        "Ollama model metadata changed between run preflight and worker");
+    }
     const results: QuestionResult[] = config.sampleIndices.flatMap(index => {
       const lines = readFileSync(join(run, `sample-${index}`, "results.jsonl"), "utf8").trim().split("\n");
       return lines.map(line => JSON.parse(line) as QuestionResult);
@@ -154,7 +167,7 @@ async function _main(): Promise<void> {
   const [command, ...args] = positionals;
   switch (command) {
     case "download": assert(args.length === 0 && Object.keys(values).length === 0); await _download(); break;
-    case "doctor": assert(args.length === 0 && values.config && !values["run-id"]); _doctor(resolve(values.config)); break;
+    case "doctor": assert(args.length === 0 && values.config && !values["run-id"]); await _doctor(resolve(values.config)); break;
     case "run": assert(args.length === 0 && values.config && values["run-id"]); await _run(resolve(values.config), values["run-id"]); break;
     case "worker": assert(args.length === 2 && Object.keys(values).length === 0); await _worker(args[0], args[1]); break;
     default: throw new Error("Usage: npm run eval -- download | doctor --config <file> | run --config <file> --run-id <unique-name>");
