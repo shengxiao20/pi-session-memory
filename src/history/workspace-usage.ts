@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import { open, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -116,15 +117,20 @@ export async function getWorkspaceUsage(
   return snapshot;
 }
 
-/** Discover session JSONL files; errors propagate and a missing directory stays missing. */
+/** Read root and workspace session files. Nested auxiliary directories stay outside discovery. */
 async function _sessionFiles(root: string): Promise<string[]> {
-  const files: string[] = [];
-  for (const entry of await readdir(root, { withFileTypes: true })) {
-    const path = join(root, entry.name);
-    if (entry.isDirectory()) files.push(...await _sessionFiles(path));
-    else if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push(path);
+  const entries = await readdir(root, { withFileTypes: true });
+  const files = _sessionPaths(root, entries);
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const directory = join(root, entry.name);
+    files.push(..._sessionPaths(directory, await readdir(directory, { withFileTypes: true })));
   }
   return files.sort();
+}
+
+function _sessionPaths(directory: string, entries: Dirent[]): string[] {
+  return entries.filter(entry => entry.isFile() && entry.name.endsWith(".jsonl")).map(entry => join(directory, entry.name));
 }
 
 /** Keep usage metadata only. Message bodies never enter the returned snapshot. */

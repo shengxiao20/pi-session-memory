@@ -64,6 +64,26 @@ try {
   mkdirSync(root, { recursive: true });
   const empty = await getWorkspaceUsage(root);
   assert.deepEqual(empty.workspaces, []);
+  const auxiliaryRoot = join(root, "--Users-example--");
+  const ledger = join(auxiliaryRoot, "sol-pi", "session-id", "observation-pack", "ledger.jsonl");
+  mkdirSync(dirname(ledger), { recursive: true });
+  writeFileSync(ledger, '{"observation_id":"example"}\n');
+  const auxiliaryBefore = _tree(home);
+  assert.deepEqual(await getWorkspaceUsage(root), empty, "nested auxiliary ledgers are outside native session discovery");
+  assert.deepEqual(_tree(home), auxiliaryBefore, "auxiliary ledgers remain unchanged");
+  const artifacts = join(auxiliaryRoot, "arbitrary-artifacts");
+  _write(join(artifacts, "session-copy.jsonl"), "auxiliary-copy", "/projects/auxiliary", [_assistant("auxiliary", 99999, 999)]);
+  writeFileSync(join(artifacts, "partial.jsonl"), '{"partial":');
+  writeFileSync(join(artifacts, "empty.jsonl"), "");
+  const artifactsBefore = _tree(home);
+  assert.deepEqual(await getWorkspaceUsage(root), empty, "all nested directories stay outside discovery, including valid session copies");
+  assert.deepEqual(_tree(home), artifactsBefore, "auxiliary files remain unchanged regardless of content");
+  const corruptSession = join(auxiliaryRoot, "corrupt-session.jsonl");
+  writeFileSync(corruptSession, '{"observation_id":"example"}\n');
+  const corruptBefore = _tree(home);
+  await assert.rejects(getWorkspaceUsage(root), /Invalid Pi string:.*corrupt-session\.jsonl:1\.type/, "malformed workspace-level sessions still throw");
+  assert.deepEqual(_tree(home), corruptBefore, "a session parse failure leaves all files unchanged");
+  rmSync(corruptSession);
   const parent = join(root, "project", "z-parent.jsonl");
   const fork = join(root, "project", "a-fork.jsonl");
   const copy = { ..._assistant(), parentId: "rewired-parent" };
@@ -137,7 +157,7 @@ try {
   _write(missing, "parent", "/projects/duplicate");
   await assert.rejects(getWorkspaceUsage(root), /Duplicate Pi session ID/); rmSync(missing);
 
-  const invalid = join(root, "invalid.jsonl");
+  const invalid = join(root, "project", "invalid.jsonl");
   for (const value of [-1, 0.5, "10", null, Number.MAX_SAFE_INTEGER + 1]) {
     const entry = _assistant(); (entry.message as any).usage.input = value;
     _write(invalid, "invalid", "/projects/invalid", [entry]);
@@ -241,7 +261,7 @@ try {
   await commands[0].options.handler("", menu.context);
   assert.equal(menu.state.builds, 1);
   assert.deepEqual(_tree(home), menuBefore);
-  console.log("workspace-usage.test.ts: grouped raw usage, fork provenance, validation, read-only menu and native TUI passed");
+  console.log("workspace-usage.test.ts: bounded native session discovery, unchanged auxiliary files, grouped raw usage, fork provenance, strict validation, read-only menu and native TUI passed");
 } finally {
   if (originalHome === undefined) delete process.env.HOME; else process.env.HOME = originalHome;
   if (originalProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = originalProfile;
