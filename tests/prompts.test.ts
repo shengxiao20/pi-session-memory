@@ -72,12 +72,42 @@ const writeOkf = tools.find(tool => tool.name === "write_okf")!;
 assert.match(writeOkf.description, /No historical review or prior tool call is required/);
 assert.match(writeOkf.description, /context-1/);
 assert.match(writeOkf.description, /does not retrieve history, run Jev or open historical agents/);
+assert.match(writeOkf.description, /explicit save request -> write_okf -> final answer/);
+const recall = tools.find(tool => tool.name === "recall_memory")!;
+for (const notice of [guidance.TRANSCRIPT_WORKFLOW_NOTICE, guidance.DISCUSSION_WORKFLOW_NOTICE, guidance.EVIDENCE_REFRESH_NOTICE]) {
+  assert.ok(recall.description.includes(notice), "recall describes both completion routes and evidence invalidation");
+  assert.ok(OKF_OUTPUT_NOTICE.includes(notice), "shared guidance uses the same workflow rules");
+}
+for (const name of ["recall_memory", "review_jev_filtered", "fetch_session"]) {
+  const tool = tools.find(tool => tool.name === name)!;
+  assert.ok(tool.description.includes(guidance.EVIDENCE_REFRESH_NOTICE), `${name}: additional evidence requires another save`);
+  assert.match(tool.promptSnippet!, /before the final answer/, `${name}: compact guidance includes completion`);
+}
+for (const name of ["follow_up_session", "finish_session_consultation"]) {
+  assert.ok(tools.find(tool => tool.name === name)!.description.includes(guidance.DISCUSSION_WORKFLOW_NOTICE), `${name}: private follow-ups lead to a saved conclusion`);
+}
+assert.ok(tools.find(tool => tool.name === "finish_memory_recall")!.description.includes(guidance.TRANSCRIPT_WORKFLOW_NOTICE));
+for (const name of ["read_memory_knowledge", "write_okf", "finish_memory_recall", "finish_session_consultation"]) {
+  assert.ok(tools.find(tool => tool.name === name)!.description.includes(guidance.SAVED_OKF_FINAL_NOTICE), `${name}: successful output precedes the exact final document`);
+}
+const inspect = tools.find(tool => tool.name === "inspect_memory_knowledge")!;
+assert.match(inspect.description, /read_memory_knowledge and return its exact saved document as the final answer, with no new finish call/);
+assert.match(inspect.description, /recall_memory, compare the returned evidence, then save with finish_memory_recall or finish_session_consultation before the final answer/);
+assert.match(tools.find(tool => tool.name === "read_memory_knowledge")!.description, /reuse route requires no finish tool/);
+assert.match(guidance.TRANSCRIPT_WORKFLOW_NOTICE, /recall_memory -> compare evidence -> finish_memory_recall -> final answer/);
+assert.match(guidance.TRANSCRIPT_WORKFLOW_NOTICE, /including when recall returns zero matches/);
+assert.match(guidance.DISCUSSION_WORKFLOW_NOTICE, /compare private answers -> optional follow_up_session -> finish_session_consultation -> final answer/);
+assert.match(guidance.EVIDENCE_REFRESH_NOTICE, /empty or duplicate-only transcript results/);
+assert.match(guidance.EVIDENCE_REFRESH_NOTICE, /Existing files remain saved/);
+assert.match(guidance.EVIDENCE_REFRESH_NOTICE, /After the last evidence read, compare all available evidence and save again in this run/);
 assert.deepEqual(tools.map(tool => tool.name).sort(), Object.keys(fixture.tools).sort());
 for (const tool of tools) assert.equal(fingerprint(tool), fixture.tools[tool.name], `${tool.name}: full public metadata and schema`);
 assert.equal(fingerprint(commands), fixture.commands);
 const notices = { SETUP_NOTICE, SETUP_REQUEST, KNOWLEDGE_FIRST_NOTICE, OKF_OUTPUT_NOTICE, MAIN_AGENT_NOTICE,
   CONSULTATION_CLOSED_NOTICE, closed: consultationGuidance(null), active: consultationGuidance("sample"),
-  TRANSIENT_NOTICE: guidance.TRANSIENT_NOTICE, POST_SETUP_IMPORT_NOTICE: guidance.POST_SETUP_IMPORT_NOTICE };
+  TRANSIENT_NOTICE: guidance.TRANSIENT_NOTICE, POST_SETUP_IMPORT_NOTICE: guidance.POST_SETUP_IMPORT_NOTICE,
+  TRANSCRIPT_WORKFLOW_NOTICE: guidance.TRANSCRIPT_WORKFLOW_NOTICE, DISCUSSION_WORKFLOW_NOTICE: guidance.DISCUSSION_WORKFLOW_NOTICE,
+  EVIDENCE_REFRESH_NOTICE: guidance.EVIDENCE_REFRESH_NOTICE, SAVED_OKF_FINAL_NOTICE: guidance.SAVED_OKF_FINAL_NOTICE };
 for (const [key, value] of Object.entries(notices)) assert.equal(fingerprint(value), fixture.notices[key], `notice: ${key}`);
 assert.equal(SETUP_NOTICE, guidance.SETUP_NOTICE);
 assert.equal(KNOWLEDGE_FIRST_NOTICE, guidance.KNOWLEDGE_FIRST_NOTICE);

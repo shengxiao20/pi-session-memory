@@ -74,7 +74,16 @@ try {
   assert.ok(secondEvidence.includes(otherSession.user_text) && !secondEvidence.includes(turn.user_text));
   assert.equal(readdirSync(groupedDirectory).length, 4, "one evidence file per distinct session");
   output.addTranscript([turn]);
-  assert.equal(output.finalize(final).stopReason, "error", "new evidence invalidates a saved conclusion");
+  assert.equal(output.finalize(final).stopReason, "error", "duplicate-only retrieval still invalidates a saved conclusion");
+  output.addTranscript([sameSession]);
+  assert.equal(output.finalize(final).stopReason, "error", "additional evidence requires saving again");
+  assert.equal(readFileSync(saved.path, "utf8"), saved.markdown, "retrieval preserves the earlier saved file");
+  const resaved = output.save("Review Joule with additional context", { ...conclusion, findings: "Compared both turns.[^transcript-1]" });
+  assert.notEqual(resaved.path, saved.path, "saving again creates a new conclusion");
+  assert.equal((output.finalize(final).content[0] as any).text, readFileSync(resaved.path, "utf8"), "the new saved document completes this run");
+  const resavedEvidence = readFileSync(join(defaultRoot, "meetings", conclusion.topic_path, resaved.meeting_id, "evidence-1.md"), "utf8");
+  for (const source of [turn, sameSession]) assert.ok(resavedEvidence.includes(source.turn_id), "the new conclusion retains all evidence from this run");
+  assert.equal(readFileSync(saved.path, "utf8"), saved.markdown, "saving again preserves the previous document");
   output.startDiscussion();
   assert.throws(() => output.save("question", conclusion), /Finish or cancel/);
   output.cancelDiscussion();
@@ -85,6 +94,11 @@ try {
   const empty = output.save("No matches", { ...conclusion, findings: "None" });
   assert.match(empty.markdown, /# Sources\n\n\n/);
   assert.equal((output.finalize(final).content[0] as any).text, empty.markdown);
+  output.addTranscript([]);
+  assert.equal(output.finalize(final).stopReason, "error", "empty retrieval still requires saving again");
+  assert.equal(readFileSync(empty.path, "utf8"), empty.markdown, "empty retrieval preserves saved files");
+  const emptyResaved = output.save("No matches after another read", { ...conclusion, findings: "None" });
+  assert.equal((output.finalize(final).content[0] as any).text, emptyResaved.markdown);
 
   const vault = join(home, "vault");
   mkdirSync(vault);
