@@ -1,0 +1,249 @@
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
+import { stripVTControlCharacters } from "node:util";
+import { getKeybindings, visibleWidth, type Component } from "@earendil-works/pi-tui";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getWorkspaceUsage, type WorkspaceUsageSnapshot } from "../src/history/workspace-usage.ts";
+import { showWorkspaceUsage } from "../src/presentation/workspace-usage.ts";
+import extension from "../extensions/index.ts";
+
+const home = mkdtempSync(join(tmpdir(), "pi-workspace-usage-"));
+const originalHome = process.env.HOME;
+const originalProfile = process.env.USERPROFILE;
+process.env.HOME = home; process.env.USERPROFILE = home;
+const root = join(home, ".pi", "agent", "sessions");
+const time = "2026-01-01T00:00:00.000Z";
+type Record = { [key: string]: unknown };
+function _usage(input = 10, cost = 0.1, provider?: boolean) {
+  return { input, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 1, cacheWrite1h: 1,
+    // Native getSessionStats derives total tokens from the four buckets, rather than this field.
+    totalTokens: 999, cost: { input: cost, output: 0, cacheRead: 0, cacheWrite: 0, total: cost,
+      ...(provider === undefined ? {} : { totalFromProvider: provider }) } };
+}
+function _assistant(id = "a", input = 10, cost = 0.1, provider?: boolean): Record {
+  return { type: "message", id, parentId: null, timestamp: time,
+    message: { role: "assistant", provider: "example", model: "model", content: [{ type: "text", text: "PRIVATE MESSAGE BODY" }], usage: _usage(input, cost, provider) } };
+}
+function _write(path: string, id: string, cwd: string, entries: Record[] = [], parentSession?: string) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, [JSON.stringify({ type: "session", version: 3, id, cwd, timestamp: time, ...(parentSession ? { parentSession } : {}) }), ...entries.map(e => JSON.stringify(e)), ""].join("\n"));
+}
+function _tree(path: string): { path: string; bytes: string; mtime: number }[] {
+  return readdirSync(path, { withFileTypes: true }).flatMap(entry => {
+    const file = join(path, entry.name);
+    return entry.isDirectory() ? _tree(file) : [{ path: relative(home, file), bytes: readFileSync(file).toString("base64"), mtime: statSync(file).mtimeMs }];
+  }).sort((a, b) => a.path.localeCompare(b.path));
+}
+function _ui(rows = 24) {
+  let component: Component | undefined;
+  const state = { closed: 0, builds: 0, renders: 0, color: 36, selection: "Workspace usage" as string | undefined };
+  const tui = { terminal: { rows }, requestRender() { state.renders++; } };
+  const context = { mode: "tui", ui: {
+    async select(_title: string, options: string[]) { assert.ok(options.includes("Workspace usage")); return state.selection; },
+    custom(build: any) {
+      state.builds++;
+      return new Promise<void>(resolve => {
+        component = build(tui, { fg: (_role: string, text: string) => `\x1b[${state.color}m${text}\x1b[0m` }, getKeybindings(), () => { state.closed++; resolve(); });
+      });
+    },
+    notify() { throw new Error("Usage viewing must not notify or request import"); },
+    confirm() { throw new Error("Usage viewing must not ask for confirmation"); },
+    input() { throw new Error("Usage viewing must not edit settings"); },
+  } } as unknown as ExtensionContext;
+  return { state, tui, context, view: () => { assert.ok(component); return component; } };
+}
+async function _tick() { await new Promise(resolve => setImmediate(resolve)); }
+function _plain(view: Component, width = 120) { return view.render(width).map(line => stripVTControlCharacters(line).trimEnd()).join("\n"); }
+function _selected(view: Component) { return _plain(view).split("\n").find(line => line.startsWith("→ ")); }
+
+try {
+  await assert.rejects(getWorkspaceUsage(root), /ENOENT/);
+  assert.ok(!existsSync(root), "a missing history root stays missing");
+  mkdirSync(root, { recursive: true });
+  const empty = await getWorkspaceUsage(root);
+  assert.deepEqual(empty.workspaces, []);
+  const parent = join(root, "project", "z-parent.jsonl");
+  const fork = join(root, "project", "a-fork.jsonl");
+  const copy = { ..._assistant(), parentId: "rewired-parent" };
+  _write(parent, "parent", "/projects/team", [
+    _assistant(),
+    _assistant("abandoned-branch", 1000, 0.2, true),
+    { type: "compaction", id: "compaction", timestamp: time, summary: "PRIVATE SUMMARY", usage: _usage(1, 0.3, false) },
+    { type: "branch_summary", id: "summary", timestamp: time, usage: _usage(2, 0.4) },
+    { type: "message", id: "tool", timestamp: time, message: { role: "toolResult", toolCallId: "call", usage: _usage(3, 0.5) } },
+    { type: "usage", id: "aux", timestamp: time, provider: "example", model: "model", kind: "nested", usage: _usage(4, 0.6) },
+    { type: "message", message: { role: "assistant", content: [] } },
+    { type: "message", message: { role: "toolResult" } },
+    { type: "compaction", id: "old-summary", timestamp: time },
+    // Custom usage-like data belongs to its extension and is outside native usage accounting.
+    { type: "custom", data: { usage: _usage(99999, 999) } },
+  ]);
+  _write(fork, "fork", "/projects/team", [copy, _assistant("new", 20, 0.7)], parent);
+  _write(join(root, "another", "independent.jsonl"), "independent", "/other/team/", [_assistant()]);
+  _write(join(root, "zero.jsonl"), "zero", "C:\\workspaces\\zero\\");
+  writeFileSync(join(home, "memory.db"), "SENTINEL DATABASE");
+  writeFileSync(join(home, "config.json"), "SENTINEL CONFIG");
+  writeFileSync(join(home, "minutes.md"), "SENTINEL OKF");
+  const before = _tree(home);
+  const snapshot = await getWorkspaceUsage(root);
+  assert.deepEqual(_tree(home), before, "all file bytes, modification times and directory contents remain unchanged");
+  assert.equal(snapshot.workspaces.length, 2);
+  const team = snapshot.workspaces[0];
+  assert.equal(team.name, "team"); assert.equal(team.session_count, 3);
+  assert.deepEqual(team.cwd_paths, ["/other/team/", "/projects/team"]);
+  assert.equal(team.usage_entries, 8);
+  assert.equal(team.missing_assistant_usage, 1);
+  assert.equal(snapshot.workspaces[1].missing_assistant_usage, 0);
+  assert.equal(team.input, 10 + 1000 + 1 + 2 + 3 + 4 + 20 + 10);
+  assert.equal(team.output, 16); assert.equal(team.cache_read, 24); assert.equal(team.cache_write, 32);
+  assert.equal(team.total_tokens, team.input + 16 + 24 + 32);
+  assert.ok(Math.abs(team.recorded_cost - 2.9) < 1e-12);
+  assert.equal(snapshot.copied_usage_entries, 1);
+  assert.equal(snapshot.missing_assistant_usage, 1);
+  assert.equal(snapshot.provider_cost_entries, 1);
+  assert.equal(snapshot.non_provider_cost_entries, 1);
+  assert.equal(snapshot.unknown_cost_entries, 6);
+  assert.equal(snapshot.external_parent_files, 0);
+  assert.equal(snapshot.workspaces[1].name, "zero");
+  assert.equal(snapshot.workspaces[1].total_tokens, 0);
+  assert.equal(snapshot.workspaces[1].recorded_cost, 0);
+  assert.doesNotMatch(JSON.stringify(snapshot), /PRIVATE|summary|toolCallId|message|usage\.cost/);
+  assert.deepEqual((await getWorkspaceUsage()).workspaces, snapshot.workspaces, "default root uses all Pi workspace directories");
+
+  const cross = join(root, "cross-workspace.jsonl");
+  _write(cross, "cross", "/projects/cross", [copy, _assistant("cross-new", 5, 0)], fork);
+  const crossSnapshot = await getWorkspaceUsage(root);
+  const crossRow = crossSnapshot.workspaces.find(row => row.name === "cross")!;
+  assert.equal(crossRow.usage_entries, 1); assert.equal(crossRow.input, 5);
+  assert.equal(crossSnapshot.copied_usage_entries, 2);
+  assert.equal(crossSnapshot.workspaces.find(row => row.name === "team")!.input, team.input, "inherited work stays attributed to its source workspace");
+
+  const missing = join(root, "missing-original.jsonl");
+  _write(missing, "missing-parent", "/projects/orphan", [_assistant("orphan", 2, 0)], join(root, "absent.jsonl"));
+  assert.equal((await getWorkspaceUsage(root)).external_parent_files, 1, "missing ancestry is explicit metadata; no external file is opened");
+  rmSync(missing);
+  const conflict = _assistant();
+  (conflict.message as any).usage = _usage(11);
+  _write(fork, "fork", "/projects/team", [conflict], parent);
+  const conflictBytes = readFileSync(fork);
+  await assert.rejects(getWorkspaceUsage(root), /Conflicting copied Pi usage/);
+  assert.deepEqual(readFileSync(fork), conflictBytes);
+  _write(fork, "fork", "/projects/team", [copy, _assistant("new", 20, 0.7)], parent);
+  _write(missing, "cycle", "/projects/cycle", [], missing);
+  await assert.rejects(getWorkspaceUsage(root), /Cyclic Pi session parent chain/);
+  rmSync(missing);
+  _write(missing, "parent", "/projects/duplicate");
+  await assert.rejects(getWorkspaceUsage(root), /Duplicate Pi session ID/); rmSync(missing);
+
+  const invalid = join(root, "invalid.jsonl");
+  for (const value of [-1, 0.5, "10", null, Number.MAX_SAFE_INTEGER + 1]) {
+    const entry = _assistant(); (entry.message as any).usage.input = value;
+    _write(invalid, "invalid", "/projects/invalid", [entry]);
+    await assert.rejects(getWorkspaceUsage(root), /Invalid Pi token count.*invalid.jsonl:2/);
+  }
+  for (const value of [-1, "0", null]) {
+    const entry = _assistant(); (entry.message as any).usage.cost.total = value;
+    _write(invalid, "invalid", "/projects/invalid", [entry]);
+    await assert.rejects(getWorkspaceUsage(root), /Invalid Pi recorded cost/);
+  }
+  const overflow = _assistant(); (overflow.message as any).usage.input = Number.MAX_SAFE_INTEGER;
+  _write(invalid, "invalid", "/projects/invalid", [overflow]);
+  await assert.rejects(getWorkspaceUsage(root), /Invalid Pi token count.*usage.total/);
+  _write(invalid, "invalid", "/projects/invalid", [{ type: "usage", id: "missing", timestamp: time }]);
+  await assert.rejects(getWorkspaceUsage(root), /Missing Pi usage/);
+  _write(invalid, "invalid", "/projects/invalid", [_assistant(), _assistant()]);
+  await assert.rejects(getWorkspaceUsage(root), /Repeated Pi usage entry/);
+  writeFileSync(invalid, '{"type":"session","id":"bad","cwd":"/bad"}\n{"partial":');
+  await assert.rejects(getWorkspaceUsage(root), /Invalid Pi JSONL:.*invalid.jsonl:2/);
+  writeFileSync(invalid, '[]\n'); await assert.rejects(getWorkspaceUsage(root), /Invalid Pi object/);
+  writeFileSync(invalid, '{"type":"message"}\n'); await assert.rejects(getWorkspaceUsage(root), /Expected Pi session header/);
+  writeFileSync(invalid, ''); await assert.rejects(getWorkspaceUsage(root), /Missing Pi session header/);
+  rmSync(invalid);
+
+  const frozen = JSON.parse(JSON.stringify(snapshot)) as WorkspaceUsageSnapshot;
+  for (const row of frozen.workspaces) { Object.freeze(row.cwd_paths); Object.freeze(row); }
+  Object.freeze(frozen.workspaces); Object.freeze(frozen);
+  let reads = 0;
+  const ui = _ui();
+  const viewing = showWorkspaceUsage(ui.context, async () => { reads++; return frozen; });
+  await _tick();
+  const text = _plain(ui.view());
+  assert.match(text, /Workspace usage/); assert.match(text, /Sessions: 4 \| Workspaces: 2/);
+  assert.match(text, /Total tokens/); assert.match(text, /Cache read/); assert.match(text, /Cache write/); assert.match(text, /Recorded cost \(\$\)/);
+  assert.match(text, /█/); assert.match(text, /Copied: 1 \| Missing usage: 1 \| External parents: 0/);
+  assert.ok(_selected(ui.view())!.includes("team"));
+  const dataRows = text.split("\n").filter(line => /^(?:→ |  )(?:team|zero)\s/.test(line));
+  assert.equal(dataRows.length, 2);
+  assert.ok(dataRows[0].includes(String(team.total_tokens)));
+  assert.ok(!dataRows[1].includes("█"), "zero use has an empty bar");
+  assert.doesNotMatch(text, /PRIVATE|SENTINEL|sessionId|pi:/);
+  for (const width of [20, 40, 60, 80, 100, 120]) {
+    const lines = ui.view().render(width);
+    assert.ok(lines.every(line => visibleWidth(line) <= width), `width ${width}`);
+    assert.ok(lines.length <= ui.tui.terminal.rows, `height at width ${width}: ${lines.length}`);
+    ui.view().render(width);
+  }
+  ui.state.color = 31; ui.view().invalidate();
+  assert.match(ui.view().render(120).join("\n"), /\x1b\[31m/);
+  ui.view().handleInput!("\t");
+  assert.match(_plain(ui.view()), /Bars: recorded cost/);
+  assert.ok(_selected(ui.view())!.includes("team"), "sorting preserves the selected workspace");
+  ui.view().handleInput!("\r");
+  assert.match(_plain(ui.view()), /Input tokens: 1050/);
+  assert.match(_plain(ui.view()), /Assistant entries without usage: 1/);
+  assert.match(_plain(ui.view()), /All-workspace source assistant entries without usage: 1/);
+  ui.view().handleInput!("\x1b[F");
+  assert.match(_plain(ui.view()), /\/projects\/team/);
+  ui.view().handleInput!("\x1b");
+  assert.equal(ui.state.closed, 0, "Esc returns from details");
+  ui.view().handleInput!("\x1b[B"); assert.ok(_selected(ui.view())!.includes("zero"));
+  assert.equal(reads, 1, "navigation, sorting, resizing and theme changes reuse the same snapshot");
+  ui.view().handleInput!("\x1b"); await viewing; assert.equal(ui.state.closed, 1);
+
+  let forbiddenReads = 0;
+  await assert.rejects(showWorkspaceUsage({ mode: "json" } as ExtensionContext, async () => { forbiddenReads++; return snapshot; }), /requires Pi TUI/);
+  assert.equal(forbiddenReads, 0);
+  const failed = _ui();
+  await assert.rejects(showWorkspaceUsage(failed.context, async () => { forbiddenReads++; throw new Error("injected-read-failure"); }), /injected-read-failure/);
+  assert.equal(forbiddenReads, 1); assert.equal(failed.state.builds, 0);
+  const emptyUi = _ui(); const emptyView = showWorkspaceUsage(emptyUi.context, async () => empty); await _tick();
+  assert.match(_plain(emptyUi.view()), /No native session JSONL files/);
+  emptyUi.view().handleInput!("\r"); assert.equal(emptyUi.state.closed, 0);
+  emptyUi.view().handleInput!("\x1b"); await emptyView;
+
+  const many = { ...snapshot, workspaces: Array.from({ length: 100 }, (_, i) => ({ ...team, name: `workspace-${String(i).padStart(3, "0")}`, total_tokens: 100 - i, recorded_cost: i })) };
+  const pages = _ui(18); const paged = showWorkspaceUsage(pages.context, async () => many); await _tick();
+  pages.view().render(120);
+  pages.view().handleInput!("\x1b[6~"); assert.ok(!_selected(pages.view())!.includes("workspace-000"));
+  pages.view().handleInput!("\x1b[F"); assert.ok(_selected(pages.view())!.includes("workspace-099"));
+  pages.view().handleInput!("\t"); assert.ok(_selected(pages.view())!.includes("workspace-099"));
+  pages.view().handleInput!("\x1b[H"); assert.ok(_selected(pages.view())!.includes("workspace-099"));
+  pages.view().handleInput!("\x1b[F"); assert.ok(_selected(pages.view())!.includes("workspace-000"));
+  pages.view().handleInput!("\x1b"); await paged;
+
+  const commands: any[] = []; let tools = 0;
+  extension({ on() {}, registerTool() { tools++; }, registerCommand(name: string, options: unknown) { commands.push({ name, options }); },
+    sendUserMessage() { throw new Error("Workspace usage must not start an Agent request"); },
+  } as unknown as ExtensionAPI);
+  assert.equal(commands.length, 1); assert.equal(tools, 15);
+  const menu = _ui();
+  const menuBefore = _tree(home);
+  const action = commands[0].options.handler("", menu.context); await _tick();
+  // File reads are asynchronous. Wait for the actual custom view, without touching real history.
+  for (let i = 0; i < 100 && menu.state.builds === 0; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(menu.state.builds, 1);
+  assert.match(_plain(menu.view()), /Workspaces: 3/);
+  menu.view().handleInput!("\x1b"); await action;
+  assert.deepEqual(_tree(home), menuBefore, "the real menu handler leaves JSONL, database, config and OKF unchanged");
+  menu.state.selection = undefined;
+  await commands[0].options.handler("", menu.context);
+  assert.equal(menu.state.builds, 1);
+  assert.deepEqual(_tree(home), menuBefore);
+  console.log("workspace-usage.test.ts: grouped raw usage, fork provenance, validation, read-only menu and native TUI passed");
+} finally {
+  if (originalHome === undefined) delete process.env.HOME; else process.env.HOME = originalHome;
+  if (originalProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = originalProfile;
+  rmSync(home, { recursive: true, force: true });
+}

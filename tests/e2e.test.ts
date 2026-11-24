@@ -116,6 +116,7 @@ assert.deepEqual(menuOptions[0], [
   "Agentic setup",
   "Edit configuration",
   "Database session management",
+  "Workspace usage",
   "Delete sessions by turn count",
   "Clean indexed tool turns",
   "Import history",

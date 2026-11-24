@@ -291,7 +291,7 @@ try {
   const menu = _ui();
   const menuResult = commands[0].handler("", menu.context);
   await Promise.resolve();
-  assert.deepEqual(menu.state.options[0], ["Agentic setup", "Edit configuration", "Database session management", "Delete sessions by turn count", "Clean indexed tool turns", "Import history"]);
+  assert.deepEqual(menu.state.options[0], ["Agentic setup", "Edit configuration", "Database session management", "Workspace usage", "Delete sessions by turn count", "Clean indexed tool turns", "Import history"]);
   assert.ok(_plain(menu.view()).some(line => line.includes("Total sessions: 7 | Total turns: 112 | Groups: 5")));
   assert.deepEqual(_bars(menu.view()).map(row => ({ turn_count: row.turns, session_count: row.sessions })), expected);
   assert.equal(_chartLines(menu.view()).length, 5, "seven sessions collapse to five turn-count groups");

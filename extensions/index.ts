@@ -3,6 +3,8 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { writeTurn } from "../src/history/writer.ts";
 import { getHistoryStats, getSessionTurnDistribution } from "../src/history/db.ts";
+import { getWorkspaceUsage } from "../src/history/workspace-usage.ts";
+import { showWorkspaceUsage, WORKSPACE_USAGE_LABEL } from "../src/presentation/workspace-usage.ts";
 import { fetchTurnContext } from "../src/history/fetch-turn-context.ts";
 import { formatRecallResults, recallTurns } from "../src/recall/retriever.ts";
 import { selectRecallMode } from "../src/recall/recall-mode.ts";
@@ -194,6 +196,7 @@ const SESSION_MEMORY_ACTIONS = {
   setup: "Agentic setup",
   edit: "Edit configuration",
   database: "Database session management",
+  workspaceUsage: WORKSPACE_USAGE_LABEL,
   deleteSessions: SESSION_DELETION_LABEL,
   clean: "Clean indexed tool turns",
   backfill: "Import history",
@@ -213,6 +216,10 @@ async function _openSessionMemoryMenu(pi: ExtensionAPI, ctx: ExtensionCommandCon
   }
   if (selection === SESSION_MEMORY_ACTIONS.database) {
     await showDatabaseSessionManagement(ctx, getSessionTurnDistribution);
+    return;
+  }
+  if (selection === SESSION_MEMORY_ACTIONS.workspaceUsage) {
+    await showWorkspaceUsage(ctx, getWorkspaceUsage);
     return;
   }
   if (selection === SESSION_MEMORY_ACTIONS.deleteSessions) {

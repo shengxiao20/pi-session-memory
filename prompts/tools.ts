@@ -314,8 +314,11 @@ export const TOOL_PROMPTS = {
 
 export const COMMAND_DESCRIPTION =
   "Open direct configuration editing, guided setup, read-only " +
-  "database session management, session deletion by turn count, " +
-  "Pi history import, or indexed-tool-turn cleanup. Session " +
+  "database session management, workspace usage from raw JSONL, " +
+  "session deletion by turn count, Pi history import, or " +
+  "indexed-tool-turn cleanup. Workspace usage groups sessions " +
+  "by cwd directory name and counts copied fork usage once. " +
+  "Token totals and recorded costs use JSONL values. Session " +
   "deletion uses an inclusive non-negative integer limit and " +
   "creates a verified database backup first. Field rows show " +
   "current values and required/optional labels. Unset fields " +
