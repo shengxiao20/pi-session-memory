@@ -27,6 +27,13 @@ function _assistant(id = "a", input = 10, cost = 0.1, provider?: boolean): Recor
   return { type: "message", id, parentId: null, timestamp: time,
     message: { role: "assistant", provider: "example", model: "model", content: [{ type: "text", text: "PRIVATE MESSAGE BODY" }], usage: _usage(input, cost, provider) } };
 }
+function _pricedAssistant(id: string, model: string, changes: Partial<ReturnType<typeof _usage>> = {}): Record {
+  const entry = _assistant(id, 10, 0, false);
+  const message = entry.message as Record;
+  message.model = model;
+  message.usage = { ..._usage(10, 0, false), cacheWrite1h: 0, ...changes };
+  return entry;
+}
 function _write(path: string, id: string, cwd: string, entries: Record[] = [], parentSession?: string) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, [JSON.stringify({ type: "session", version: 3, id, cwd, timestamp: time, ...(parentSession ? { parentSession } : {}) }), ...entries.map(e => JSON.stringify(e)), ""].join("\n"));
@@ -186,13 +193,67 @@ try {
   rmSync(invalid);
 
   const zeroCostFile = join(root, "project", "zero-cost.jsonl");
-  _write(zeroCostFile, "zero-cost", "/projects/zero-recorded-cost", [_assistant("zero-cost-usage", 1000, 0, false)]);
+  _write(zeroCostFile, "zero-cost", "/projects/zero-recorded-cost", [_pricedAssistant("zero-cost-usage", "gpt-6.1-sol", { input: 1000 })]);
   const zeroCostBefore = _tree(home);
   const zeroRecordedCost = (await getWorkspaceUsage(root)).workspaces.find(row => row.name === "zero-recorded-cost")!;
   assert.ok(zeroRecordedCost.total_tokens > 0);
   assert.equal(zeroRecordedCost.recorded_cost, 0, "nonzero tokens retain an explicitly recorded zero cost");
+  assert.equal(zeroRecordedCost.estimated_cost_usd, 0.0020303);
+  assert.equal(zeroRecordedCost.priced_entries_usd, 1); assert.equal(zeroRecordedCost.priced_entries_cny, 0);
+  assert.equal(zeroRecordedCost.unpriced_usage_entries, 0);
   assert.deepEqual(_tree(home), zeroCostBefore);
   rmSync(zeroCostFile);
+
+  const pricedRoot = join(home, "priced-history");
+  const source = join(pricedRoot, "source.jsonl");
+  const pricedFork = join(pricedRoot, "fork.jsonl");
+  const gpt = _pricedAssistant("priced-gpt", "gpt-6.1-sol", { input: 3, output: 68, cacheRead: 0, cacheWrite: 7833 });
+  const glm = _pricedAssistant("priced-glm", "glm-5.3", { input: 100, output: 10, cacheRead: 200, cacheWrite: 0 });
+  const qwen = _pricedAssistant("unpriced-qwen", "qwen-flash");
+  const noModel = { type: "compaction", id: "no-model", timestamp: time, parentId: null, summary: "PRIVATE SUMMARY", usage: _usage(10, 0) };
+  _write(source, "priced-source", "/projects/priced", [gpt, glm, qwen, noModel]);
+  _write(pricedFork, "priced-fork", "/other/fork", [{ ...gpt, parentId: "rewritten" }, { ...glm, parentId: "rewritten" }, { ...qwen, parentId: "rewritten" }, _pricedAssistant("fork-new", "gpt-6.1-sol", { input: 1 })], source);
+  const pricedBefore = _tree(home);
+  const priced = await getWorkspaceUsage(pricedRoot);
+  const pricedGroup = priced.workspaces.find(row => row.name === "priced")!;
+  assert.equal(pricedGroup.recorded_cost, 0);
+  assert.equal(pricedGroup.estimated_cost_usd, 0.0202685); assert.equal(pricedGroup.estimated_cost_cny, 0.00148);
+  assert.equal(pricedGroup.priced_entries_usd, 1); assert.equal(pricedGroup.priced_entries_cny, 1);
+  assert.equal(pricedGroup.unpriced_usage_entries, 2); assert.equal(pricedGroup.unpriced_tokens, 38);
+  assert.equal(priced.unpriced_usage_entries, 2); assert.equal(priced.unpriced_tokens, 38);
+  assert.equal(priced.copied_usage_entries, 3, "USD, CNY and unpriced copies all stay in their source workspace");
+  assert.ok(pricedGroup.unpriced_usage.some(gap => gap.model === "qwen-flash" && /region/.test(gap.reason)));
+  assert.ok(pricedGroup.unpriced_usage.some(gap => gap.model === undefined));
+  assert.equal(priced.workspaces.find(row => row.name === "fork")!.priced_entries_usd, 1);
+  assert.equal(priced.workspaces.find(row => row.name === "fork")!.priced_entries_cny, 0);
+  assert.equal(priced.workspaces.find(row => row.name === "fork")!.unpriced_usage_entries, 0);
+  for (const row of priced.workspaces) assert.equal(row.priced_entries_usd + row.priced_entries_cny + row.unpriced_usage_entries, row.usage_entries);
+  assert.deepEqual(_tree(home), pricedBefore); assert.doesNotMatch(JSON.stringify(priced), /PRIVATE/);
+  const paid = _pricedAssistant("recorded-nonzero", "gpt-6.1-sol");
+  ((paid.message as Record).usage as ReturnType<typeof _usage>).cost.total = 123.456;
+  _write(join(pricedRoot, "recorded.jsonl"), "recorded", "/projects/recorded", [paid]);
+  const paidRow = (await getWorkspaceUsage(pricedRoot)).workspaces.find(row => row.name === "recorded")!;
+  assert.equal(paidRow.recorded_cost, 123.456); assert.ok(Math.abs(paidRow.estimated_cost_usd - 0.0000503) < 1e-15);
+  _write(join(pricedRoot, "tiers.jsonl"), "tiers", "/projects/tiers", [
+    _pricedAssistant("short-1", "gpt-6.1-sol", { input: 272000, output: 0, cacheRead: 0, cacheWrite: 0 }),
+    _pricedAssistant("short-2", "gpt-6.1-sol", { input: 1, output: 0, cacheRead: 0, cacheWrite: 0 }),
+    _pricedAssistant("long", "gpt-6.1-sol", { input: 1, output: 0, cacheRead: 272000, cacheWrite: 0 }),
+  ]);
+  const tierRow = (await getWorkspaceUsage(pricedRoot)).workspaces.find(row => row.name === "tiers")!;
+  assert.ok(Math.abs(tierRow.estimated_cost_usd - 0.598406) < 1e-12, "tiers use each request input, rather than the workspace sum");
+  const virtual = _pricedAssistant("virtual", "virtual-wrapper");
+  (virtual.message as Record).responseModel = "gpt-6.1-sol";
+  _write(join(pricedRoot, "virtual.jsonl"), "virtual", "/projects/virtual", [virtual]);
+  assert.equal((await getWorkspaceUsage(pricedRoot)).workspaces.find(row => row.name === "virtual")!.priced_entries_usd, 1);
+  const badModel = _pricedAssistant("bad-model", "gpt-6.1-sol");
+  (badModel.message as Record).model = 123;
+  _write(join(pricedRoot, "invalid.jsonl"), "invalid", "/projects/invalid", [badModel]);
+  await assert.rejects(getWorkspaceUsage(pricedRoot), /Invalid Pi string/);
+  rmSync(join(pricedRoot, "invalid.jsonl"));
+  const badLifetime = _pricedAssistant("bad-lifetime", "gpt-6.1-sol", { cacheWrite: 0, cacheWrite1h: 1 });
+  _write(join(pricedRoot, "invalid.jsonl"), "invalid", "/projects/invalid", [badLifetime]);
+  await assert.rejects(getWorkspaceUsage(pricedRoot), /lifetime subsets/);
+  rmSync(pricedRoot, { recursive: true });
 
   const frozen = JSON.parse(JSON.stringify(snapshot)) as WorkspaceUsageSnapshot;
   for (const row of frozen.workspaces) { Object.freeze(row.cwd_paths); Object.freeze(row); }
@@ -262,13 +323,15 @@ try {
   await _tick();
   const text = _plain(ui.view());
   assert.match(text, /Workspace usage/); assert.match(text, /Sessions: 4 \| Workspaces: 2/);
-  assert.match(text, /Total tokens/); assert.match(text, /Cache read/); assert.match(text, /Cache write/); assert.match(text, /Recorded cost \(\$\)/);
+  assert.match(text, /Total tokens/); assert.match(text, /Cache read/); assert.match(text, /Cache write/);
+  assert.match(text, /Estimated USD/); assert.match(text, /Estimated CNY/);
+  assert.match(text, /Unpriced entries: 8 \| Unpriced tokens: 1122/);
   assert.match(text, /█/); assert.match(text, /Copied: 1 \| Missing usage: 1 \| External parents: 0/);
   assert.ok(_selected(ui.view())!.includes("team"));
   const dataRows = text.split("\n").filter(line => /^(?:→ |  )(?:team|zero)\s/.test(line));
   assert.equal(dataRows.length, 2);
   assert.ok(dataRows[0].includes(String(team.total_tokens)));
-  assert.ok(dataRows[0].includes(String(team.recorded_cost)), "recorded cost keeps its raw numeric precision");
+  assert.ok(dataRows[0].includes("—"), "unpriced currencies show a dash rather than a fabricated zero");
   assert.ok(!dataRows[1].includes("█"), "zero use has an empty bar");
   assert.doesNotMatch(text, /PRIVATE|SENTINEL|sessionId|pi:/);
   for (const width of [20, 40, 60, 80, 100, 120]) {
@@ -280,12 +343,23 @@ try {
   ui.state.color = 31; ui.view().invalidate();
   assert.match(ui.view().render(120).join("\n"), /\x1b\[31m/);
   ui.view().handleInput!("\t");
-  assert.match(_plain(ui.view()), /Bars: recorded cost/);
+  assert.match(_plain(ui.view()), /Bars: estimated USD/);
+  ui.view().handleInput!("\t"); assert.match(_plain(ui.view()), /Bars: estimated CNY/);
+  ui.view().handleInput!("\t"); assert.match(_plain(ui.view()), /Bars: total tokens/);
   assert.ok(_selected(ui.view())!.includes("team"), "sorting preserves the selected workspace");
   ui.view().handleInput!("\r");
   assert.match(_plain(ui.view()), /Input tokens: 1050/);
   assert.match(_plain(ui.view()), /Assistant entries without usage: 1/);
-  assert.match(_plain(ui.view()), /All-workspace source assistant entries without usage: 1/);
+  assert.match(_plain(ui.view()), new RegExp(`Recorded cost \\(\\$\\): ${String(team.recorded_cost).replaceAll(".", "\\.")}`));
+  assert.match(_plain(ui.view()), /Estimated cost \(USD\): —/);
+  let detailText = _plain(ui.view());
+  for (let i = 0; i < 3; i++) { ui.view().handleInput!("\x1b[6~"); detailText += `\n${_plain(ui.view())}`; }
+  assert.match(detailText, /All-workspace source assistant entries without usage: 1/);
+  assert.match(detailText, /Edit prices: src\/history\/model-pricing.ts/);
+  assert.match(detailText, /example\/model: 5 entries; 1089 tokens/);
+  assert.match(detailText, /\(model absent\): 3 entries; 33 tokens/);
+  assert.match(detailText, /https:\/\/developers.openai.com\/api\/docs\/pricing/);
+  assert.doesNotMatch(detailText, /PRIVATE/);
   ui.view().handleInput!("\x1b[F");
   assert.match(_plain(ui.view()), /\/projects\/team/);
   ui.view().handleInput!("\x1b");
@@ -309,14 +383,15 @@ try {
   const zeroCostView = showWorkspaceUsage(zeroCostUi.context, async () => ({ ...snapshot, workspaces: [zeroRecordedCost] }));
   await _tick();
   zeroCostUi.view().handleInput!("\t");
-  assert.match(_plain(zeroCostUi.view()), /Bars: recorded cost/);
-  assert.doesNotMatch(_plain(zeroCostUi.view()), /█/);
+  assert.match(_plain(zeroCostUi.view()), /Bars: estimated USD/);
+  assert.match(_plain(zeroCostUi.view()), /█/);
+  assert.match(_plain(zeroCostUi.view()), /0.0020303/);
   zeroCostUi.view().handleInput!("\r");
   assert.match(_plain(zeroCostUi.view()), /Total tokens: 1009/);
   assert.match(_plain(zeroCostUi.view()), /Recorded cost \(\$\): 0/);
   zeroCostUi.view().handleInput!("\x1b"); zeroCostUi.view().handleInput!("\x1b"); await zeroCostView;
 
-  const many = { ...snapshot, workspaces: Array.from({ length: 100 }, (_, i) => ({ ...team, name: `workspace-${String(i).padStart(3, "0")}`, total_tokens: 100 - i, recorded_cost: i })) };
+  const many = { ...snapshot, workspaces: Array.from({ length: 100 }, (_, i) => ({ ...team, name: `workspace-${String(i).padStart(3, "0")}`, total_tokens: 100 - i, estimated_cost_usd: i, estimated_cost_cny: 100 - i, priced_entries_usd: 1, priced_entries_cny: 1 })) };
   const pages = _ui(18); const paged = showWorkspaceUsage(pages.context, async () => many); await _tick();
   pages.view().render(120);
   pages.view().handleInput!("\x1b[6~"); assert.ok(!_selected(pages.view())!.includes("workspace-000"));
@@ -324,6 +399,8 @@ try {
   pages.view().handleInput!("\t"); assert.ok(_selected(pages.view())!.includes("workspace-099"));
   pages.view().handleInput!("\x1b[H"); assert.ok(_selected(pages.view())!.includes("workspace-099"));
   pages.view().handleInput!("\x1b[F"); assert.ok(_selected(pages.view())!.includes("workspace-000"));
+  pages.view().handleInput!("\t"); assert.match(_plain(pages.view()), /Bars: estimated CNY/);
+  pages.view().handleInput!("\x1b[H"); assert.ok(_selected(pages.view())!.includes("workspace-000"));
   pages.view().handleInput!("\x1b"); await paged;
 
   const commands: any[] = []; let tools = 0;
@@ -344,7 +421,7 @@ try {
   await commands[0].options.handler("", menu.context);
   assert.equal(menu.state.builds, 1);
   assert.deepEqual(_tree(home), menuBefore);
-  console.log("workspace-usage.test.ts: native loading animation, single snapshot and screen, timer cleanup on success/failure/close, recorded zero cost and raw precision, bounded discovery, fork provenance, strict validation, read-only menu and native TUI passed");
+  console.log("workspace-usage.test.ts: separate estimated USD/CNY, unpriced coverage, response model attribution, priced fork deduplication, preserved raw cost, native loading and timer cleanup, single snapshot, bounded discovery, strict validation, read-only menu and native TUI passed");
 } finally {
   if (originalHome === undefined) delete process.env.HOME; else process.env.HOME = originalHome;
   if (originalProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = originalProfile;

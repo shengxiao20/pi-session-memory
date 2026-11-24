@@ -17,8 +17,21 @@ interface UsageRow {
   cache_write: number;
   total_tokens: number;
   recorded_cost: number;
+  estimated_cost_usd: number;
+  estimated_cost_cny: number;
+  priced_entries_usd: number;
+  priced_entries_cny: number;
+  unpriced_usage_entries: number;
+  unpriced_tokens: number;
+  unpriced_usage: readonly { provider: string | undefined; model: string | undefined; reason: string; usage_entries: number; total_tokens: number }[];
 }
 interface UsageView {
+  pricing_as_of: string;
+  pricing_basis: string;
+  pricing_file: string;
+  pricing_sources: readonly string[];
+  unpriced_usage_entries: number;
+  unpriced_tokens: number;
   workspaces: readonly UsageRow[];
   copied_usage_entries: number;
   missing_assistant_usage: number;
@@ -27,7 +40,10 @@ interface UsageView {
   non_provider_cost_entries: number;
   unknown_cost_entries: number;
 }
-type Metric = "total_tokens" | "recorded_cost";
+type Metric = "total_tokens" | "estimated_cost_usd" | "estimated_cost_cny";
+const METRICS: readonly Metric[] = ["total_tokens", "estimated_cost_usd", "estimated_cost_cny"];
+const METRIC_LABELS = { total_tokens: "total tokens", estimated_cost_usd: "estimated USD", estimated_cost_cny: "estimated CNY" };
+const HEADINGS = ["Workspace", "Sessions", "Total tokens", "Cache read", "Cache write", "Estimated USD", "Estimated CNY"];
 
 /** Show exact grouped values and compact ranking bars from one on-demand JSONL snapshot. */
 export async function showWorkspaceUsage(ctx: ExtensionContext, readUsage: () => Promise<UsageView>): Promise<void> {
@@ -81,7 +97,7 @@ export async function showWorkspaceUsage(ctx: ExtensionContext, readUsage: () =>
         }
         const controls = new Text(theme.fg("dim", detail
           ? "↑/↓ scroll · PgUp/PgDn · Home/End · Enter/Esc back"
-          : "↑/↓ move · PgUp/PgDn · Home/End · Tab tokens/cost · Enter details · Esc close"), 0, 0).render(width);
+          : "↑/↓ move · PgUp/PgDn · Home/End · Tab tokens/USD/CNY · Enter details · Esc close"), 0, 0).render(width);
         if (detail) {
           const header = new Text(title, 0, 0).render(width);
           const lines = detail.render(width);
@@ -91,11 +107,12 @@ export async function showWorkspaceUsage(ctx: ExtensionContext, readUsage: () =>
         }
         columns = _columnWidths(entries, width - 4);
         maximum = entries.reduce((max, entry) => Math.max(max, entry[metric]), 0);
-        const heading = _table(["Workspace", "Sessions", "Total tokens", "Cache read", "Cache write", "Recorded cost ($)"], columns);
+        const heading = _table(HEADINGS, columns);
         const header = new Text([
           title,
-          `Sessions: ${sessions} | Workspaces: ${entries.length} | Bars: ${metric === "total_tokens" ? "total tokens" : "recorded cost"} | JSONL read-only`,
+          `Sessions: ${sessions} | Workspaces: ${entries.length} | Bars: ${METRIC_LABELS[metric]} | JSONL read-only`,
           `Copied: ${snapshot.copied_usage_entries} | Missing usage: ${snapshot.missing_assistant_usage} | External parents: ${snapshot.external_parent_files}`,
+          `Prices: ${snapshot.pricing_as_of} | Unpriced entries: ${snapshot.unpriced_usage_entries} | Unpriced tokens: ${snapshot.unpriced_tokens}`,
           `  ${theme.fg("muted", truncateToWidth(heading, Math.max(0, width - 2), ""))}`,
         ].join("\n"), 0, 0).render(width);
         visibleRows = Math.max(1, tui.terminal.rows - header.length - controls.length - 2);
@@ -121,7 +138,7 @@ export async function showWorkspaceUsage(ctx: ExtensionContext, readUsage: () =>
           else if (matchesKey(data, Key.end)) detail.scrollToEnd();
         } else if (matchesKey(data, Key.tab)) {
           const selected = entries[cursor];
-          metric = metric === "total_tokens" ? "recorded_cost" : "total_tokens";
+          metric = METRICS[(METRICS.indexOf(metric) + 1) % METRICS.length];
           entries = [...entries].sort((a, b) => b[metric] - a[metric] || a.name.localeCompare(b.name));
           cursor = Math.max(0, entries.indexOf(selected));
           list = createList();
@@ -139,11 +156,16 @@ export async function showWorkspaceUsage(ctx: ExtensionContext, readUsage: () =>
 }
 
 function _cells(entry: UsageRow): string[] {
-  return [_safeText(entry.name), String(entry.session_count), String(entry.total_tokens), String(entry.cache_read), String(entry.cache_write), String(entry.recorded_cost)];
+  return [_safeText(entry.name), String(entry.session_count), String(entry.total_tokens), String(entry.cache_read), String(entry.cache_write),
+    _estimatedCost(entry.estimated_cost_usd, entry.priced_entries_usd), _estimatedCost(entry.estimated_cost_cny, entry.priced_entries_cny)];
+}
+
+function _estimatedCost(value: number, pricedEntries: number): string {
+  return pricedEntries === 0 ? "—" : String(value);
 }
 
 function _columnWidths(entries: readonly UsageRow[], width: number): number[] {
-  const rows = [["Workspace", "Sessions", "Total tokens", "Cache read", "Cache write", "Recorded cost ($)"], ...entries.map(_cells)];
+  const rows = [HEADINGS, ...entries.map(_cells)];
   return rows[0].map((_, index) => index === 0
     ? Math.max(1, Math.min(Math.floor(width / 5), Math.max(...rows.map(row => visibleWidth(row[index])))))
     : Math.max(...rows.map(row => visibleWidth(row[index]))));
@@ -162,13 +184,27 @@ function _details(entry: UsageRow, snapshot: UsageView): string {
     `Assistant entries without usage: ${entry.missing_assistant_usage}`,
     `Input tokens: ${entry.input}`, `Output tokens: ${entry.output}`, `Cache read tokens: ${entry.cache_read}`,
     `Cache write tokens: ${entry.cache_write}`, `Total tokens: ${entry.total_tokens}`,
+    `Estimated cost (USD): ${_estimatedCost(entry.estimated_cost_usd, entry.priced_entries_usd)}`,
+    `Estimated cost (CNY): ${_estimatedCost(entry.estimated_cost_cny, entry.priced_entries_cny)}`,
+    `Priced usage entries: USD ${entry.priced_entries_usd}; CNY ${entry.priced_entries_cny}`,
+    `Unpriced usage entries: ${entry.unpriced_usage_entries} | Unpriced tokens: ${entry.unpriced_tokens}`,
     `Recorded cost ($): ${entry.recorded_cost}`,
-    "", "Recorded cost uses JSONL values. Provider invoices show billed cost.",
+    "", "Estimates are priced subtotals. Unpriced usage appears separately.",
+    "— means this currency has no priced usage. USD and CNY remain separate.",
+    _safeText(snapshot.pricing_basis),
+    `Price snapshot: ${_safeText(snapshot.pricing_as_of)} | Edit prices: ${_safeText(snapshot.pricing_file)}`,
+    "OpenAI cache writes use default 30m prices. Recorded 12h writes use 12h prices.",
+    "Claude cache writes use default 5m prices. Recorded 1h writes use 1h prices.",
+    "Proxy, subscription and promotional charges have separate terms.",
+    "Recorded cost uses JSONL values. Provider invoices show billed cost.",
+    "", "Unpriced usage:", ...entry.unpriced_usage.map(gap =>
+      `${_safeText(gap.provider === undefined ? "(provider absent)" : gap.provider)}/${_safeText(gap.model === undefined ? "(model absent)" : gap.model)}: ${gap.usage_entries} entries; ${gap.total_tokens} tokens. ${_safeText(gap.reason)}`),
     "Copied fork usage stays in its earliest available source workspace.",
     `All-workspace copied usage entries: ${snapshot.copied_usage_entries}`,
     `All-workspace source assistant entries without usage: ${snapshot.missing_assistant_usage}`,
     `All-workspace parent files outside snapshot: ${snapshot.external_parent_files}`,
     `All-workspace cost source entries: provider ${snapshot.provider_cost_entries}; non-provider ${snapshot.non_provider_cost_entries}; unspecified ${snapshot.unknown_cost_entries}.`,
+    "", "Price sources:", ...snapshot.pricing_sources.map(_safeText),
     "", "Workspace paths:", ...entry.cwd_paths.map(_safeText),
   ].join("\n");
 }
