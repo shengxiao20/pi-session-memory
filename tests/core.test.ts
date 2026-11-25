@@ -154,7 +154,7 @@ assert.equal(getSessionMemoryConfig().knowledgePath, "/knowledge");
 assert.equal(getSessionMemoryConfig().consultation, undefined, "knowledgePath does not require consultation");
 writeFileSync(configPath, JSON.stringify({ recallLimit: 2 }));
 
-for (const toolName of ["recall_memory", "fetch_session", "get_memory_stats", "backfill_memory"]) assert.match(extensionSource, new RegExp(`name: "${toolName}"`));
+for (const key of ["recallMemory", "fetchSession", "getMemoryStats", "backfillMemory"]) assert.match(extensionSource, new RegExp(`name: TOOL_NAMES\\.${key}`));
 assert.doesNotMatch(extensionSource, /name: "recall_project_memory"/);
 assert.doesNotMatch(extensionSource, /name: "export_recall_to_obsidian"/);
 assert.doesNotMatch(extensionSource, /name: "migrate_project_sessions"/);

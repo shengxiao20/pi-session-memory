@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import { TOOL_PROMPTS } from "../../prompts/tools.ts";
+import { TOOL_NAMES } from "../../prompts/tool-names.ts";
 import { PARAMETER_HELP } from "../../prompts/parameters.ts";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
@@ -21,16 +22,16 @@ export function registerConsultationTools(registerTool: ExtensionAPI["registerTo
     },
   });
   register({
-    name: "follow_up_session", label: "Follow Up Historical Session", executionMode: "sequential",
-    description: TOOL_PROMPTS.follow_up_session.description,
+    name: TOOL_NAMES.followUpSession, label: "Follow Up Historical Session", executionMode: "sequential",
+    description: TOOL_PROMPTS[TOOL_NAMES.followUpSession].description,
     parameters: Type.Object({ consultation_id: Type.String({ minLength: 1 }), session_id: Type.String({ minLength: 1 }), question: Type.String({ minLength: 1 }) }),
     async execute(_id, params, signal, _update, ctx) { return text(await runtime.followUp(params.consultation_id, params.session_id, params.question, ctx, signal), MAIN_AGENT_NOTICE); },
   });
   const conclusion = meetingConclusionSchema;
   register({
-    name: "finish_session_consultation", label: "Save OKF Meeting Minutes", executionMode: "sequential",
-    description: TOOL_PROMPTS.finish_session_consultation.description,
-    promptGuidelines: TOOL_PROMPTS.finish_session_consultation.promptGuidelines,
+    name: TOOL_NAMES.finishSessionConsultation, label: "Save OKF Meeting Minutes", executionMode: "sequential",
+    description: TOOL_PROMPTS[TOOL_NAMES.finishSessionConsultation].description,
+    promptGuidelines: TOOL_PROMPTS[TOOL_NAMES.finishSessionConsultation].promptGuidelines,
     parameters: Type.Object({
       consultation_id: Type.String({ minLength: 1 }), conclusion,
       meeting_id: Type.Optional(Type.String({ minLength: 1, description: PARAMETER_HELP.knowledge.updateMeetingId })),
@@ -43,8 +44,8 @@ export function registerConsultationTools(registerTool: ExtensionAPI["registerTo
     },
   });
   register({
-    name: "cancel_session_consultation", label: "Cancel Session Consultation", executionMode: "sequential",
-    description: TOOL_PROMPTS.cancel_session_consultation.description,
+    name: TOOL_NAMES.cancelSessionConsultation, label: "Cancel Session Consultation", executionMode: "sequential",
+    description: TOOL_PROMPTS[TOOL_NAMES.cancelSessionConsultation].description,
     parameters: Type.Object({ consultation_id: Type.String({ minLength: 1 }) }),
     async execute(_id, params, _signal, _update, ctx) { await runtime.cancel(params.consultation_id, ctx); output.cancelDiscussion(); return text({ cancelled: params.consultation_id }, CONSULTATION_CLOSED_NOTICE); },
   });

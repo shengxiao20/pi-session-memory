@@ -1,13 +1,14 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { TOOL_PROMPTS } from "../../prompts/tools.ts";
+import { TOOL_NAMES } from "../../prompts/tool-names.ts";
 import { cleanMemoryToolTurns, formatMemoryToolCleanup } from "./memory-index-cleanup.ts";
 
 /** Expose explicit manual cleanup without starting transcript recall or an OKF conclusion workflow. */
 export function registerMemoryCleanupTools(registerTool: ExtensionAPI["registerTool"]): void {
   registerTool({
-    name: "clean_memory_tool_turns", label: "Clean Indexed Memory Tool Turns", executionMode: "sequential",
-    description: TOOL_PROMPTS.clean_memory_tool_turns.description,
+    name: TOOL_NAMES.cleanMemoryToolTurns, label: "Clean Indexed Memory Tool Turns", executionMode: "sequential",
+    description: TOOL_PROMPTS[TOOL_NAMES.cleanMemoryToolTurns].description,
     parameters: Type.Object({}),
     async execute() {
       const result = cleanMemoryToolTurns();

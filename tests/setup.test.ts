@@ -25,11 +25,11 @@ try {
   assert.match(missing.guide, /Wait\s+for\s+each\s+answer/);
   assert.match(missing.guide, /Cancellation does not write anything/);
   assert.match(missing.guide, /Save these settings/);
-  assert.match(SETUP_NOTICE, /General usage questions do not authorize writes/);
+  assert.match(SETUP_NOTICE, /Usage questions authorize no writes/);
   assert.ok(SETUP_NOTICE.endsWith(POST_SETUP_IMPORT_NOTICE), "setup tools share the post-save import boundary");
   assert.equal([...POST_SETUP_IMPORT_NOTICE.matchAll(/\?/g)].length, 1, "post-setup import asks only one question");
-  assert.match(POST_SETUP_IMPORT_NOTICE, /Configuration approval is not import approval/);
-  assert.match(POST_SETUP_IMPORT_NOTICE, /Only after import approval, call backfill_memory once/);
+  assert.match(POST_SETUP_IMPORT_NOTICE, /Import requires separate explicit approval; only then call backfill_memory once/);
+  assert.match(POST_SETUP_IMPORT_NOTICE, /Decline, no answer or cancellation: skip import and keep saved settings/);
   const importHeading = missing.guide.indexOf("## Optional history import after setup");
   assert.ok(importHeading > missing.guide.indexOf("### 7. Review and save"), "optional import follows the final configuration save");
   const importGuide = missing.guide.slice(importHeading);

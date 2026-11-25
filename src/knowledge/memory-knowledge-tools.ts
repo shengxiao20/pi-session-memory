@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import { TOOL_PROMPTS } from "../../prompts/tools.ts";
+import { TOOL_NAMES } from "../../prompts/tool-names.ts";
 import { PARAMETER_HELP } from "../../prompts/parameters.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { inspectMemoryKnowledge, readMemoryKnowledge, KNOWLEDGE_FIRST_NOTICE } from "./memory-knowledge.ts";
@@ -17,10 +18,10 @@ interface SavedKnowledgeOutput {
 /** Expose metadata-first reading and OKF writing through the shared publication module. */
 export function registerMemoryKnowledgeTools(registerTool: ExtensionAPI["registerTool"], output: SavedKnowledgeOutput): void {
   registerTool({
-    name: "inspect_memory_knowledge", label: "Inspect Saved OKF Directory", executionMode: "sequential",
-    description: TOOL_PROMPTS.inspect_memory_knowledge.description,
-    promptSnippet: TOOL_PROMPTS.inspect_memory_knowledge.promptSnippet,
-    promptGuidelines: TOOL_PROMPTS.inspect_memory_knowledge.promptGuidelines,
+    name: TOOL_NAMES.inspectMemoryKnowledge, label: "Inspect Saved OKF Directory", executionMode: "sequential",
+    description: TOOL_PROMPTS[TOOL_NAMES.inspectMemoryKnowledge].description,
+    promptSnippet: TOOL_PROMPTS[TOOL_NAMES.inspectMemoryKnowledge].promptSnippet,
+    promptGuidelines: TOOL_PROMPTS[TOOL_NAMES.inspectMemoryKnowledge].promptGuidelines,
     parameters: Type.Object({ directory: Type.Optional(Type.String({ description: PARAMETER_HELP.knowledge.directory })) }),
     async execute(_id, params) {
       const result = inspectMemoryKnowledge(params.directory);
@@ -28,8 +29,8 @@ export function registerMemoryKnowledgeTools(registerTool: ExtensionAPI["registe
     },
   });
   registerTool({
-    name: "read_memory_knowledge", label: "Read Saved OKF Meeting", executionMode: "sequential",
-    description: TOOL_PROMPTS.read_memory_knowledge.description,
+    name: TOOL_NAMES.readMemoryKnowledge, label: "Read Saved OKF Meeting", executionMode: "sequential",
+    description: TOOL_PROMPTS[TOOL_NAMES.readMemoryKnowledge].description,
     parameters: Type.Object({ meeting_id: Type.String({ minLength: 1 }) }),
     async execute(_id, params) {
       const result = readMemoryKnowledge(params.meeting_id);
@@ -38,9 +39,9 @@ export function registerMemoryKnowledgeTools(registerTool: ExtensionAPI["registe
     },
   });
   registerTool({
-    name: "finish_memory_recall", label: "Save Recall OKF Conclusion", executionMode: "sequential",
-    description: TOOL_PROMPTS.finish_memory_recall.description,
-    promptGuidelines: TOOL_PROMPTS.finish_memory_recall.promptGuidelines,
+    name: TOOL_NAMES.finishMemoryRecall, label: "Save Recall OKF Conclusion", executionMode: "sequential",
+    description: TOOL_PROMPTS[TOOL_NAMES.finishMemoryRecall].description,
+    promptGuidelines: TOOL_PROMPTS[TOOL_NAMES.finishMemoryRecall].promptGuidelines,
     parameters: Type.Object({
       question: Type.String({ minLength: 1 }), conclusion: meetingConclusionSchema,
       meeting_id: Type.Optional(Type.String({ minLength: 1, description: PARAMETER_HELP.knowledge.updateMeetingId })),
@@ -50,10 +51,10 @@ export function registerMemoryKnowledgeTools(registerTool: ExtensionAPI["registe
     },
   });
   registerTool({
-    name: "write_okf", label: "Save Current Context as OKF", executionMode: "sequential",
-    description: TOOL_PROMPTS.write_okf.description,
-    promptSnippet: TOOL_PROMPTS.write_okf.promptSnippet,
-    promptGuidelines: TOOL_PROMPTS.write_okf.promptGuidelines,
+    name: TOOL_NAMES.writeOkf, label: "Save Current Context as OKF", executionMode: "sequential",
+    description: TOOL_PROMPTS[TOOL_NAMES.writeOkf].description,
+    promptSnippet: TOOL_PROMPTS[TOOL_NAMES.writeOkf].promptSnippet,
+    promptGuidelines: TOOL_PROMPTS[TOOL_NAMES.writeOkf].promptGuidelines,
     parameters: Type.Object({
       question: Type.String({ minLength: 1, description: PARAMETER_HELP.knowledge.writeQuestion }),
       context: Type.String({ minLength: 1, description: PARAMETER_HELP.knowledge.writeContext }),

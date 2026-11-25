@@ -1,3 +1,5 @@
+import { TOOL_NAMES as tools } from "./tool-names.ts";
+
 // Parameter descriptions only. Types, defaults and validation remain in src/.
 export const PARAMETER_HELP = {
   meeting: {
@@ -33,15 +35,15 @@ export const PARAMETER_HELP = {
       "verbatim, also used by optional Jev filtering in both recall " +
       "stages.",
     reviewPrimaryEntity:
-      "Reuse primary_entity from recall_memory: a verbatim core " +
+      `Reuse primary_entity from ${tools.recallMemory}: a verbatim core ` +
       "phrase from question also included in entities; complete " +
       "phrase hits add +10 once per turn.",
     reviewQuestion:
       "The complete original user question used for Jev relevance " +
       "judgment.",
     fetchTurnId:
-      "Exact Fetch turn ID returned by recall_memory or " +
-      "review_jev_filtered. Copy the full value; do not parse its " +
+      `Exact Fetch turn ID returned by ${tools.recallMemory} or ` +
+      `${tools.reviewJevFiltered}. Copy the full value; do not parse its ` +
       "suffix.",
     fetchBefore:
       "Number of turn-index positions before the target. Use 0 for " +
@@ -53,7 +55,7 @@ export const PARAMETER_HELP = {
   knowledge: {
     updateMeetingId:
       "Optional existing meeting_id copied from " +
-      "inspect_memory_knowledge. Use only when the user explicitly " +
+      `${tools.inspectMemoryKnowledge}. Use only when the user explicitly ` +
       "asks to append to that document. Preserve its topic_path " +
       "and topic summaries. Cite only this run's evidence IDs; " +
       "the writer renumbers new sources and keeps earlier text " +

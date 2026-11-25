@@ -31,6 +31,7 @@ import { JevRuntime } from "../src/relevance/jev-runtime.ts";
 import { filterRecallWithJev, type JevFilterStats, type JevFilteredOutTurn } from "../src/relevance/jev-filter.ts";
 import type { RecallTurnResult } from "../src/contracts/recall.ts";
 import { COMMAND_DESCRIPTION, TOOL_PROMPTS } from "../prompts/tools.ts";
+import { TOOL_NAMES } from "../prompts/tool-names.ts";
 import { PARAMETER_HELP } from "../prompts/parameters.ts";
 
 /** Register local Pi cross-session transcript retrieval features. */
@@ -80,10 +81,10 @@ export default function (pi: ExtensionAPI) {
   });
 
   registerTool({
-    name: "recall_memory", label: "Recall History · Global → Project", executionMode: "sequential",
-    description: TOOL_PROMPTS.recall_memory.description,
-    promptSnippet: TOOL_PROMPTS.recall_memory.promptSnippet,
-    promptGuidelines: TOOL_PROMPTS.recall_memory.promptGuidelines,
+    name: TOOL_NAMES.recallMemory, label: "Recall History · Global → Project", executionMode: "sequential",
+    description: TOOL_PROMPTS[TOOL_NAMES.recallMemory].description,
+    promptSnippet: TOOL_PROMPTS[TOOL_NAMES.recallMemory].promptSnippet,
+    promptGuidelines: TOOL_PROMPTS[TOOL_NAMES.recallMemory].promptGuidelines,
     parameters: Type.Object({
       entities: Type.Array(Type.String({ minLength: 1, description: PARAMETER_HELP.recall.entities })),
       primary_entity: Type.String({ minLength: 1, description: PARAMETER_HELP.recall.primaryEntity }),
@@ -145,9 +146,9 @@ export default function (pi: ExtensionAPI) {
     },
   });
   registerTool({
-    name: "review_jev_filtered", label: "Review Jev-Filtered Recall Evidence", executionMode: "sequential",
-    description: TOOL_PROMPTS.review_jev_filtered.description,
-    promptSnippet: TOOL_PROMPTS.review_jev_filtered.promptSnippet,
+    name: TOOL_NAMES.reviewJevFiltered, label: "Review Jev-Filtered Recall Evidence", executionMode: "sequential",
+    description: TOOL_PROMPTS[TOOL_NAMES.reviewJevFiltered].description,
+    promptSnippet: TOOL_PROMPTS[TOOL_NAMES.reviewJevFiltered].promptSnippet,
     parameters: Type.Object({
       entities: Type.Array(Type.String({ minLength: 1 })),
       primary_entity: Type.String({ minLength: 1, description: PARAMETER_HELP.recall.reviewPrimaryEntity }),
@@ -165,10 +166,10 @@ export default function (pi: ExtensionAPI) {
     },
   });
   registerTool({
-    name: "fetch_session",  label: "Fetch Session", executionMode: "sequential",
-    description: TOOL_PROMPTS.fetch_session.description,
-    promptSnippet: TOOL_PROMPTS.fetch_session.promptSnippet,
-    promptGuidelines: TOOL_PROMPTS.fetch_session.promptGuidelines,
+    name: TOOL_NAMES.fetchSession,  label: "Fetch Session", executionMode: "sequential",
+    description: TOOL_PROMPTS[TOOL_NAMES.fetchSession].description,
+    promptSnippet: TOOL_PROMPTS[TOOL_NAMES.fetchSession].promptSnippet,
+    promptGuidelines: TOOL_PROMPTS[TOOL_NAMES.fetchSession].promptGuidelines,
     parameters: Type.Object({ turn_id: Type.String({ minLength: 1, description: PARAMETER_HELP.recall.fetchTurnId }), before: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description: PARAMETER_HELP.recall.fetchBefore }), after: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description: PARAMETER_HELP.recall.fetchAfter }) }),
     async execute(_id, { turn_id, before, after }) {
       const { stored, target, fromTurnIndex, toTurnIndex } = fetchTurnContext(turn_id, before, after);
@@ -179,15 +180,15 @@ export default function (pi: ExtensionAPI) {
     },
   });
   registerTool({
-    name: "get_memory_stats", label: "Get History Storage Statistics",
-    description: TOOL_PROMPTS.get_memory_stats.description,
-    promptSnippet: TOOL_PROMPTS.get_memory_stats.promptSnippet, parameters: Type.Object({}),
+    name: TOOL_NAMES.getMemoryStats, label: "Get History Storage Statistics",
+    description: TOOL_PROMPTS[TOOL_NAMES.getMemoryStats].description,
+    promptSnippet: TOOL_PROMPTS[TOOL_NAMES.getMemoryStats].promptSnippet, parameters: Type.Object({}),
     async execute() { const stats = getHistoryStats(); return { content: [{ type: "text" as const, text: _historyStatsSummary(stats) }], details: stats }; },
   });
   registerTool({
-    name: "backfill_memory", label: "Import Historical Sessions",
-    description: TOOL_PROMPTS.backfill_memory.description,
-    promptSnippet: TOOL_PROMPTS.backfill_memory.promptSnippet, parameters: Type.Object({}),
+    name: TOOL_NAMES.backfillMemory, label: "Import Historical Sessions",
+    description: TOOL_PROMPTS[TOOL_NAMES.backfillMemory].description,
+    promptSnippet: TOOL_PROMPTS[TOOL_NAMES.backfillMemory].promptSnippet, parameters: Type.Object({}),
     async execute() { const stats = backfillAll(); return { content: [{ type: "text" as const, text: _backfillSummary(stats, "imported") }], details: stats }; },
   });
   registerMemoryCleanupTools(registerTool);

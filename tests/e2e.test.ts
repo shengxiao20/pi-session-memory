@@ -111,7 +111,7 @@ assert.ok(menu);
 await menu.options.handler("", ctx);
 assert.equal(notices.length, 0);
 assert.equal(sentUserMessages.length, 1);
-assert.match(sentUserMessages[0]!, /Run pi-session-memory setup/);
+assert.match(sentUserMessages[0]!, /Run setup: call setup_memory/);
 assert.deepEqual(menuOptions[0], [
   "Agentic setup",
   "Edit configuration",
@@ -202,7 +202,7 @@ assert.deepEqual(postSetupSave.details.configuration, setupConfiguration);
 assert.ok(postSetupSave.content[0].text.endsWith(POST_SETUP_IMPORT_NOTICE));
 assert.match(postSetupSave.content[0].text, /Import all existing Pi history now\?/);
 assert.match(postSetupSave.content[0].text, /restore sessions manually deleted from SQLite/);
-assert.match(postSetupSave.content[0].text, /Configuration approval is not import approval/);
+assert.match(postSetupSave.content[0].text, /Import requires separate explicit approval; only then call backfill_memory once/);
 assert.deepEqual(startupDb.getHistoryStats(), historyBeforeConfigurationSave, "saving setup and offering import must not import existing history");
 assert.equal(startupDb.getSourceFile(curatedPath), undefined, "setup save leaves source tracking unchanged while awaiting import approval");
 assert.equal(sentUserMessages.length, 1, "saving configuration does not request import automatically");
@@ -511,7 +511,7 @@ assert.equal(readFileSync(native.getSessionFile()!, "utf8"), nativeBefore, "canc
 assert.equal(readdirSync(obsidianVault).length, exportBeforeSelection);
 const discussionText = selectionResult.content.map(block => block.text).join("\n");
 assert.match(discussionText, /No consultation is active/);
-assert.match(discussionText, /not a session-wide mode/);
+assert.match(discussionText, /controls only this recall_memory response, never later requests/);
 assert.doesNotMatch(discussionText, /This is the consultation branch|Do not use fetch_session|Use only when consultation is disabled/);
 const independentFetch = await fetch.execute("independent-fetch", { turn_id: `${nativeId}:candidate`, before: 0, after: 0 });
 assert.equal(independentFetch.details.turnCount, 1, "Discussion configuration must not block explicit main-agent fetch calls after cancellation");

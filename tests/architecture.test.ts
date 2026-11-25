@@ -34,7 +34,7 @@ const promptRoot = join(root, "prompts");
 const promptEntries = readdirSync(promptRoot, { withFileTypes: true });
 assert.ok(promptEntries.every(entry => entry.isFile() && /\.(?:ts|md)$/.test(entry.name)), "prompts contains text resources only");
 const promptSources = promptEntries.filter(entry => entry.name.endsWith(".ts")).map(entry => join(promptRoot, entry.name));
-assert.equal(promptSources.length, 6, "six focused prompt modules are covered by dependency checks");
+assert.equal(promptSources.length, 7, "seven focused prompt modules are covered by dependency checks");
 const allSources = [...mappedSources, ...promptSources];
 function analyzeSource(text: string, filename: string) {
   const ast = ts.createSourceFile(filename, text, ts.ScriptTarget.Latest, true);
@@ -92,6 +92,8 @@ for (const source of allSources) {
   }
   graph.set(source, targets);
 }
+
+assert.deepEqual(graph.get(join(promptRoot, "tool-names.ts")), [], "shared tool identifiers have no module dependencies");
 
 const visited = new Set<string>();
 function visit(source: string, path: string[]): void {

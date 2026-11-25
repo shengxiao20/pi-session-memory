@@ -9,6 +9,9 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import type { TObject, TString } from "typebox";
 import extension from "../extensions/index.ts";
 import * as guidance from "../prompts/guidance.ts";
+import { TOOL_NAMES } from "../prompts/tool-names.ts";
+import { TOOL_PROMPTS } from "../prompts/tools.ts";
+import { SESSION_MEMORY_TOOL_NAMES } from "../src/history/memory-index-policy.ts";
 import * as models from "../prompts/models.ts";
 import { setupReadResponse, setupSavedResponse } from "../prompts/responses.ts";
 import { SETUP_NOTICE, SETUP_REQUEST, readMemorySetup } from "../src/setup/setup.ts";
@@ -66,6 +69,22 @@ extension({
   registerCommand(name: string, options: { description: string }) { commands.push({ name, description: options.description }); },
 } as unknown as ExtensionAPI);
 assert.equal(tools.length, 15);
+const toolNames = Object.values(TOOL_NAMES);
+assert.equal(new Set(toolNames).size, toolNames.length, "shared tool identifiers are unique");
+assert.deepEqual(tools.map(tool => tool.name).sort(), [...toolNames].sort(), "registration uses every current tool identifier");
+assert.deepEqual(Object.keys(TOOL_PROMPTS).sort(), [...toolNames].sort(), "prompt keys use the same tool identifiers");
+assert.deepEqual([...SESSION_MEMORY_TOOL_NAMES].sort(), [...toolNames, "migrate_project_sessions", "recall_project_memory",
+  "export_recall_to_obsidian", "migrate_claude_project_sessions", "migrate_codex_project_sessions"].sort(), "index exclusion keeps current and retired tool names");
+for (const filename of ["guidance.ts", "tools.ts", "parameters.ts"]) {
+  const text = readFileSync(join(root, "prompts", filename), "utf8");
+  for (const name of toolNames) assert.doesNotMatch(text, new RegExp(`\\b${name}\\b`), `${filename}: tool names use references`);
+}
+const registrationSources = ["extensions/index.ts", "src/consultation/consultation-tools.ts", "src/setup/setup-tools.ts",
+  "src/knowledge/memory-knowledge-tools.ts", "src/history/memory-index-cleanup-tools.ts"].map(path => readFileSync(join(root, path), "utf8"));
+for (const text of registrationSources) assert.doesNotMatch(text, /TOOL_PROMPTS\.[a-z_]+/, "registration indexes prompts through shared tool identifiers");
+for (const key of Object.keys(TOOL_NAMES)) {
+  assert.equal(registrationSources.filter(text => text.includes(`name: TOOL_NAMES.${key},`)).length, 1, `${key}: registered once through its shared identifier`);
+}
 const conclusionSchemas = ["write_okf", "finish_memory_recall", "finish_session_consultation"].map(name => (tools.find(tool => tool.name === name)!.parameters as TObject).properties.conclusion);
 for (const schema of conclusionSchemas) assert.deepEqual(schema, conclusionSchemas[0], "all OKF tools share the complete conclusion schema");
 for (const name of ["write_okf", "finish_memory_recall", "finish_session_consultation"]) {
@@ -107,10 +126,27 @@ assert.match(inspect.description, /recall_memory, compare the returned evidence,
 assert.match(tools.find(tool => tool.name === "read_memory_knowledge")!.description, /reuse route requires no finish tool/);
 assert.match(guidance.TRANSCRIPT_WORKFLOW_NOTICE, /recall_memory -> compare evidence -> finish_memory_recall -> final answer/);
 assert.match(guidance.TRANSCRIPT_WORKFLOW_NOTICE, /including when recall returns zero matches/);
+assert.match(guidance.TRANSCRIPT_WORKFLOW_NOTICE, /Complete evidence reads before saving/);
+assert.match(guidance.OKF_APPEND_NOTICE, /renumbers new sources/);
+assert.match(guidance.SETUP_REQUEST, /After save success, offer.*wait for my explicit import approval/);
 assert.match(guidance.DISCUSSION_WORKFLOW_NOTICE, /compare private answers -> optional follow_up_session -> finish_session_consultation -> final answer/);
 assert.match(guidance.EVIDENCE_REFRESH_NOTICE, /empty or duplicate-only transcript results/);
 assert.match(guidance.EVIDENCE_REFRESH_NOTICE, /Existing files remain saved/);
 assert.match(guidance.EVIDENCE_REFRESH_NOTICE, /After the last evidence read, compare all available evidence and save again in this run/);
+assert.match(guidance.EVIDENCE_REFRESH_NOTICE, /clear this run's saved-output reference/);
+assert.match(guidance.EVIDENCE_REFRESH_NOTICE, /finish_session_consultation for active Discussion; finish_memory_recall for transcripts/);
+assert.match(guidance.DISCUSSION_WORKFLOW_NOTICE, /same agent run; wait for save success before answering/);
+assert.match(guidance.DISCUSSION_WORKFLOW_NOTICE, /On cancellation or an end without minutes, use cancel_session_consultation/);
+assert.match(guidance.SAVED_OKF_FINAL_NOTICE, /emit only the exact saved OKF document, including frontmatter/);
+assert.match(guidance.SAVED_OKF_FINAL_NOTICE, /Report errors explicitly; failure leaves no completed output/);
+assert.match(guidance.MAIN_AGENT_NOTICE, /Your role and tool permissions stay unchanged/);
+assert.match(guidance.MAIN_AGENT_NOTICE, /controls only this recall_memory response, never later requests/);
+assert.match(guidance.CONSULTATION_ACTIVE_GUIDANCE, /Never replace consultation with automatic transcript fetching/);
+assert.match(guidance.CONSULTATION_CLOSED_GUIDANCE, /Never restart it or fetch transcripts automatically/);
+assert.match(guidance.OKF_OUTPUT_NOTICE, /skip historical retrieval and Discussion/);
+assert.match(guidance.OKF_OUTPUT_NOTICE, /context-1.*consultation-N.*transcript-N/);
+assert.match(guidance.OKF_OUTPUT_NOTICE, /never add verified/);
+assert.match(guidance.OKF_OUTPUT_NOTICE, /Missing saved output throws; never use a storage fallback/);
 assert.deepEqual(tools.map(tool => tool.name).sort(), Object.keys(fixture.tools).sort());
 for (const tool of tools) assert.equal(fingerprint(tool), fixture.tools[tool.name], `${tool.name}: full public metadata and schema`);
 assert.equal(fingerprint(commands), fixture.commands);

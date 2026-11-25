@@ -1,10 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
+import { TOOL_NAMES } from "../../prompts/tool-names.ts";
 
 /** Exact current and retired tool names owned by pi-session-memory. No topic or text matching. */
 export const SESSION_MEMORY_TOOL_NAMES = [
-  "inspect_memory_knowledge", "read_memory_knowledge", "recall_memory", "fetch_session", "review_jev_filtered",
-  "follow_up_session", "finish_session_consultation", "finish_memory_recall", "write_okf", "cancel_session_consultation",
-  "get_memory_stats", "backfill_memory", "migrate_project_sessions", "clean_memory_tool_turns", "setup_memory", "configure_memory",
+  ...Object.values(TOOL_NAMES),
+  "migrate_project_sessions",
   "recall_project_memory", "export_recall_to_obsidian", "migrate_claude_project_sessions", "migrate_codex_project_sessions",
 ] as const;
 
