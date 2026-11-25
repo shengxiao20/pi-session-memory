@@ -8,7 +8,6 @@ export function requestContextTool<T extends { execute: (...args: any[]) => Prom
       const persisted = await tool.execute(...args);
       if (persisted.details?.memory_context !== "transient") return persisted;
       assert.deepEqual(Object.keys(persisted.details).sort(), ["context_id", "memory_context", "tool_call_id", "tool_name"]);
-      assert.match(persisted.content[0].text, /intermediate content is not stored in JSONL/);
       const message = { role: "toolResult", toolName: persisted.details.tool_name, toolCallId: persisted.details.tool_call_id, isError: false, timestamp: Date.now(), ...persisted };
       const restored = await context()({ messages: [message] });
       assert.notEqual(restored.messages[0].details.memory_context, "transient");

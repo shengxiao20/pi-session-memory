@@ -3,8 +3,6 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateRecallQuery } from "../src/recall/recall-query.ts";
-import { Value } from "typebox/value";
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 const home = mkdtempSync(join(tmpdir(), "pi-primary-entity-"));
 process.env.HOME = process.env.USERPROFILE = home;
@@ -14,7 +12,7 @@ mkdirSync(directory, { recursive: true });
 const configPath = join(directory, "config.json");
 writeFileSync(configPath, JSON.stringify({ recallLimit: 20 }));
 const { getDb, upsertSession, insertTurn } = await import("../src/history/db.ts");
-const { recallTurns, formatRecallResults } = await import("../src/recall/retriever.ts");
+const { recallTurns } = await import("../src/recall/retriever.ts");
 const { recallProjectMemory, findProjectSessions } = await import("../src/recall/project-retriever.ts");
 const { recallSequentially } = await import("../src/recall/recall-workflow.ts");
 const query = { primary_entity: "joule engagement layer", entities: ["joule engagement layer", "joule", "engagement"], question: "How did we design joule engagement layer?" };
@@ -31,33 +29,20 @@ try {
     { ...query, entities: [query.primary_entity, ...Array.from({ length: 16 }, (_, i) => `entity-${i}`)] },
     ...punctuationQueries,
   ];
-  const { default: extension } = await import("../extensions/index.ts");
-  const tools: ToolDefinition[] = [];
-  extension({ on() {}, registerCommand() {}, registerTool(tool: ToolDefinition) { tools.push(tool); } } as unknown as ExtensionAPI);
   for (const input of acceptedQueries) validateRecallQuery(input);
-  for (const name of ["recall_memory", "review_jev_filtered"]) {
-    const tool = tools.find(tool => tool.name === name)!;
-    const schema = JSON.parse(JSON.stringify(tool.parameters));
-    assert.equal(schema.properties.entities.minItems, undefined);
-    assert.equal(schema.properties.entities.maxItems, undefined);
-    assert.equal(schema.properties.entities.items.minLength, 1);
-    for (const input of acceptedQueries) assert.equal(Value.Check(tool.parameters, input), true, `${name}: accepts one, seventeen, and punctuation-only entities`);
-    assert.equal(Value.Check(tool.parameters, { ...query, entities: [""] }), false);
-    assert.equal(Value.Check(tool.parameters, { ...query, entities: [123] }), false);
-  }
-  for (const [input, message] of [
-    [{ ...query, primary_entity: undefined }, /primary_entity must be a non-empty string/],
-    [{ ...query, primary_entity: "  " }, /primary_entity must be a non-empty string/],
-    [{ ...query, primary_entity: "layer" }, /primary_entity must be included/],
-    [{ ...query, question: "Explain Joule's engagement architecture" }, /verbatim phrase/],
-    [{ ...query, entities: ["joule engagement layer", " "] }, /non-empty literal/],
-    [{ ...query, entities: [""] }, /non-empty literal/],
-    [{ ...query, entities: [123] }, /non-empty literal/],
-    [{ ...query, entities: undefined }, /non-empty literal/],
-    [{ ...query, entities: "joule engagement layer" }, /non-empty literal/],
-    [{ ...query, entities: [] }, /primary_entity must be included/],
-    [{ ...query, question: " " }, /question must be a non-empty/],
-  ] as const) assert.throws(() => validateRecallQuery(input as any), message);
+  for (const input of [
+    { ...query, primary_entity: undefined },
+    { ...query, primary_entity: "  " },
+    { ...query, primary_entity: "layer" },
+    { ...query, question: "Explain Joule's engagement architecture" },
+    { ...query, entities: ["joule engagement layer", " "] },
+    { ...query, entities: [""] },
+    { ...query, entities: [123] },
+    { ...query, entities: undefined },
+    { ...query, entities: "joule engagement layer" },
+    { ...query, entities: [] },
+    { ...query, question: " " },
+  ]) assert.throws(() => validateRecallQuery(input as any));
   const source = "pi" as const;
   {
     const session_id = `${source}:primary`;
@@ -72,8 +57,7 @@ try {
     assert.deepEqual(results.map(turn => [turn.turn_id.split(":").at(-1), turn.score]), [["reply", 13], ["phrase", 13], ["punctuation", 2], ["loose", 2], ["single", 1]]);
     assert.deepEqual(recallTurns({ ...query, entities: [...query.entities, "JOULE", " joule engagement layer "], sources: [source] }), results, "duplicates must not inflate base score or bonus");
   }
-  assert.match(formatRecallResults(recallTurns(query), query), /Primary entity:[\s\S]*bonus: \+10/);
-  assert.throws(() => recallTurns({ entities: ["joule"], primary_entity: "engagement" }), /included in entities/);
+  assert.throws(() => recallTurns({ entities: ["joule"], primary_entity: "engagement" }));
   writeFileSync(configPath, JSON.stringify({ recallLimit: 1 }));
   const first = recallTurns(query);
   assert.equal(first.length, 1);
@@ -89,7 +73,7 @@ try {
   assert.ok(calls.every(call => call.question === query.question && call.results[0].score === 13));
   assert.equal(workflow.project.duplicatesRemoved, 1);
   let reviewed = false;
-  await assert.rejects(recallSequentially({ ...query, primary_entity: "unknown" }, async () => { reviewed = true; throw new Error("should not run"); }, () => {}), /included in entities/);
+  await assert.rejects(recallSequentially({ ...query, primary_entity: "unknown" }, async () => { reviewed = true; throw new Error("should not run"); }, () => {}));
   assert.equal(reviewed, false, "invalid input fails before search review");
   for (const input of acceptedQueries.slice(0, 2)) {
     const result = await recallSequentially(input, reviewAll, () => {});

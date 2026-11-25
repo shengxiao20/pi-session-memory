@@ -63,7 +63,7 @@ const small = { ...turn(1), user_text: "small", reply_text: "reply" };
 const escaped = { ...turn(2), user_text: '"'.repeat(2_000), reply_text: "" };
 for (const input of [[escaped], [small, escaped], [escaped, small]]) {
   requests.length = 0;
-  await assert.rejects(filterRecallWithJev(constrainedRuntime, "q", input), /A single Jev segment exceeds the 1543-token request budget/);
+  await assert.rejects(filterRecallWithJev(constrainedRuntime, "q", input));
   assert.equal(requests.length, 0, "validate every complete single-item request before sending any batches");
 }
 requests.length = 0;

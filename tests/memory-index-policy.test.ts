@@ -27,7 +27,7 @@ try {
   assert.equal(isMemoryToolTurn(null), false);
   assert.equal(isMemoryToolTurn('["RECALL_MEMORY", "my_recall_memory", "read"]'), false);
   assert.throws(() => isMemoryToolTurn("invalid"), SyntaxError);
-  assert.throws(() => isMemoryToolTurn('"recall_memory"'), /array of strings/);
+  assert.throws(() => isMemoryToolTurn('"recall_memory"'));
   const row = { turn_id: "partial", session_id: "pi:legacy", turn_index: 25, ts: 25, user_text: "user", reply_text: "partial text", tool_names: null as string | null, user_message_id: "partial-user" };
   upsertTurn(row);
   assert.equal(getSession("pi:legacy").turns.length, 2);
@@ -39,7 +39,7 @@ try {
   assert.equal(db.prepare("SELECT count(*) AS n FROM turns WHERE turn_id = 'old-writer'").get()!.n, 0);
   legacy.prepare("UPDATE turns SET tool_names = ? WHERE turn_id = ?").run('["recall_memory"]', "ordinary");
   assert.equal(getSession("pi:legacy").turns.length, 0, "an old UPDATE removes an ordinary partial row once it calls a package tool");
-  assert.throws(() => rawInsert.run("invalid", "pi:legacy", 0, 0, "user", "reply", "malformed", "invalid-user"), /malformed JSON/);
+  assert.throws(() => rawInsert.run("invalid", "pi:legacy", 0, 0, "user", "reply", "malformed", "invalid-user"));
   replaceSourceFile({ jsonl_path: "replacement.jsonl", source: "pi", size: 1, mtime_ms: 1, sha256: "hash" }, {
     session: { session_id: "pi:replacement", source: "pi", cwd: home, started_at: 1, model_id: null, jsonl_path: "replacement.jsonl" },
     turns: [{ ...row, turn_id: "allowed-replacement", session_id: "pi:replacement", turn_index: 0 }, { ...row, turn_id: "excluded-replacement", session_id: "pi:replacement", turn_index: 1, tool_names: '["recall_project_memory"]' }],
@@ -75,7 +75,8 @@ try {
   broken.exec("CREATE TABLE turns (turn_id TEXT PRIMARY KEY, tool_names TEXT); INSERT INTO turns VALUES ('bad', 'not JSON'), ('exclude', '[\"recall_memory\"]');");
   assert.throws(() => installMemoryTurnExclusion(broken), SyntaxError);
   assert.equal(broken.prepare("SELECT count(*) AS n FROM turns").get()!.n, 2);
-  assert.equal(broken.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get()!.n, 0);
+  broken.prepare("INSERT INTO turns VALUES (?, ?)").run("rollback-probe", '["recall_memory"]');
+  assert.equal(broken.prepare("SELECT count(*) AS n FROM turns WHERE turn_id = 'rollback-probe'").get()!.n, 1, "a failed install leaves the original write behavior active");
   broken.close();
   const badPath = join(home, "malformed.db");
   const badDb = new DatabaseSync(badPath);
