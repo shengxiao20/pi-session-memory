@@ -7,7 +7,7 @@ import { evidenceMetric, type QuestionResult } from "./metrics.ts";
 import { answerAndGrade } from "./scoring.ts";
 import { resolveModel, type EvalConfig } from "./config.ts";
 import { inspectModels } from "./ollama.ts";
-import type { RecallReviewer } from "../src/recall/recall-workflow.ts";
+import type { RecallReviewer } from "../../src/recall/recall-workflow.ts";
 
 /** Run only in an isolated worker: DB_PATH is captured when the production DB module is imported. */
 export async function evaluateSample(sample: Sample, config: EvalConfig, directory: string): Promise<QuestionResult[]> {
@@ -28,10 +28,10 @@ export async function evaluateSample(sample: Sample, config: EvalConfig, directo
   const turns = historyTurns(sample);
   const availableIds = new Set(turns.map(turn => turn.dialogueId));
   const dialogueByTurn = new Map(turns.map(turn => [turn.turnId, turn.dialogueId]));
-  const { getDb, upsertSession, insertTurn } = await import("../src/history/db.ts");
-  const { recallSequentially } = await import("../src/recall/recall-workflow.ts");
-  const { filterRecallWithJev } = await import("../src/relevance/jev-filter.ts");
-  const { JevRuntime } = await import("../src/relevance/jev-runtime.ts");
+  const { getDb, upsertSession, insertTurn } = await import("../../src/history/db.ts");
+  const { recallSequentially } = await import("../../src/recall/recall-workflow.ts");
+  const { filterRecallWithJev } = await import("../../src/relevance/jev-filter.ts");
+  const { JevRuntime } = await import("../../src/relevance/jev-runtime.ts");
   const db = getDb();
   const runtime = new JevRuntime();
   try {

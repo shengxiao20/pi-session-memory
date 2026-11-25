@@ -5,10 +5,10 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseConfig, readConfig, resolveModel } from "../evaluation/config.ts";
-import { historyTurns, parseDataset, readDataset } from "../evaluation/dataset.ts";
-import { evidenceMetric, summarize, tokenF1, type QuestionResult } from "../evaluation/metrics.ts";
-import { parseGrade, parsePlan } from "../evaluation/models.ts";
+import { parseConfig, readConfig, resolveModel } from "../evaluation/locomo/config.ts";
+import { historyTurns, parseDataset, readDataset } from "../evaluation/locomo/dataset.ts";
+import { evidenceMetric, summarize, tokenF1, type QuestionResult } from "../evaluation/locomo/metrics.ts";
+import { parseGrade, parsePlan } from "../evaluation/locomo/models.ts";
 
 const fixture = [{ sample_id: "camping", conversation: {
   speaker_a: "Alice", speaker_b: "Bob", session_1_date_time: "1:56 pm on 8 May, 2023",
@@ -19,13 +19,13 @@ observation: { session_1_observation: "PRIVATE_ANNOTATION" }, session_summary: "
 
 async function worker(directory: string): Promise<void> {
   const config = readConfig(join(directory, "config.json"));
-  const { evaluateSample } = await import("../evaluation/pipeline.ts");
+  const { evaluateSample } = await import("../evaluation/locomo/pipeline.ts");
   const results = await evaluateSample(parseDataset(fixture)[0], config, directory);
   writeFileSync(join(directory, "summary.json"), JSON.stringify(summarize(results)));
 }
 
 async function tests(): Promise<void> {
-  const config = readConfig(resolve("evaluation/config/locomo-smoke.json"));
+  const config = readConfig(resolve("evaluation/locomo/config/locomo-smoke.json"));
   for (const role of ["planner", "answer", "judge"] as const) {
     const { baseURLEnv, apiKeyEnv, modelEnv, maxTokens } = config.models[role];
     config.models[role] = { backend: "openai", baseURLEnv, apiKeyEnv, modelEnv, maxTokens };

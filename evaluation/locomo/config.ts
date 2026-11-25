@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { validateMemoryConfig, type SessionMemoryConfig } from "../src/settings/config.ts";
+import { validateMemoryConfig, type SessionMemoryConfig } from "../../src/settings/config.ts";
 
 export interface OllamaSampling {
   temperature: number;

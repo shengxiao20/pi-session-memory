@@ -18,9 +18,10 @@ function _modelsForScenario(config: EvalConfig, scenario: Scenario): Partial<Res
 }
 import { summarize, type QuestionResult } from "./metrics.ts";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const RUNS = join(ROOT, "evaluation", "runs");
-const DATA = join(ROOT, "evaluation", "data");
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const LOCOMO = join(ROOT, "evaluation", "locomo");
+const RUNS = join(LOCOMO, "runs");
+const DATA = join(LOCOMO, "data");
 
 function _safeDirectory(path: string): void {
   mkdirSync(path, { recursive: true });
@@ -117,7 +118,7 @@ async function _run(configPath: string, runId: string, scenario: Scenario): Prom
     node: process.version, models, config, prompts: PROMPTS, promptSha256: sha256(JSON.stringify(PROMPTS)),
     sourceSha256: { ..._sourceHashes(join(ROOT, "src")), ..._sourceHashes(join(ROOT, "prompts")),
       ...Object.fromEntries(["cli.ts", "config.ts", "dataset.ts", "metrics.ts", "models.ts", "model-http.ts", "ollama.ts", "pipeline.ts", "scoring.ts", "full-context.ts", "resources.ts"].map(name =>
-        [`evaluation/${name}`, sha256(readFileSync(join(ROOT, "evaluation", name)))])) },
+        [`evaluation/locomo/${name}`, sha256(readFileSync(join(LOCOMO, name)))])) },
     dependencyLockSha256: sha256(readFileSync(join(ROOT, "package-lock.json"))),
     evaluator: "pi-session-memory-project-judge-v1",
     samplingPolicy: "Ollama uses explicit per-model sampling recorded in models and requests; OpenAI uses temperature=0",
@@ -159,7 +160,7 @@ async function _run(configPath: string, runId: string, scenario: Scenario): Prom
 
 async function _worker(runArgument: string, indexArgument: string, scenario: Scenario): Promise<void> {
   const run = resolve(runArgument);
-  assert.equal(dirname(run), RUNS, "Worker must use evaluation/runs");
+  assert.equal(dirname(run), RUNS, "Worker must use evaluation/locomo/runs");
   assert.equal(realpathSync(run), run, "Worker path must use a real directory");
   const index = Number(indexArgument);
   assert(Number.isSafeInteger(index) && index >= 0 && String(index) === indexArgument, "Invalid worker index");
@@ -192,7 +193,7 @@ async function _main(): Promise<void> {
     case "baseline": assert(args.length === 0 && values.config && values["run-id"]); await _run(resolve(values.config), values["run-id"], "full-context"); break;
     case "worker": assert(args.length === 2 && Object.keys(values).length === 0); await _worker(args[0], args[1], "memory"); break;
     case "baseline-worker": assert(args.length === 2 && Object.keys(values).length === 0); await _worker(args[0], args[1], "full-context"); break;
-    default: throw new Error("Usage: npm run eval -- download | doctor --config <file> | run --config <file> --run-id <unique-name> | baseline --config <file> --run-id <unique-name>");
+    default: throw new Error("Usage: npm run eval:locomo -- download | doctor --config <file> | run --config <file> --run-id <unique-name> | baseline --config <file> --run-id <unique-name>");
   }
 }
 

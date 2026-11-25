@@ -3,10 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseConfig, readConfig } from "../evaluation/config.ts";
-import { historyTurns, parseDataset } from "../evaluation/dataset.ts";
-import { evaluateFullContext, summarizeFullContext } from "../evaluation/full-context.ts";
-import { PROMPTS } from "../evaluation/models.ts";
+import { parseConfig, readConfig } from "../evaluation/locomo/config.ts";
+import { historyTurns, parseDataset } from "../evaluation/locomo/dataset.ts";
+import { evaluateFullContext, summarizeFullContext } from "../evaluation/locomo/full-context.ts";
+import { PROMPTS } from "../evaluation/locomo/models.ts";
 
 const temporary = mkdtempSync(join(tmpdir(), "pi-memory-full-context-test-"));
 const sample = parseDataset([{ sample_id: "baseline", conversation: {
@@ -58,7 +58,7 @@ process.env.PI_MEMORY_EVAL_API_KEY = "baseline-test-secret";
 process.env.PI_MEMORY_EVAL_ANSWER_MODEL = "mock";
 process.env.PI_MEMORY_EVAL_JUDGE_MODEL = "mock";
 delete process.env.PI_MEMORY_EVAL_PLANNER_MODEL;
-const config = readConfig("evaluation/config/locomo-full-context-smoke.json");
+const config = readConfig("evaluation/locomo/config/locomo-full-context-smoke.json");
 for (const role of ["planner", "answer", "judge"] as const) {
   const model = config.models[role];
   config.models[role] = { backend: "openai", baseURLEnv: model.baseURLEnv, apiKeyEnv: model.apiKeyEnv, modelEnv: model.modelEnv, maxTokens: model.maxTokens };

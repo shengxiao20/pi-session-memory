@@ -1,9 +1,9 @@
 {
-  "dataset": "evaluation/data/locomo10.json",
+  "dataset": "evaluation/locomo/data/locomo10.json",
   "sampleIndices": [0],
   "categories": [1, 2, 3, 4],
   "questionsPerSample": 5,
-  "contextCharacterLimit": 200000,
+  "contextCharacterLimit": 60000,
   "timeoutMs": 180000,
   "memory": {
     "recallMode": "normal",

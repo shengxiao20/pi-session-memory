@@ -4,11 +4,11 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { modelIdentity, parseConfig, readConfig, resolveModel, type ResolvedModels } from "../evaluation/config.ts";
-import { complete, parseGrade } from "../evaluation/models.ts";
-import { inspectModels } from "../evaluation/ollama.ts";
+import { modelIdentity, parseConfig, readConfig, resolveModel, type ResolvedModels } from "../evaluation/locomo/config.ts";
+import { complete, parseGrade } from "../evaluation/locomo/models.ts";
+import { inspectModels } from "../evaluation/locomo/ollama.ts";
 
-const config = readConfig("evaluation/config/locomo-smoke.json");
+const config = readConfig("evaluation/locomo/config/locomo-smoke.json");
 const sampling = { temperature: 0.7, topP: 0.8, topK: 20, minP: 0, presencePenalty: 1.5, repeatPenalty: 1, seed: 42 };
 const variedSampling = { temperature: 1.1, topP: 0.95, topK: 40, minP: 0.1, presencePenalty: 0, repeatPenalty: 1.2, seed: 17 };
 const modelDigest = randomBytes(32).toString("hex");

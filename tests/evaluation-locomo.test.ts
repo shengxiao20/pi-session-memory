@@ -5,12 +5,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { readConfig } from "../evaluation/config.ts";
-import { PROMPTS } from "../evaluation/models.ts";
+import { readConfig } from "../evaluation/locomo/config.ts";
+import { PROMPTS } from "../evaluation/locomo/models.ts";
 
 // This explicit integration test requires eval:download. All models are local mocks.
 const root = resolve(".");
-const config = readConfig("evaluation/config/locomo-smoke.json");
+const config = readConfig("evaluation/locomo/config/locomo-smoke.json");
 const temporary = mkdtempSync(join(tmpdir(), "pi-memory-locomo-test-"));
 const ids = Array.from({ length: 5 }, () => `offline-test-${randomUUID()}`);
 let fullContextMode = false;
@@ -82,7 +82,7 @@ const configPath = join(temporary, "config.json");
 writeFileSync(configPath, JSON.stringify(config));
 function command(args: string[]): Promise<{ code: number | null; output: string; }> {
   return new Promise((resolveChild, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", "evaluation/cli.ts", ...args], { cwd: root, env });
+    const child = spawn(process.execPath, ["--import", "tsx", "evaluation/locomo/cli.ts", ...args], { cwd: root, env });
     let output = "";
     child.stdout.on("data", chunk => { output += chunk; });
     child.stderr.on("data", chunk => { output += chunk; });
@@ -97,7 +97,7 @@ try {
   result = await command(["run", "--config", configPath, "--run-id", ids[0]]);
   assert.equal(result.code, 0, result.output);
   assert.equal(calls, 15, "Five questions use planner, answer and judge");
-  const run = join(root, "evaluation", "runs", ids[0]);
+  const run = join(root, "evaluation", "locomo", "runs", ids[0]);
   const manifest = JSON.parse(readFileSync(join(run, "manifest.json"), "utf8"));
   assert.equal(manifest.status, "completed");
   assert.equal(manifest.models.answer.model, "offline:q4");
@@ -123,7 +123,7 @@ try {
   result = await command(["run", "--config", configPath, "--run-id", ids[1]]);
   assert.notEqual(result.code, 0);
   assert.equal(calls, 16, "HTTP errors stop immediately without retries");
-  const failedRun = join(root, "evaluation", "runs", ids[1]);
+  const failedRun = join(root, "evaluation", "locomo", "runs", ids[1]);
   assert.equal(JSON.parse(readFileSync(join(failedRun, "manifest.json"), "utf8")).status, "failed");
   assert(!existsSync(join(failedRun, "summary.json")), "Failed runs produce no completed score summary");
   result = await command(["run", "--config", configPath, "--run-id", "../unsafe"]);
@@ -134,7 +134,7 @@ try {
   result = await command(["run", "--config", configPath, "--run-id", ids[2]]);
   assert.notEqual(result.code, 0);
   assert.equal(calls, 16, "Capability mismatch prevents all generation calls");
-  const incompatibleRun = join(root, "evaluation", "runs", ids[2]);
+  const incompatibleRun = join(root, "evaluation", "locomo", "runs", ids[2]);
   assert.equal(JSON.parse(readFileSync(join(incompatibleRun, "manifest.json"), "utf8")).status, "failed");
   assert(!existsSync(join(incompatibleRun, "sample-0")), "Capability mismatch prevents worker creation and ingestion");
   assert(!existsSync(join(incompatibleRun, "summary.json")));
@@ -148,7 +148,7 @@ try {
   result = await command(["baseline", "--config", baselinePath, "--run-id", ids[3]]);
   assert.equal(result.code, 0, result.output);
   assert.equal(calls - baselineCalls, 10, "Five baseline questions require only answer and judge; planner environment is absent");
-  const baselineRun = join(root, "evaluation", "runs", ids[3]);
+  const baselineRun = join(root, "evaluation", "locomo", "runs", ids[3]);
   const baselineManifest = JSON.parse(readFileSync(join(baselineRun, "manifest.json"), "utf8"));
   assert.equal(baselineManifest.status, "completed");
   assert.equal(baselineManifest.scenario, "full-context");
@@ -171,12 +171,12 @@ try {
   result = await command(["baseline", "--config", baselinePath, "--run-id", ids[4]]);
   assert.notEqual(result.code, 0);
   assert.equal(calls, callsBeforeOverflow, "Oversized full context fails without model generation or truncation");
-  const overflowRun = join(root, "evaluation", "runs", ids[4]);
+  const overflowRun = join(root, "evaluation", "locomo", "runs", ids[4]);
   assert.equal(JSON.parse(readFileSync(join(overflowRun, "manifest.json"), "utf8")).status, "failed");
   assert(!existsSync(join(overflowRun, "summary.json")) && !existsSync(join(overflowRun, "sample-0", "memory.db")));
   console.log("evaluation-locomo.test.ts: passed (pinned real data, isolated retrieval and full-context CLI workers, no baseline planner/database, provenance, memory snapshot and failure status)");
 } finally {
   await new Promise<void>((resolveServer, reject) => server.close(error => error ? reject(error) : resolveServer()));
-  for (const id of ids) rmSync(join(root, "evaluation", "runs", id), { recursive: true, force: true });
+  for (const id of ids) rmSync(join(root, "evaluation", "locomo", "runs", id), { recursive: true, force: true });
   rmSync(temporary, { recursive: true });
 }
