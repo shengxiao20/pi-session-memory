@@ -2,6 +2,7 @@ import {
   SETUP_NOTICE,
   KNOWLEDGE_FIRST_NOTICE,
   OKF_OUTPUT_NOTICE,
+  OKF_APPEND_NOTICE,
   TRANSCRIPT_WORKFLOW_NOTICE,
   DISCUSSION_WORKFLOW_NOTICE,
   EVIDENCE_REFRESH_NOTICE,
@@ -41,7 +42,8 @@ export const TOOL_PROMPTS = {
       "uncertainty, disagreements, open questions and actions; write " +
       "None for absent sections. Cite consultation-N source IDs for " +
       "supported claims. Never mark consensus as verified. " +
-      `${DISCUSSION_WORKFLOW_NOTICE} ${SAVED_OKF_FINAL_NOTICE}`,
+      `${DISCUSSION_WORKFLOW_NOTICE} ${OKF_APPEND_NOTICE} ` +
+      SAVED_OKF_FINAL_NOTICE,
     promptGuidelines: [OKF_OUTPUT_NOTICE],
   },
   cancel_session_consultation: {
@@ -102,8 +104,11 @@ export const TOOL_PROMPTS = {
       "directory from the returned catalogue to inspect its scope. " +
       "Read directory summaries and immediate meeting frontmatter, " +
       "never document bodies. Inspect relevant branches before " +
-      "deciding no saved document matches. If a meeting clearly " +
-      "matches, use read_memory_knowledge and return its exact saved " +
+      "deciding no saved document matches. For an explicit append " +
+      "request, copy the target meeting_id, retrieve the requested " +
+      "new evidence, and pass meeting_id to the save tool for that " +
+      "evidence route. For other look-back requests, if a meeting " +
+      "clearly matches, use read_memory_knowledge and return its exact saved " +
       "document as the final answer, with no new finish call. " +
       "Otherwise use recall_memory, compare the returned evidence, " +
       "then save with finish_memory_recall or " +
@@ -117,7 +122,8 @@ export const TOOL_PROMPTS = {
     promptSnippet:
       "For explicit look-back requests only: inspect relevant OKF " +
       "directory summaries and meeting metadata before transcript " +
-      "recall.",
+      "recall. For an explicit append request, copy the target " +
+      "meeting_id.",
     promptGuidelines: [KNOWLEDGE_FIRST_NOTICE],
   },
   read_memory_knowledge: {
@@ -135,9 +141,11 @@ export const TOOL_PROMPTS = {
   recall_memory: {
     description:
       "Use only when the user explicitly asks to look back at " +
-      "earlier work or historical conversations, and inspection of " +
-      "relevant saved OKF directory branches found no clearly " +
-      "matching saved document. Do not call for ordinary questions " +
+      "earlier work or historical conversations. Inspect relevant " +
+      "saved OKF directory branches first. Retrieve transcripts " +
+      "when no saved document clearly matches, or when the user " +
+      "explicitly requests new evidence to append to an existing " +
+      "document. Do not call for ordinary questions " +
       "or merely because a topic appeared before. " +
       `${TRANSCRIPT_WORKFLOW_NOTICE} ${DISCUSSION_WORKFLOW_NOTICE} ` +
       `${EVIDENCE_REFRESH_NOTICE} One call with ` +
@@ -269,7 +277,7 @@ export const TOOL_PROMPTS = {
       "per-directory indexes to knowledgePath, or the default " +
       "knowledge root when unset. For active Discussion, use " +
       "finish_session_consultation instead. " +
-      SAVED_OKF_FINAL_NOTICE,
+      `${OKF_APPEND_NOTICE} ${SAVED_OKF_FINAL_NOTICE}`,
     promptGuidelines: [OKF_OUTPUT_NOTICE],
   },
   write_okf: {
@@ -289,7 +297,7 @@ export const TOOL_PROMPTS = {
       "tool in the same run. Storage errors are raised without " +
       "retry or fallback. Current-context workflow: explicit save " +
       "request -> write_okf -> final answer. " +
-      SAVED_OKF_FINAL_NOTICE,
+      `${OKF_APPEND_NOTICE} ${SAVED_OKF_FINAL_NOTICE}`,
     promptSnippet:
       "Use when the user explicitly asks to save current context " +
       "as OKF without historical retrieval. No recall is required.",

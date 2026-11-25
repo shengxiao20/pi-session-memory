@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { knowledgePath, requireSummary, type TopicSummary } from "./knowledge-layout.ts";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { knowledgePath, readKnowledgeText, requireSummary, type TopicSummary } from "./knowledge-layout.ts";
 import { MEETING_EVIDENCE_TYPES, parseMetadata, readConceptMetadata, type OkfSource } from "./okf-frontmatter.ts";
 
 export interface IndexEntry { title: string; description: string; target: string; }
@@ -12,11 +12,11 @@ export function encodeKnowledgeLink(path: string): string { return path.split("/
 /** Read directory navigation, not concept bodies. Published plugin directories require an index. */
 export function readDirectoryIndex(root: string, directory: string): DirectoryIndex {
   const path = knowledgePath(root, directory ? `${directory}/index.md` : "index.md");
-  return _parseIndex(readFileSync(path, "utf8"), path, directory === "");
+  return _parseIndex(readKnowledgeText(path), path, directory === "");
 }
 
 /** Compute every catalogue and log change before publishing a meeting. */
-export function planKnowledgeIndexes(root: string, parts: string[], summaries: TopicSummary[], meetingId: string, title: string, description: string, now: string): FileUpdate[] {
+export function planKnowledgeIndexes(root: string, parts: string[], summaries: TopicSummary[], meetingId: string, title: string, description: string, now: string, updating = false): FileUpdate[] {
   const changes: FileUpdate[] = [];
   const scopes = [
     { directory: "", title: "Session memory knowledge", entry: { target: "meetings/", title: "Meeting knowledge", description: "Conclusions and evidence from historical reviews." } },
@@ -29,25 +29,29 @@ export function planKnowledgeIndexes(root: string, parts: string[], summaries: T
   ];
   for (const scope of scopes) {
     const path = knowledgePath(root, scope.directory ? `${scope.directory}/index.md` : "index.md");
-    const previous = existsSync(path) ? readFileSync(path, "utf8") : undefined;
+    const previous = existsSync(path) ? readKnowledgeText(path) : undefined;
+    if (updating && previous === undefined) throw new Error(`Knowledge directory index is missing: ${path}`);
     const index = previous === undefined ? { title: scope.title, entries: [] } : _parseIndex(previous, path, scope.directory === "");
     if (existsSync(knowledgePath(root, scope.directory))) validateDirectoryEntries(root, scope.directory, index);
     if (index.title !== scope.title) throw new Error(`Knowledge directory title conflicts with its existing index: ${path}`);
     const existing = index.entries.find(entry => entry.target === scope.entry.target);
+    const meetingScope = scope === scopes.at(-1);
+    if (updating && meetingScope && !existing) throw new Error(`Knowledge meeting index entry is missing: ${path}`);
     if (existing && (existing.title !== scope.entry.title || existing.description !== scope.entry.description)) {
-      throw new Error(`Knowledge directory summary conflicts with its existing index: ${path}`);
+      if (updating && meetingScope) Object.assign(existing, scope.entry);
+      else throw new Error(`Knowledge directory summary conflicts with its existing index: ${path}`);
     }
     if (!existing) index.entries.push(scope.entry);
     changes.push({ path, previous, content: renderDirectoryIndex(index, scope.directory === "") });
   }
   const log = knowledgePath(root, "log.md");
-  const previous = existsSync(log) ? readFileSync(log, "utf8") : undefined;
+  const previous = existsSync(log) ? readKnowledgeText(log) : undefined;
   const heading = "# Knowledge update log\n";
   const text = previous === undefined ? heading : previous;
   if (!text.startsWith(heading) || /^---|^## (?!\d{4}-\d{2}-\d{2}$)/m.test(text)) throw new Error("Knowledge log has an unexpected structure");
   const dateHeading = `## ${now.slice(0, 10)}\n`;
   const relative = ["meetings", ...parts, meetingId, "minutes.md"].join("/");
-  const entry = `- ${now}: Added draft meeting [${escapeMarkdown(title.trim())}](/${encodeKnowledgeLink(relative)}).\n`;
+  const entry = `- ${now}: ${updating ? "Updated" : "Added"} draft meeting [${escapeMarkdown(title.trim())}](/${encodeKnowledgeLink(relative)}).\n`;
   const remaining = text.slice(heading.length).trimStart();
   const body = remaining.startsWith(dateHeading) ? `${dateHeading}\n${entry}${remaining.slice(dateHeading.length).trimStart()}` : `${dateHeading}\n${entry}\n${remaining}`;
   changes.push({ path: log, previous, content: `${heading}\n${body}` });
@@ -92,7 +96,7 @@ function _meetingEvidenceTargets(root: string, directory: string, indexedTargets
   const targets = new Set<string>();
   if (!indexedTargets.has("minutes.md")) return targets;
   const minutesPath = knowledgePath(root, directory ? `${directory}/minutes.md` : "minutes.md");
-  const metadata = readConceptMetadata(readFileSync(minutesPath, "utf8"), minutesPath);
+  const metadata = readConceptMetadata(readKnowledgeText(minutesPath), minutesPath);
   if (!("sources" in metadata)) return targets;
   const sourceIds = new Set<string>();
   for (const source of metadata.sources as OkfSource[]) {
@@ -108,7 +112,7 @@ function _meetingEvidenceTargets(root: string, directory: string, indexedTargets
     const path = knowledgePath(root, directory ? `${directory}/${target}` : target);
     if (!existsSync(path)) throw new Error(`Meeting evidence source is missing: ${path}`);
     if (!statSync(path).isFile()) throw new Error(`Meeting evidence source has the wrong file type: ${path}`);
-    const evidence = readConceptMetadata(readFileSync(path, "utf8"), path);
+    const evidence = readConceptMetadata(readKnowledgeText(path), path);
     if (!(MEETING_EVIDENCE_TYPES as readonly unknown[]).includes(evidence.type)) {
       throw new Error(`Meeting evidence source has the wrong concept type: ${path}`);
     }

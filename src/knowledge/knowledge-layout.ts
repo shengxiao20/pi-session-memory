@@ -1,8 +1,13 @@
-import { existsSync, lstatSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { basename, isAbsolute, join, resolve } from "node:path";
 
 export interface TopicSummary { title: string; description: string; }
 export interface MeetingLocation { meeting_id: string; relative_path: string; concept_id: string; path: string; }
+
+/** Decode published text strictly and preserve every valid character. */
+export function readKnowledgeText(path: string): string {
+  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(readFileSync(path));
+}
 
 export function requireSummary(value: unknown, key: string): asserts value is string {
   if (typeof value !== "string" || !value.trim() || /[\r\n]/.test(value)) throw new Error(`${key} must be non-empty single-line text`);

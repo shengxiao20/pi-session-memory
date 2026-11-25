@@ -506,6 +506,35 @@ const replaced = await extensionEvents.get("message_end")!({ message: finalMessa
 assert.equal(replaced.message.content[0].text, readFileSync(defaultMinutes, "utf8"));
 assert.equal(replaced.message.content[0].text, finishResult.details.markdown);
 await probeMainTools("after explicit finish");
+const originalDiscussionEvidence = readFileSync(join(defaultMinutes, "..", "evidence-1.md"));
+const appendDiscussion = await startDiscussion();
+await assert.rejects(extensionTools.get("finish_session_consultation").execute("append-missing", {
+  consultation_id: appendDiscussion.consultation_id, meeting_id: "missing", conclusion,
+}, undefined, undefined, ctx), /meeting is missing/);
+const failedAppendMessage = await extensionEvents.get("message_end")!({ message: finalMessage }, ctx);
+assert.equal(failedAppendMessage.message.stopReason, "error");
+assert.equal(readFileSync(defaultMinutes, "utf8"), finishResult.details.markdown);
+await extensionTools.get("follow_up_session").execute("append-follow-up", {
+  consultation_id: appendDiscussion.consultation_id, session_id: appendDiscussion.answers[0].sessionId, question: "Clarify for the appendix",
+}, undefined, undefined, ctx);
+const appendedDiscussion = await extensionTools.get("finish_session_consultation").execute("append-finish", {
+  consultation_id: appendDiscussion.consultation_id, meeting_id: finished.consultation_id,
+  conclusion: { ...conclusion, findings: "APPENDED_CONSULTATION[consultation-1]" },
+}, undefined, undefined, ctx);
+assert.equal(appendedDiscussion.details.path, defaultMinutes);
+assert.equal(appendedDiscussion.details.meeting_id, finished.consultation_id);
+assert.ok(appendedDiscussion.details.markdown.includes(finishResult.details.markdown.replace(/^---\n[\s\S]*?\n---\n/, "")));
+assert.ok(appendedDiscussion.details.markdown.includes("APPENDED_CONSULTATION[consultation-5]"));
+assert.deepEqual(readFileSync(join(defaultMinutes, "..", "evidence-1.md")), originalDiscussionEvidence);
+assert.equal((readConceptMetadata(appendedDiscussion.details.markdown, defaultMinutes).sources as any[]).length, 9, "four previous answers and five new answers remain portable");
+const appendedMessage = await extensionEvents.get("message_end")!({ message: finalMessage }, ctx);
+assert.equal(appendedMessage.message.content[0].text, readFileSync(defaultMinutes, "utf8"));
+assert.equal(appendedMessage.message.content[0].text, appendedDiscussion.details.markdown);
+await assert.rejects(extensionTools.get("follow_up_session").execute("append-closed", {
+  consultation_id: appendDiscussion.consultation_id, session_id: appendDiscussion.answers[0].sessionId, question: "Closed",
+}, undefined, undefined, ctx), /Unknown consultation ID/);
+assert.ok(!existsSync(join(defaultMinutes, "..", "..", appendDiscussion.consultation_id)));
+await probeMainTools("after appended finish");
 const cancelled = await startDiscussion();
 const cancelResult = await extensionTools.get("cancel_session_consultation").execute("cancel", { consultation_id: cancelled.consultation_id }, undefined, undefined, ctx);
 assert.match(cancelResult.content[1].text, /No consultation is active/);

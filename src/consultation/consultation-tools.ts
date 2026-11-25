@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import { TOOL_PROMPTS } from "../../prompts/tools.ts";
+import { PARAMETER_HELP } from "../../prompts/parameters.ts";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
@@ -30,9 +31,13 @@ export function registerConsultationTools(registerTool: ExtensionAPI["registerTo
     name: "finish_session_consultation", label: "Save OKF Meeting Minutes", executionMode: "sequential",
     description: TOOL_PROMPTS.finish_session_consultation.description,
     promptGuidelines: TOOL_PROMPTS.finish_session_consultation.promptGuidelines,
-    parameters: Type.Object({ consultation_id: Type.String({ minLength: 1 }), conclusion }),
+    parameters: Type.Object({
+      consultation_id: Type.String({ minLength: 1 }), conclusion,
+      meeting_id: Type.Optional(Type.String({ minLength: 1, description: PARAMETER_HELP.knowledge.updateMeetingId })),
+    }),
     async execute(_id, params, _signal, _update, ctx) {
-      const result = await runtime.finish(params.consultation_id, params.conclusion, ctx);
+      output.invalidateSave();
+      const result = await runtime.finish(params.consultation_id, params.conclusion, ctx, params.meeting_id);
       output.complete(result.markdown);
       return text(result, `${CONSULTATION_CLOSED_NOTICE} ${OKF_OUTPUT_NOTICE}`);
     },

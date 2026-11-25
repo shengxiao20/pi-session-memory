@@ -4,11 +4,14 @@ import { PARAMETER_HELP } from "../../prompts/parameters.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { inspectMemoryKnowledge, readMemoryKnowledge, KNOWLEDGE_FIRST_NOTICE } from "./memory-knowledge.ts";
 import { meetingConclusionSchema } from "./meeting-conclusion-schema.ts";
+import { withKnowledgeMutation } from "./knowledge-publication.ts";
+import { resolveKnowledgePath } from "./knowledge-storage.ts";
 import type { MeetingConclusion, writeTranscriptMinutes } from "./meeting-minutes.ts";
 interface SavedKnowledgeOutput {
   reuse(markdown: string): void;
-  save(question: string, conclusion: MeetingConclusion): ReturnType<typeof writeTranscriptMinutes>;
-  saveContext(question: string, context: string, conclusion: MeetingConclusion): ReturnType<typeof writeTranscriptMinutes>;
+  invalidateSave(): void;
+  save(question: string, conclusion: MeetingConclusion, meetingId?: string, knowledgeRoot?: string): ReturnType<typeof writeTranscriptMinutes>;
+  saveContext(question: string, context: string, conclusion: MeetingConclusion, meetingId?: string, knowledgeRoot?: string): ReturnType<typeof writeTranscriptMinutes>;
 }
 
 /** Expose metadata-first reading and OKF writing through the shared publication module. */
@@ -38,8 +41,13 @@ export function registerMemoryKnowledgeTools(registerTool: ExtensionAPI["registe
     name: "finish_memory_recall", label: "Save Recall OKF Conclusion", executionMode: "sequential",
     description: TOOL_PROMPTS.finish_memory_recall.description,
     promptGuidelines: TOOL_PROMPTS.finish_memory_recall.promptGuidelines,
-    parameters: Type.Object({ question: Type.String({ minLength: 1 }), conclusion: meetingConclusionSchema }),
-    async execute(_id, params) { return _documentResult(output.save(params.question, params.conclusion)); },
+    parameters: Type.Object({
+      question: Type.String({ minLength: 1 }), conclusion: meetingConclusionSchema,
+      meeting_id: Type.Optional(Type.String({ minLength: 1, description: PARAMETER_HELP.knowledge.updateMeetingId })),
+    }),
+    async execute(_id, params) {
+      return _saveDocument(output, params.meeting_id, root => output.save(params.question, params.conclusion, params.meeting_id, root));
+    },
   });
   registerTool({
     name: "write_okf", label: "Save Current Context as OKF", executionMode: "sequential",
@@ -50,9 +58,18 @@ export function registerMemoryKnowledgeTools(registerTool: ExtensionAPI["registe
       question: Type.String({ minLength: 1, description: PARAMETER_HELP.knowledge.writeQuestion }),
       context: Type.String({ minLength: 1, description: PARAMETER_HELP.knowledge.writeContext }),
       conclusion: meetingConclusionSchema,
+      meeting_id: Type.Optional(Type.String({ minLength: 1, description: PARAMETER_HELP.knowledge.updateMeetingId })),
     }),
-    async execute(_id, params) { return _documentResult(output.saveContext(params.question, params.context, params.conclusion)); },
+    async execute(_id, params) {
+      return _saveDocument(output, params.meeting_id, root => output.saveContext(params.question, params.context, params.conclusion, params.meeting_id, root));
+    },
   });
+}
+
+function _saveDocument<T extends { markdown: string }>(output: SavedKnowledgeOutput, meetingId: string | undefined, operation: (root: string) => T) {
+  output.invalidateSave();
+  const root = resolveKnowledgePath();
+  return withKnowledgeMutation(root, meetingId, () => _documentResult(operation(root)));
 }
 
 function _documentResult<T extends { markdown: string }>(result: T) {

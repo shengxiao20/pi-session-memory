@@ -129,6 +129,68 @@ try {
   assert.ok(!existsSync(join(rollback, "meetings")));
   assert.ok(!readdirSync(home).some(name => name.startsWith(".pi-session-memory-pending-")));
 
+  // Native file tools and append saves share the complete read/modify/write queue.
+  const { withFileMutationQueue } = await import("@earendil-works/pi-coding-agent");
+  output.reset();
+  output.addTranscript([{ turn_id: "pi:new:turn", session_id: "pi:new", turn_index: 0, ts: 1,
+    user_text: "How?", reply_text: "Why?", source: "pi", cwd: home, score: 1 }]);
+  let entered!: () => void;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { entered = resolve; });
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  const nativeEdit = withFileMutationQueue(saved.path, async () => {
+    entered(); await waiting;
+    writeFileSync(saved.path, `${saved.markdown}\nMANUAL_EDIT_WHILE_QUEUED\n`);
+  });
+  await held;
+  const finish = tools.get("finish_memory_recall");
+  const firstAppend = finish.execute("append-one", { question: "Append how", meeting_id: "joule",
+    conclusion: { ...conclusion, findings: "FIRST_APPEND[transcript-1]" } });
+  const secondAppend = finish.execute("append-two", { question: "Append why", meeting_id: "joule",
+    conclusion: { ...conclusion, findings: "SECOND_APPEND[^transcript-1]" } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(readFileSync(saved.path, "utf8"), saved.markdown, "the append waits for native edits");
+  assert.equal(output.finalize(final).stopReason, "error", "a pending save clears the previous final document");
+  const changedConfigurationRoot = join(home, "different-configured-root");
+  configure({ knowledgePath: changedConfigurationRoot });
+  release(); await nativeEdit;
+  const [firstAppended, secondAppended] = await Promise.all([firstAppend, secondAppend]);
+  configure();
+  assert.equal(firstAppended.details.path, saved.path);
+  assert.equal(secondAppended.details.path, saved.path);
+  assert.ok(!existsSync(changedConfigurationRoot), "the save pins the root captured before entering the queue");
+  const combined = readFileSync(saved.path, "utf8");
+  assert.ok(combined.includes("MANUAL_EDIT_WHILE_QUEUED"));
+  assert.ok(combined.includes("FIRST_APPEND[transcript-1]"));
+  assert.ok(combined.includes("SECOND_APPEND[^transcript-2]"));
+  assert.equal(secondAppended.content[0].text, combined);
+  assert.equal((output.finalize(final).content[0] as any).text, combined);
+  assert.deepEqual((readConceptMetadata(combined, saved.path).sources as any[]).map(source => source.id), ["transcript-1", "transcript-2"]);
+  assert.equal(inspectMemoryKnowledge(topic).meetings.length, 1);
+  assert.equal(inspectMemoryKnowledge(topic).meetings[0].index_matches_metadata, true);
+  const beforeContextEvidence = readFileSync(join(dirname(saved.path), "evidence-1.md"));
+  output.reset();
+  const appendedContext = await tools.get("write_okf").execute("context-append", {
+    question: "Append the visible context", context: "CURRENT_APPEND_SNAPSHOT", meeting_id: "joule",
+    conclusion: { ...conclusion, findings: "CONTEXT_APPEND[context-1]" },
+  });
+  assert.equal(appendedContext.details.path, saved.path);
+  assert.equal(appendedContext.content[0].text, readFileSync(saved.path, "utf8"));
+  assert.ok(appendedContext.content[0].text.includes(combined.replace(/^---\n[\s\S]*?\n---\n/, "")));
+  assert.deepEqual(readFileSync(join(dirname(saved.path), "evidence-1.md")), beforeContextEvidence);
+  assert.deepEqual((readConceptMetadata(appendedContext.details.markdown, saved.path).sources as any[]).map(source => source.id), ["transcript-1", "transcript-2", "context-1"]);
+  assert.equal((output.finalize(final).content[0] as any).text, appendedContext.details.markdown);
+  await assert.rejects(tools.get("write_okf").execute("invalid-append", {
+    question: "Append again", context: "Snapshot", meeting_id: "missing", conclusion,
+  }), /meeting is missing/);
+  assert.equal(output.finalize(final).stopReason, "error", "failed target lookup supplies no stale saved output");
+  assert.equal(readFileSync(saved.path, "utf8"), appendedContext.details.markdown);
+  output.reset(); output.addTranscript([]);
+  await assert.rejects(tools.get("write_okf").execute("wrong-route-append", {
+    question: "Append context", context: "Snapshot", meeting_id: "joule", conclusion,
+  }), /Use finish_session_consultation or finish_memory_recall/);
+  assert.equal(readFileSync(saved.path, "utf8"), appendedContext.details.markdown);
+
   const vault = join(home, "vault"); mkdirSync(vault);
   writeFileSync(join(vault, "index.md"), "User index");
   const vaultRoot = join(vault, "pi-session-memory");

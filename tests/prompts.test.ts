@@ -6,7 +6,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { TObject } from "typebox";
+import type { TObject, TString } from "typebox";
 import extension from "../extensions/index.ts";
 import * as guidance from "../prompts/guidance.ts";
 import * as models from "../prompts/models.ts";
@@ -68,6 +68,17 @@ extension({
 assert.equal(tools.length, 15);
 const conclusionSchemas = ["write_okf", "finish_memory_recall", "finish_session_consultation"].map(name => (tools.find(tool => tool.name === name)!.parameters as TObject).properties.conclusion);
 for (const schema of conclusionSchemas) assert.deepEqual(schema, conclusionSchemas[0], "all OKF tools share the complete conclusion schema");
+for (const name of ["write_okf", "finish_memory_recall", "finish_session_consultation"]) {
+  const tool = tools.find(item => item.name === name)!;
+  const parameters = tool.parameters as TObject;
+  const updateId = parameters.properties.meeting_id as TString & { minLength: number; description: string };
+  assert.equal(updateId.type, "string");
+  assert.equal(updateId.minLength, 1);
+  assert.ok(!parameters.required?.includes("meeting_id"), "creation remains the default route");
+  assert.ok(tool.description.includes(guidance.OKF_APPEND_NOTICE));
+  assert.match(updateId.description!, /only this run's evidence IDs/);
+}
+assert.match(guidance.KNOWLEDGE_FIRST_NOTICE, /For an explicit append request/);
 const writeOkf = tools.find(tool => tool.name === "write_okf")!;
 assert.match(writeOkf.description, /No historical review or prior tool call is required/);
 assert.match(writeOkf.description, /context-1/);
@@ -107,7 +118,8 @@ const notices = { SETUP_NOTICE, SETUP_REQUEST, KNOWLEDGE_FIRST_NOTICE, OKF_OUTPU
   CONSULTATION_CLOSED_NOTICE, closed: consultationGuidance(null), active: consultationGuidance("sample"),
   TRANSIENT_NOTICE: guidance.TRANSIENT_NOTICE, POST_SETUP_IMPORT_NOTICE: guidance.POST_SETUP_IMPORT_NOTICE,
   TRANSCRIPT_WORKFLOW_NOTICE: guidance.TRANSCRIPT_WORKFLOW_NOTICE, DISCUSSION_WORKFLOW_NOTICE: guidance.DISCUSSION_WORKFLOW_NOTICE,
-  EVIDENCE_REFRESH_NOTICE: guidance.EVIDENCE_REFRESH_NOTICE, SAVED_OKF_FINAL_NOTICE: guidance.SAVED_OKF_FINAL_NOTICE };
+  EVIDENCE_REFRESH_NOTICE: guidance.EVIDENCE_REFRESH_NOTICE, SAVED_OKF_FINAL_NOTICE: guidance.SAVED_OKF_FINAL_NOTICE,
+  OKF_APPEND_NOTICE: guidance.OKF_APPEND_NOTICE };
 for (const [key, value] of Object.entries(notices)) assert.equal(fingerprint(value), fixture.notices[key], `notice: ${key}`);
 assert.equal(SETUP_NOTICE, guidance.SETUP_NOTICE);
 assert.equal(KNOWLEDGE_FIRST_NOTICE, guidance.KNOWLEDGE_FIRST_NOTICE);

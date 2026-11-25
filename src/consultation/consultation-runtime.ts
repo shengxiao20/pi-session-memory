@@ -8,6 +8,7 @@ import { createHistoricalAgent, type HistoricalAgent, type HistoricalAgentFactor
 import { selectConsultationParticipants } from "./consultation-selection.ts";
 import { resolveKnowledgePath } from "../knowledge/knowledge-storage.ts";
 import { writeMeetingMinutes, type MeetingConclusion } from "../knowledge/meeting-minutes.ts";
+import { withKnowledgeMutation } from "../knowledge/knowledge-publication.ts";
 
 /** Keep every historical Pi session above the exclusive unique returned-turn threshold. */
 export function selectConsultationSessions(turns: RecallTurnResult[], mainSessionId: string): RecallTurnResult[][] {
@@ -83,11 +84,18 @@ export class ConsultationRuntime {
     });
   }
 
-  async finish(id: string, conclusion: MeetingConclusion, context: ExtensionContext) {
+  async finish(id: string, conclusion: MeetingConclusion, context: ExtensionContext, meetingId?: string) {
     this.require(id, context);
     if (this.busy) throw new Error("Consultation is still running");
-    const result = writeMeetingMinutes(this.record!, conclusion);
-    await this.close(); return result;
+    const record = this.record!;
+    this.busy = true;
+    try {
+      const result = await withKnowledgeMutation(record.knowledgePath, meetingId, () => {
+        this.require(id, context);
+        return writeMeetingMinutes(record, conclusion, meetingId);
+      });
+      await this.close(); return result;
+    } finally { this.busy = false; }
   }
   async cancel(id: string, context: ExtensionContext) { this.require(id, context); await this.close(); }
   async close() {

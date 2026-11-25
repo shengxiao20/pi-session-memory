@@ -51,6 +51,13 @@ export const PARAMETER_HELP = {
       "following context.",
   },
   knowledge: {
+    updateMeetingId:
+      "Optional existing meeting_id copied from " +
+      "inspect_memory_knowledge. Use only when the user explicitly " +
+      "asks to append to that document. Preserve its topic_path " +
+      "and topic summaries. Cite only this run's evidence IDs; " +
+      "the writer renumbers new sources and keeps earlier text " +
+      "and evidence. Omit to create a new document.",
     writeQuestion:
       "The complete user request to save the current context as OKF.",
     writeContext:

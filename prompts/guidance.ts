@@ -51,8 +51,12 @@ export const KNOWLEDGE_FIRST_NOTICE =
   "relevant directory from its catalogue to inspect that scope. " +
   "Directory indexes provide progressive disclosure; meeting " +
   "entries return frontmatter, not bodies. Inspect relevant " +
-  "branches before deciding no saved document matches. If a " +
-  "saved document clearly matches, read_memory_knowledge returns " +
+  "branches before deciding no saved document matches. For an " +
+  "explicit append request, inspect the target meeting metadata " +
+  "and copy its meeting_id. Retrieve the requested new evidence " +
+  "and pass meeting_id to the save tool for that evidence route. " +
+  "For other look-back requests, if a saved document clearly " +
+  "matches, read_memory_knowledge returns " +
   "that document without transcript recall or a new meeting. " +
   "Missing optional descriptions and index mismatches are " +
   "explicit metadata signals, not permission to invent " +
@@ -85,6 +89,16 @@ export const EVIDENCE_REFRESH_NOTICE =
   "Use finish_session_consultation for an active Discussion or " +
   "finish_memory_recall for transcript evidence. Earlier OKF output " +
   "or prose claiming a save cannot complete this evidence workflow.";
+
+export const OKF_APPEND_NOTICE =
+  "For an explicit request to append to an existing document, copy " +
+  "meeting_id from inspect_memory_knowledge and pass it to this " +
+  "tool. Keep the original topic_path and directory summaries. " +
+  "Provide the new question and conclusion; cite only this run's " +
+  "evidence IDs. The writer retains earlier text, metadata and " +
+  "evidence, renumbers new sources, and updates the same minutes " +
+  "file and indexes. Missing or conflicting data raises an error. " +
+  "Omit meeting_id to create a new document.";
 
 export const SAVED_OKF_FINAL_NOTICE =
   "Wait for this tool to succeed before the final answer. Return the " +

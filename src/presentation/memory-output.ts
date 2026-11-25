@@ -29,24 +29,25 @@ export class MemoryOutput {
     this.complete(markdown);
   }
   complete(markdown: string): void { this.markdown = markdown; this.discussion = false; }
+  invalidateSave(): void { this.markdown = undefined; }
   reset(): void { this.turns.clear(); this.transcriptRequested = false; this.contextRequested = false; this.discussionRequested = false; this.discussion = false; this.markdown = undefined; }
 
-  saveContext(question: string, context: string, conclusion: MeetingConclusion) {
+  saveContext(question: string, context: string, conclusion: MeetingConclusion, meetingId?: string, knowledgeRoot?: string) {
     if (this.discussionRequested || this.transcriptRequested) throw new Error("Use finish_session_consultation or finish_memory_recall for historical evidence in this agent run");
     this.contextRequested = true;
     this.markdown = undefined;
-    const result = writeContextMinutes({ id: randomUUID(), question, context, knowledgePath: resolveKnowledgePath() }, conclusion);
+    const result = writeContextMinutes({ id: randomUUID(), question, context, knowledgePath: knowledgeRoot ?? resolveKnowledgePath() }, conclusion, meetingId);
     this.complete(result.markdown);
     return result;
   }
 
-  save(question: string, conclusion: MeetingConclusion) {
+  save(question: string, conclusion: MeetingConclusion, meetingId?: string, knowledgeRoot?: string) {
     if (this.discussion) throw new Error("Finish or cancel the active Discussion before saving transcript conclusions");
     if (!this.transcriptRequested) throw new Error("No recalled or fetched transcript request in this agent run");
     this.markdown = undefined;
     const result = writeTranscriptMinutes({
-      id: randomUUID(), question, knowledgePath: resolveKnowledgePath(), evidence: [...this.turns.values()],
-    }, conclusion);
+      id: randomUUID(), question, knowledgePath: knowledgeRoot ?? resolveKnowledgePath(), evidence: [...this.turns.values()],
+    }, conclusion, meetingId);
     this.complete(result.markdown);
     return result;
   }
