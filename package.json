@@ -1,6 +1,6 @@
 {
   "name": "pi-session-memory",
-  "version": "2.0.10",
+  "version": "2.0.11",
   "description": "Find Pi conversation history with SQLite-backed search instead of relying on lossy summaries. Use multi-agent discussion for deeper analysis and save reusable, evidence-based knowledge.",
   "keywords": [
     "pi-package",

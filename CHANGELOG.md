@@ -1,5 +1,52 @@
 # Changelog
 
+## [2.0.11]
+
+### Evidence and OKF writing
+
+- Adds `write_okf` for explicitly requested current-context snapshots.
+  Context evidence records agent-supplied text and its verification limits.
+- Adds optional `meeting_id` to all three save tools for explicit updates.
+  Updates retain the meeting path, identity, prior text, and evidence.
+  New reviews receive unique source references and evidence files.
+- Serializes complete knowledge updates and validates strict UTF-8.
+  Publication failures restore prior files, indexes, and logs.
+- Requires a successful save after the final historical evidence read.
+  The final reply contains the exact saved OKF document.
+- Uses Normal for one Discussion request with no eligible sessions.
+  This reuses retrieved evidence and retains the configured recall mode.
+  Cancellation and errors stop the request.
+
+### Local history controls
+
+- Keeps startup free of historical imports. Current-turn indexing continues.
+  History import requires an explicit request.
+- Offers a separately approved import after successful Agent-guided setup.
+  Full import can restore sessions previously deleted from SQLite.
+- Adds read-only session frequencies grouped by actual turn count.
+  Compact bars use stable random grayscale colors for each view.
+- Adds session deletion by an inclusive maximum turn count.
+  One validated input starts a verified backup and transactional deletion.
+  Original JSONL, saved knowledge, and source tracking stay unchanged.
+
+### Workspace usage and pricing
+
+- Adds a read-only workspace dashboard with native loading animation.
+  It reads one JSONL snapshot from native session directories.
+  Workspace names use directory basenames; fork copies are deduplicated.
+- Shows tokens and recorded cost alongside separate USD and CNY estimates.
+  Unknown prices remain visible as unpriced entries.
+- Keeps public API prices in editable `src/history/model-pricing.ts`.
+  Estimation uses exact model aliases and per-request token tiers.
+
+### Evaluation and package resources
+
+- Adds an isolated LoCoMo evaluation harness and full-conversation baseline.
+  Ollama runs use explicit thinking settings and aligned model contexts.
+- Moves the project website to `github-page/` and updates Pages resources.
+- Retains 15 Agent tools and 47 source files.
+  Tests cover publication rollback, package installation, and tool contracts.
+
 ## [2.0.10]
 
 ### One OKF knowledge root

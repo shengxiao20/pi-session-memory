@@ -47,7 +47,7 @@
               </button>
             </div>
             <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
-            <p class="release-note">Version 2.0.10 · Install from npm.</p>
+            <p class="release-note">Version 2.0.11 · Install from npm.</p>
           </div>
           <div class="hero-visual">
             <div class="ledger-heading"><span class="ledger-indicator" aria-hidden="true"></span><p class="diagram-label">Multi-agent evidence routing</p><span class="ledger-tag">1 MAIN + 3 HISTORY</span></div>
@@ -134,7 +134,7 @@
                   <span><b>AN</b><small>History</small></span>
                 </div>
                 <p>User-confirmed agents answer privately and sequentially. They have no tools and never write to source sessions.</p>
-                <p>Discussion requires a positive <code>consultation.timeoutMs</code>. A missing timeout raises an error. No eligible participants means no consultation answers, not a transcript fallback.</p>
+                <p>Discussion requires a positive <code>consultation.timeoutMs</code>. A missing timeout raises an error. With no eligible participants, the main agent receives the retrieved transcripts for that call only. Cancellation and errors stop the request.</p>
                 <p><code>consultation.turnThreshold</code> sets the exclusive unique returned-turn threshold. The default is 5. <code>PI_SESSION_MEMORY_DISCUSSION_TURN_THRESHOLD</code> overrides the saved setting. Eligible sessions have no count cap.</p>
               </article>
             </div>

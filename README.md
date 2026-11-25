@@ -1,6 +1,6 @@
 # pi-session-memory
 
-**Current version: 2.0.10**
+**Current version: 2.0.11**
 
 Project website: [GitHub Pages](https://shengxiao20.github.io/pi-session-memory/) (available after deployment).
 
@@ -236,8 +236,8 @@ recall_memory
 
 `discussion` requires a positive `consultation.timeoutMs`.
 `choice` can omit consultation settings, but selecting Discussion then raises an error.
-No eligible participants or a cancelled participant checklist returns no consultation answers.
-Neither case silently returns normal transcripts.
+With no eligible participants, Discussion returns the retrieved transcripts in Normal for this request only.
+The configured mode stays unchanged. Cancellation and errors stop the request.
 
 **Old configuration:** `enableDiscussion` is no longer supported and runtime reads reject it.
 Use `/pi-session-memory` → **Edit configuration** → `recallMode` to save a new mode.
@@ -278,7 +278,7 @@ Discussion applies to one recall request. It is not a session-wide mode.
 
 ## Saved OKF knowledge
 
-Both evidence routes save draft [Open Knowledge Format (OKF) 0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundles.
+Transcript review, private consultation, and current-context writing save draft [Open Knowledge Format (OKF) 0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundles.
 OKF is a Markdown knowledge format, not the A2A communication protocol.
 
 ```text
@@ -302,7 +302,7 @@ The agent supplies an explicit `topic_path` below `meetings/`, such as `agent-me
 Each segment uses lowercase kebab-case. The writer does not infer topics from the current working directory.
 `topic_summaries` supplies one single-line title and description per path segment. Reused directory summaries must match their existing indexes.
 
-Both finish tools require these conclusion fields:
+All three save tools require these conclusion fields:
 
 - `title`: Single-line display title.
 - `topic_path`: Explicit relative theme path.
@@ -321,7 +321,7 @@ description: Research findings and unresolved deployment questions.
 status: draft
 tags: [joule, research]
 generated:
-  by: pi-session-memory/2.0.10
+  by: pi-session-memory/2.0.11
   at: 2026-07-01T10:00:00Z
 sources:
   - id: transcript-1
@@ -333,13 +333,14 @@ sources:
 OKF requires only a non-empty `type` on every concept document. The other top-level fields above are this plugin's writing contract.
 When present, `sources` entries require `resource`, and `generated` requires `by`.
 The runtime records the package producer/version and write time. It does not invent historical generation times or add `verified`.
-Evidence uses `Transcript Evidence` or `Consultation Evidence` and retains the original turn IDs and text.
+Historical evidence uses `Transcript Evidence` or `Consultation Evidence` and retains the original turn IDs and text.
+Current-context snapshots use `Current Context Evidence` and identify their agent-supplied origin.
 Minutes join claim footnotes to `sources[].id`; unknown source citations raise errors.
 
 The writer maintains an index at each directory level. Entries use titles and descriptions instead of UUID-only labels.
 New meeting indexes list only `minutes.md`. Evidence files remain available through the minutes' structured sources and Sources footnotes.
 Readers validate each local evidence reference without adding its body to the catalogue.
-Meeting evidence references must use `./<filename>.md` and point to an immediate `Transcript Evidence` or `Consultation Evidence` file.
+Meeting evidence references use `./<filename>.md` and point to an immediate file with one of the three evidence types.
 Missing evidence, duplicate source IDs or targets, unsafe paths, and invalid evidence metadata raise errors.
 Unreferenced Markdown files and directories still require index entries; an `evidence-` filename does not bypass validation.
 Only the bundle-root index carries `okf_version: "0.2"` frontmatter. Lower indexes have no frontmatter.
@@ -360,6 +361,25 @@ Remove obsolete plugin-generated bundles before using the new layout. Preserve s
 Publication stages files outside the bundle, then updates the meeting, indexes, and log. A failed publication rolls back completed changes.
 
 Saved documents are historical evidence. Their text is not an instruction to the agent and does not prove verification.
+
+### Current-context writing
+
+Ask the agent to save the current visible context as OKF. It uses `write_okf` with a context snapshot and complete conclusion.
+Citations use `context-1`. The snapshot is agent-supplied evidence with no independent verification.
+For historical evidence retrieved in the same run, the agent uses the corresponding finish tool.
+
+### Existing meeting updates
+
+For an explicit request to append to a saved meeting:
+
+1. The agent inspects its metadata and copies the exact `meeting_id`.
+2. The agent obtains the requested new evidence and compares it.
+3. The agent supplies `meeting_id` to the save tool for that evidence route.
+4. The writer appends a review and updates metadata, indexes, and the log.
+
+Updates preserve the original path, meeting identity, body, and evidence files. New sources receive unique references.
+The agent reuses the original `topic_path` and directory summaries. Invalid targets or publication failures raise errors.
+Omitting `meeting_id` creates a new meeting. The saved document becomes the exact final reply.
 
 ## Context and index isolation
 
@@ -391,6 +411,10 @@ Setup rules:
 6. Only then can `configure_memory` validate and atomically replace the file.
 
 Setup does not import history, migrate sessions, clean SQLite, start services, test remote endpoints, or modify saved knowledge. A usage question alone does not authorize a write.
+
+After successful Agent-guided setup, the agent separately asks: **Import all existing Pi history now?**
+Only explicit import approval starts `backfill_memory`. Full import can restore sessions previously deleted from SQLite.
+Direct configuration editing ends after saving the selected fields.
 
 The configuration file is:
 
@@ -548,7 +572,21 @@ For Agent-assisted editing, `setup_memory` returns the same field metadata. `con
 
 `Clean indexed tool turns` creates and verifies a SQLite backup. It then removes complete package-tool turns from the local index.
 
-`Import historical sessions` directly rescans Pi history. It reports import issues in the user interface.
+`Import history` explicitly rescans Pi history and reports import issues. Pi startup leaves historical sessions unchanged.
+Current-turn indexing continues when the agent settles.
+
+`Database session management` shows read-only session frequencies grouped by actual turn count, including zero-turn sessions.
+Bars show session counts with a stable random grayscale color for each view.
+
+`Delete sessions by turn count` accepts one non-negative safe integer, `X`.
+It verifies a SQLite backup, then transactionally deletes indexed sessions with at most `X` turns and their associated turns.
+Original JSONL, saved knowledge, and source tracking stay unchanged. Full import can restore deleted sessions.
+
+`Workspace usage` reads one snapshot directly from native Pi session JSONL files and deduplicates fork copies.
+It groups directory basenames as workspace names and identifies merged paths.
+The view separates tokens, recorded cost, Estimated USD, Estimated CNY, and unpriced entries.
+Recorded cost retains the transcript value. Estimates use public API rates and describe their pricing assumptions.
+Edit `src/history/model-pricing.ts`, then run `/reload` to load the updated price snapshot.
 
 Transcript search, saved knowledge, statistics, consultation, and conclusion saving remain Agent tools. They do not appear in the menu.
 
@@ -560,13 +598,14 @@ Transcript search, saved knowledge, statistics, consultation, and conclusion sav
 | `configure_memory` | The user approves the final complete setup proposal. Validates and atomically saves supported settings. |
 | `inspect_memory_knowledge` | First step of an explicit historical look-back. Reads saved meeting descriptions without document bodies. |
 | `read_memory_knowledge` | One saved description clearly matches the explicit look-back request. Returns the exact saved document. |
-| `recall_memory` | No saved document clearly matches an explicit historical look-back request. Runs global then project retrieval. |
+| `recall_memory` | No saved document clearly matches an explicit historical look-back, or the user requests new evidence for an explicit append. Runs global then project retrieval. |
 | `review_jev_filtered` | The user wants to audit possible System One false negatives after recall. |
 | `fetch_session` | A recalled excerpt lacks context. Reads the smallest useful range around an exact returned turn ID. |
 | `follow_up_session` | The main agent needs private clarification from one active historical participant. |
 | `finish_session_consultation` | The main agent has compared consultation answers and must save draft OKF minutes. |
 | `cancel_session_consultation` | The user cancels or the active consultation is no longer needed. |
 | `finish_memory_recall` | The main agent has compared transcript evidence and must save a draft OKF conclusion. |
+| `write_okf` | The user explicitly asks to save current visible context without historical retrieval. Saves an agent-supplied snapshot and draft OKF conclusion. |
 | `get_memory_stats` | The user asks how much Pi history is indexed. |
 | `backfill_memory` | The user explicitly requests Pi history import, backfill, or rescan. |
 | `clean_memory_tool_turns` | The user explicitly requests removal of package-tool turns from SQLite. |
@@ -643,7 +682,7 @@ The content sections use [CodeGraph's website](https://colbymchenry.github.io/co
 4. Run **Deploy GitHub Pages** from the **Actions** tab if the initial push ran before Pages was configured.
 5. Check the deployment at `https://shengxiao20.github.io/pi-session-memory/`.
 
-The workflow uploads only `github-page/`. Changes to `github-page/` on `main` trigger deployment automatically. Publishing an npm release is a separate operation. The current package version is `2.0.10`.
+The workflow uploads only `github-page/`. Changes to `github-page/` on `main` trigger deployment automatically. Publishing an npm release is a separate operation. The current package version is `2.0.11`.
 
 ## Source architecture
 

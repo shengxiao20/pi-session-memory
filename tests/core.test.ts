@@ -26,7 +26,7 @@ const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
 const changelog = readFileSync(join(process.cwd(), "CHANGELOG.md"), "utf8");
 const packageManifest = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
 const lockManifest = JSON.parse(readFileSync(join(process.cwd(), "package-lock.json"), "utf8"));
-assert.equal(packageManifest.version, "2.0.10");
+assert.equal(packageManifest.version, "2.0.11");
 assert.equal(lockManifest.version, packageManifest.version);
 assert.equal(lockManifest.packages[""].version, packageManifest.version);
 assert.ok(readme.includes(`Current version: ${packageManifest.version}`));
@@ -59,11 +59,19 @@ assert.doesNotMatch(`${readme}\n${changelog}\n${packageManifest.description}`, /
 assert.doesNotMatch(extensionSource, /whatsNew|getWhatsNew|showWhatsNewIfUpdated|whats-new|packageJson/);
 const releaseEntries = changelog.split(/^## \[(\d+\.\d+\.\d+)\]\s*$/m);
 const releaseVersions = releaseEntries.filter((_entry, index) => index % 2 === 1);
-assert.deepEqual(releaseVersions, [packageManifest.version, "2.0.9", "2.0.8", "2.0.7", "2.0.6", "2.0.5", "2.0.4", "2.0.3", "2.0.2", "2.0.1", "2.0.0", "1.1.2", "1.1.1", "1.1.0", "1.0.1", "1.0.0"], "native changelog contains current release notes, the layout change, and the 1.0 baseline");
+assert.deepEqual(releaseVersions, [packageManifest.version, "2.0.10", "2.0.9", "2.0.8", "2.0.7", "2.0.6", "2.0.5", "2.0.4", "2.0.3", "2.0.2", "2.0.1", "2.0.0", "1.1.2", "1.1.1", "1.1.0", "1.0.1", "1.0.0"], "native changelog contains current release notes, the layout change, and the 1.0 baseline");
 for (let index = 1; index < releaseEntries.length; index += 2) {
   assert.match(releaseEntries[index + 1]!, /^\s*(?:Version|[#-])/, `release ${releaseEntries[index]} must contain notes`);
 }
 const notesByVersion = new Map(releaseVersions.map((version, index) => [version, releaseEntries[index * 2 + 2]!]));
+assert.match(notesByVersion.get("2.0.11")!, /Evidence and OKF writing/);
+assert.match(notesByVersion.get("2.0.11")!, /`write_okf`/);
+assert.match(notesByVersion.get("2.0.11")!, /optional `meeting_id`/);
+assert.match(notesByVersion.get("2.0.11")!, /Normal for one Discussion request with no eligible sessions/);
+assert.match(notesByVersion.get("2.0.11")!, /separately approved import/);
+assert.match(notesByVersion.get("2.0.11")!, /inclusive maximum turn count/);
+assert.match(notesByVersion.get("2.0.11")!, /separate USD and CNY estimates/);
+assert.match(notesByVersion.get("2.0.11")!, /`github-page\/`/);
 assert.match(notesByVersion.get("2.0.10")!, /One OKF knowledge root/);
 assert.match(notesByVersion.get("2.0.10")!, /independent top-level `knowledgePath`/);
 assert.match(notesByVersion.get("2.0.10")!, /no automatic path conversion, document migration, or duplicate output/);
