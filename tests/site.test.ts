@@ -44,7 +44,8 @@ assert.match(css, /\.source-map-scroll:focus-visible/);
 assert.match(html, /On small screens, scroll the map horizontally or open the full-size SVG/);
 assert.match(css, /\.source-map \{[^}]*min-width: 960px/);
 assert.match(html, /src="\.\/assets\/codegraph-map\.svg"/);
-assert.match(readme, /\]\(github-page\/assets\/codegraph-map\.svg\)/);
+assert.ok(readme.includes(`[Project website](${manifest.homepage})`));
+assert.ok(readme.includes(`](${manifest.homepage}#architecture)`));
 assert.match(html, /href="\.\/assets\/codegraph-map\.json"/);
 assert.match(html, /Static relationships are not runtime traces/);
 assert.match(html, /Shared <code>prompts\/<\/code> resources are omitted/);
@@ -122,13 +123,10 @@ assert.equal(workflow.jobs.deploy.permissions["id-token"], "write");
 assert.equal(workflow.jobs.deploy.environment.name, "github-pages");
 const upload = workflow.jobs.deploy.steps.find((step: { uses?: string }) => step.uses?.startsWith("actions/upload-pages-artifact@"));
 assert.equal(upload.with.path, "github-page", "deployment exposes only static site files");
-assert.match(readme, /Settings → Pages/);
-assert.match(readme, /Architecture decision: independent evidence routing/);
-assert.match(readme, /fetch_session` remains available to the main agent during either route/);
-assert.match(readme, /never falls back to transcript retrieval automatically/);
+assert.match(readme, /^## Source architecture$/m, "preserve the website's README architecture anchor");
 assert.ok(!manifest.files.some((path: string) => path.startsWith("docs/")), "retired resources are not declared for publication");
 assert.doesNotMatch(readme, /\]\(docs\//);
-assert.match(readme, /python3 -m http\.server 8000 --directory github-page/);
+assert.doesNotMatch(readme, /Settings → Pages|python3 -m http\.server/, "keep website deployment instructions out of the user guide");
 
 async function testClipboard(writeText: (text: string) => Promise<void>) {
   let listener: () => Promise<void>;

@@ -36,12 +36,9 @@ assert.throws(
   /no daily download records/,
 );
 
-const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 const workflow = readFileSync(new URL('../.github/workflows/download-history.yml', import.meta.url), 'utf8');
 const generated = readFileSync(new URL('../.github/assets/npm-download-history.svg', import.meta.url), 'utf8');
 
-assert.match(readme, /\.github\/assets\/npm-download-history\.svg/);
-assert.match(readme, /public \[npm downloads API\]/);
 assert.match(workflow, /schedule:/);
 assert.match(workflow, /permissions:\n  contents: write/);
 assert.match(workflow, /npm run downloads:chart/);
